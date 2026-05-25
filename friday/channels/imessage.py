@@ -79,26 +79,22 @@ end tell
         try:
             with sqlite3.connect(f"file:{self.chat_db}?mode=ro", uri=True) as conn:
                 rows = conn.execute("""
-                    SELECT DISTINCT m.rowid, m.text
+                    SELECT DISTINCT m.rowid, m.text, m.attributedBody
                     FROM message m
                     JOIN chat_message_join cmj ON cmj.message_id = m.rowid
                     JOIN chat c ON c.rowid = cmj.chat_id
-                    WHERE c.chat_identifier = 'kellerleonard17@gmail.com'
+                    WHERE c.chat_identifier = ?
                     AND m.date > ?
-                    AND m.text IS NOT NULL
-                    AND m.text != ''
+                    AND m.attributedBody IS NOT NULL
                     ORDER BY m.date DESC
                     LIMIT 10
-                """, (cutoff_mac,)).fetchall()
+                """, (self.your_handle, cutoff_mac)).fetchall()
 
             replies = []
             for row in rows:
                 msg_id = str(row[0])
-                text = row[1].strip()
-                lower = text.lower()
-
-                # Only process permission gate keywords
-                if not (lower == "yes" or lower == "no" or lower.startswith("edit")):
+                text = self._extract_text(row[1], row[2])
+                if not text:
                     continue
 
                 if self.memory.is_processed("imessage_reply", msg_id):
@@ -113,3 +109,28 @@ end tell
         except Exception as e:
             logger.error(f"Error reading iMessages: {e}")
             return []
+
+    def _extract_text(self, row_text: str, attributed_body: bytes) -> str:
+        """Extract message text from text column or attributedBody blob."""
+        if row_text and row_text.strip():
+            return row_text.strip()
+        if not attributed_body:
+            return ""
+        try:
+            # attributedBody is a binary NSKeyedArchiver plist
+            # The raw string sits after a known byte marker
+            decoded = attributed_body.decode("utf-8", errors="ignore")
+            # Find the text between known NSString markers
+            marker = "NSString\x94\x84\x01+"  # common marker before text
+            idx = attributed_body.find(b"NSString")
+            if idx != -1:
+                # Skip past the marker bytes to the actual string
+                chunk = attributed_body[idx + 12:]
+                # Read until a null or control byte
+                end = next((i for i, b in enumerate(chunk) if b < 0x20 and b not in (0x09, 0x0a)), len(chunk))
+                text = chunk[:end].decode("utf-8", errors="ignore").strip()
+                if text:
+                    return text
+        except Exception as e:
+            logger.debug(f"attributedBody parse error: {e}")
+        return ""
