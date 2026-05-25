@@ -452,3 +452,55 @@ GroupMe: Doubles, First Stud...
 
 Lawson White mentioned "Only tmr...
 2026-05-25 18:42:21,811 [friday.permissions] INFO: Permission requested for: groupme_notification
+2026-05-25 18:44:39,704 [friday] INFO: ==================================================
+2026-05-25 18:44:39,704 [friday] INFO:   Project Friday — Phase 2 Starting up
+2026-05-25 18:44:39,704 [friday] INFO:   Monday, May 25 2026 18:44
+2026-05-25 18:44:39,704 [friday] INFO: ==================================================
+2026-05-25 18:44:39,863 [friday.core] INFO: Gemini model loaded: models/gemini-2.5-flash-lite
+2026-05-25 18:44:39,863 [friday] INFO: Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Students, FBLA Officer - 2026/2027, Los Muchachos Part 2
+✓ Apple Calendar
+Two-way iMessage: ✓
+Permission gate: ✓
+Briefing: 21:45
+2026-05-25 18:44:40,198 [friday.imessage] INFO: iMessage sent: ⚡ Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Stud...
+2026-05-25 18:44:40,200 [friday] INFO: Evening briefing scheduled at 21:45
+2026-05-25 18:44:40,200 [friday] INFO: ── Poll cycle starting ──
+2026-05-25 18:44:40,211 [friday.imessage] INFO: Read reply from user: '+'
+2026-05-25 18:44:40,212 [friday.imessage] INFO: Read reply from user: '+'
+2026-05-25 18:44:40,213 [friday.imessage] INFO: Read reply from user: '+'
+2026-05-25 18:44:40,214 [friday.imessage] INFO: Read reply from user: '+'
+2026-05-25 18:44:40,216 [friday.imessage] INFO: Read reply from user: '+'
+2026-05-25 18:44:40,218 [friday.imessage] INFO: Read reply from user: '+'
+2026-05-25 18:44:40,219 [friday.imessage] INFO: Read reply from user: '+'
+2026-05-25 18:44:40,219 [friday.core] INFO: Processing standalone user reply: '+'
+2026-05-25 18:44:40,223 [google_genai.models] INFO: AFC is enabled with max remote calls: 10.
+2026-05-25 18:44:41,134 [httpx] INFO: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent "HTTP/1.1 200 OK"
+2026-05-25 18:44:41,320 [friday.imessage] INFO: iMessage sent: Friday: ACTION: NO_ACTION
+DRAFT: I see you sent a plus sign....
+2026-05-25 18:44:44,325 [friday.core] INFO: Processing standalone user reply: '+'
+2026-05-25 18:44:44,330 [google_genai.models] INFO: AFC is enabled with max remote calls: 10.
+2026-05-25 18:44:45,094 [httpx] INFO: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent "HTTP/1.1 200 OK"
+2026-05-25 18:44:45,283 [friday.imessage] INFO: iMessage sent: Friday: ACTION: NO_ACTION
+DRAFT: I see you sent a plus sign....
+2026-05-25 18:44:48,289 [friday.core] INFO: Processing standalone user reply: '+'
+2026-05-25 18:44:48,294 [google_genai.models] INFO: AFC is enabled with max remote calls: 10.
+2026-05-25 18:44:49,226 [httpx] INFO: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent "HTTP/1.1 200 OK"
+2026-05-25 18:44:49,428 [friday.imessage] INFO: iMessage sent: Friday: ACTION: NO_ACTION
+DRAFT: I see you sent a plus sign....
+2026-05-25 18:44:52,434 [friday.core] INFO: Processing standalone user reply: '+'
+2026-05-25 18:44:52,439 [google_genai.models] INFO: AFC is enabled with max remote calls: 10.
+2026-05-25 18:44:53,183 [httpx] INFO: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent "HTTP/1.1 200 OK"
+2026-05-25 18:44:53,375 [friday.imessage] INFO: iMessage sent: Friday: ACTION: NO_ACTION
+DRAFT: I see you sent a plus sign ...
+2026-05-25 18:44:56,381 [friday.core] INFO: Processing standalone user reply: '+'
+2026-05-25 18:44:56,387 [google_genai.models] INFO: AFC is enabled with max remote calls: 10.
+2026-05-25 18:44:57,278 [httpx] INFO: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent "HTTP/1.1 200 OK"
+2026-05-25 18:44:57,469 [friday.imessage] INFO: iMessage sent: Friday: ACTION: NO_ACTION
+DRAFT: Still seeing those plus sig...
+2026-05-25 18:45:00,474 [friday.core] INFO: Processing standalone user reply: '+'
+2026-05-25 18:45:00,476 [google_genai.models] INFO: AFC is enabled with max remote calls: 10.
+2026-05-25 18:45:01,479 [httpx] INFO: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent "HTTP/1.1 200 OK"
+2026-05-25 18:45:01,664 [friday.imessage] INFO: iMessage sent: Friday: ACTION: NO_ACTION
+DRAFT: Another plus sign. To confi...

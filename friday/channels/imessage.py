@@ -97,6 +97,11 @@ end tell
                 if not text:
                     continue
 
+                # Clean and validate — ignore anything under 2 chars or pure symbols
+                text = text.strip()
+                if len(text) < 2 or not any(c.isalpha() for c in text):
+                    continue
+
                 if self.memory.is_processed("imessage_reply", msg_id):
                     continue
 
@@ -111,26 +116,41 @@ end tell
             return []
 
     def _extract_text(self, row_text: str, attributed_body: bytes) -> str:
-        """Extract message text from text column or attributedBody blob."""
+        """Extract message text from text column or attributedBody blob.
+
+        Strategy:
+        1. If `row_text` is present return it.
+        2. Try to parse `attributed_body` as a plist (XML) and pull text strings from
+           the `$objects` array (common for archived attributedBody data).
+        3. Fallback to a heuristic byte-scan for embedded NSString text.
+        """
         if row_text and row_text.strip():
             return row_text.strip()
         if not attributed_body:
             return ""
+
+        # First try parsing as a plist (works when the blob can be decoded as XML plist)
         try:
-            # attributedBody is a binary NSKeyedArchiver plist
-            # The raw string sits after a known byte marker
-            decoded = attributed_body.decode("utf-8", errors="ignore")
-            # Find the text between known NSString markers
-            marker = "NSString\x94\x84\x01+"  # common marker before text
+            import plistlib
+            plist = plistlib.loads(attributed_body, fmt=plistlib.FMT_XML)
+            objects = plist.get("$objects", [])
+            for obj in objects:
+                if isinstance(obj, str) and len(obj) > 1 and any(c.isalpha() for c in obj):
+                    return obj.strip()
+        except Exception:
+            # Not an XML plist or parsing failed — fallthrough to heuristic
+            pass
+
+        # Fallback heuristic: scan the binary data for plausible UTF-8 strings
+        try:
             idx = attributed_body.find(b"NSString")
             if idx != -1:
-                # Skip past the marker bytes to the actual string
                 chunk = attributed_body[idx + 12:]
-                # Read until a null or control byte
                 end = next((i for i, b in enumerate(chunk) if b < 0x20 and b not in (0x09, 0x0a)), len(chunk))
                 text = chunk[:end].decode("utf-8", errors="ignore").strip()
-                if text:
+                if text and any(c.isalpha() for c in text):
                     return text
         except Exception as e:
-            logger.debug(f"attributedBody parse error: {e}")
+            logger.debug(f"attributedBody heuristic parse error: {e}")
+
         return ""
