@@ -15,7 +15,7 @@ from datetime import datetime
 
 logger = logging.getLogger("friday.permissions")
 
-REPLY_TIMEOUT = 300  # 5 minutes — how long to wait for a reply
+REPLY_TIMEOUT = 300  # 5 minutes
 
 
 class PermissionGate:
@@ -30,11 +30,11 @@ class PermissionGate:
         """
         Request user approval for a proposed action.
 
-        action_type: "create_event", "send_message", "groupme_notification"
+        action_type: "create_event" | "edit_event" | "delete_event" |
+                     "send_message" | "groupme_notification"
         draft:       The human-readable proposal shown to the user
         context:     Background info used for redrafting on Edit
         action_data: Structured data needed to execute the action on approval
-                     e.g. {"title": "APUSH", "date": "tomorrow", "time": "8:00 AM"}
 
         Returns:
             {"approved": True, "final_draft": str} on Yes
@@ -75,7 +75,6 @@ class PermissionGate:
                 if result is None:
                     continue
 
-                # Handle redraft — update draft and keep waiting
                 if "_redraft" in result:
                     current_draft = result["_redraft"]
                     current_action_data = result.get("_action_data", current_action_data)
@@ -146,6 +145,12 @@ class PermissionGate:
         if action_type == "create_event":
             self._execute_create_event(action_data, draft)
 
+        elif action_type == "edit_event":
+            self._execute_edit_event(action_data, draft)
+
+        elif action_type == "delete_event":
+            self._execute_delete_event(action_data, draft)
+
         elif action_type == "send_message":
             recipient = action_data.get("recipient", "")
             message = action_data.get("message", draft)
@@ -159,7 +164,6 @@ class PermissionGate:
                 self.imessage.send_to_self("⚠️ No recipient specified — couldn't send.")
 
         elif action_type == "groupme_notification":
-            # GroupMe notifications are informational — no further action needed
             self.imessage.send_to_self("✅ Noted and saved.")
 
         else:
@@ -170,8 +174,7 @@ class PermissionGate:
         """Create an Apple Calendar event from action_data."""
         if not self.calendar:
             self.imessage.send_to_self(
-                "⚠️ Calendar not connected — event not created. "
-                "Enable Apple Calendar in friday_config.yaml."
+                "⚠️ Calendar not connected — enable Apple Calendar in friday_config.yaml."
             )
             return
 
@@ -183,7 +186,7 @@ class PermissionGate:
 
         if not date_str:
             self.imessage.send_to_self(
-                "⚠️ Couldn't determine the event date — please add it to your calendar manually."
+                "⚠️ Couldn't determine the event date — please add it manually."
             )
             return
 
@@ -202,8 +205,60 @@ class PermissionGate:
             )
         else:
             self.imessage.send_to_self(
-                f"❌ Couldn't create the calendar event. "
-                f"Try adding '{title}' on {date_str} manually."
+                f"❌ Couldn't create the event. Try adding '{title}' on {date_str} manually."
+            )
+
+    def _execute_edit_event(self, action_data: dict, draft: str):
+        """Edit an existing Apple Calendar event."""
+        if not self.calendar:
+            self.imessage.send_to_self(
+                "⚠️ Calendar not connected — enable Apple Calendar in friday_config.yaml."
+            )
+            return
+
+        title_search = action_data.get("title_search", "")
+        if not title_search:
+            self.imessage.send_to_self("⚠️ No event title to search for — edit cancelled.")
+            return
+
+        success = self.calendar.edit_event(
+            title_search=title_search,
+            new_title=action_data.get("new_title", ""),
+            new_date_str=action_data.get("new_date", ""),
+            new_time_str=action_data.get("new_time", ""),
+            new_duration_minutes=action_data.get("new_duration_minutes", 0),
+            new_location=action_data.get("new_location", "")
+        )
+
+        if success:
+            self.imessage.send_to_self(f"✅ Calendar event updated: '{title_search}'.")
+        else:
+            self.imessage.send_to_self(
+                f"❌ Couldn't find '{title_search}' in your calendar. "
+                f"Check the event title and try again."
+            )
+
+    def _execute_delete_event(self, action_data: dict, draft: str):
+        """Delete an Apple Calendar event."""
+        if not self.calendar:
+            self.imessage.send_to_self(
+                "⚠️ Calendar not connected — enable Apple Calendar in friday_config.yaml."
+            )
+            return
+
+        title_search = action_data.get("title_search", "")
+        if not title_search:
+            self.imessage.send_to_self("⚠️ No event title specified — delete cancelled.")
+            return
+
+        success = self.calendar.delete_event(title_search=title_search)
+
+        if success:
+            self.imessage.send_to_self(f"✅ Deleted from calendar: '{title_search}'.")
+        else:
+            self.imessage.send_to_self(
+                f"❌ Couldn't find '{title_search}' in your calendar. "
+                f"Check the event title and try again."
             )
 
     def _redraft(self, original_draft: str, instruction: str, context: str) -> str:

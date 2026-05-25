@@ -67,49 +67,49 @@ end tell
 
     # ── Reading ───────────────────────────────────────────────────────────────
 
-def read_replies(self, minutes: int = 6) -> list:
-    if not os.path.exists(self.chat_db):
-        logger.warning("Messages database not found.")
-        return []
+    def read_replies(self, minutes: int = 6) -> list:
+        if not os.path.exists(self.chat_db):
+            logger.warning("Messages database not found.")
+            return []
 
-    cutoff = datetime.now() - timedelta(minutes=minutes)
-    mac_epoch = datetime(2001, 1, 1)
-    cutoff_mac = (cutoff - mac_epoch).total_seconds() * 1e9
+        cutoff = datetime.now() - timedelta(minutes=minutes)
+        mac_epoch = datetime(2001, 1, 1)
+        cutoff_mac = (cutoff - mac_epoch).total_seconds() * 1e9
 
-    try:
-        with sqlite3.connect(f"file:{self.chat_db}?mode=ro", uri=True) as conn:
-            rows = conn.execute("""
-                SELECT DISTINCT m.rowid, m.text
-                FROM message m
-                JOIN chat_message_join cmj ON cmj.message_id = m.rowid
-                JOIN chat c ON c.rowid = cmj.chat_id
-                WHERE c.chat_identifier = 'kellerleonard17@gmail.com'
-                  AND m.date > ?
-                  AND m.text IS NOT NULL
-                  AND m.text != ''
-                ORDER BY m.date DESC
-                LIMIT 10
-            """, (cutoff_mac,)).fetchall()
+        try:
+            with sqlite3.connect(f"file:{self.chat_db}?mode=ro", uri=True) as conn:
+                rows = conn.execute("""
+                    SELECT DISTINCT m.rowid, m.text
+                    FROM message m
+                    JOIN chat_message_join cmj ON cmj.message_id = m.rowid
+                    JOIN chat c ON c.rowid = cmj.chat_id
+                    WHERE c.chat_identifier = 'kellerleonard17@gmail.com'
+                    AND m.date > ?
+                    AND m.text IS NOT NULL
+                    AND m.text != ''
+                    ORDER BY m.date DESC
+                    LIMIT 10
+                """, (cutoff_mac,)).fetchall()
 
-        replies = []
-        for row in rows:
-            msg_id = str(row[0])
-            text = row[1].strip()
-            lower = text.lower()
+            replies = []
+            for row in rows:
+                msg_id = str(row[0])
+                text = row[1].strip()
+                lower = text.lower()
 
-            # Only process permission gate keywords
-            if not (lower == "yes" or lower == "no" or lower.startswith("edit")):
-                continue
+                # Only process permission gate keywords
+                if not (lower == "yes" or lower == "no" or lower.startswith("edit")):
+                    continue
 
-            if self.memory.is_processed("imessage_reply", msg_id):
-                continue
+                if self.memory.is_processed("imessage_reply", msg_id):
+                    continue
 
-            self.memory.mark_processed("imessage_reply", msg_id)
-            replies.append({"id": msg_id, "text": text, "source": "imessage_reply"})
-            logger.info(f"Read reply from user: '{text}'")
+                self.memory.mark_processed("imessage_reply", msg_id)
+                replies.append({"id": msg_id, "text": text, "source": "imessage_reply"})
+                logger.info(f"Read reply from user: '{text}'")
 
-        return replies
+            return replies
 
-    except Exception as e:
-        logger.error(f"Error reading iMessages: {e}")
-        return []
+        except Exception as e:
+            logger.error(f"Error reading iMessages: {e}")
+            return []

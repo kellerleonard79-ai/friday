@@ -68,7 +68,6 @@ class FridayAgent:
 
         long_term = self.memory.recall_all()
         if long_term:
-            # Only include non-pending-action, non-groupme entries as facts
             facts = []
             for k, v in long_term.items():
                 if not k.startswith("pending_groupme_") and not k.startswith("pending_action_"):
@@ -111,13 +110,34 @@ class FridayAgent:
             logger.error(f"Gemini API error: {e}")
             return None
 
+    # ── Calendar query (conversational) ──────────────────────────────────────
+
+    def answer_calendar_query(self, query: str) -> str:
+        """
+        Answer a natural language question about the user's calendar.
+        Fetches current events and lets Gemini compose a natural reply.
+        """
+        if not self.calendar or not self.calendar.enabled:
+            return "Calendar isn't connected — enable Apple Calendar in friday_config.yaml."
+
+        calendar_data = self.calendar.format_for_briefing(days_ahead=14)
+
+        prompt = f"""The user is asking about their calendar: "{query}"
+
+Here are their upcoming events for the next 14 days:
+{calendar_data}
+
+Answer the question directly and concisely. If no relevant events exist, say so clearly."""
+
+        return self._think(prompt, context="Calendar query")
+
     # ── Reply processing ──────────────────────────────────────────────────────
 
     def process_user_replies(self):
         """
         Check for new replies from the user in the Friday iMessage thread.
-        Handles standalone messages that aren't part of a permission flow.
-        (Permission gate handles its own reply polling internally.)
+        Handles general messages that aren't part of a permission flow.
+        Permission gate handles its own reply polling internally.
         """
         replies = self.imessage.read_replies(minutes=6)
 
@@ -129,7 +149,18 @@ class FridayAgent:
             if lower in ("yes", "no") or lower.startswith("edit"):
                 continue
 
-            # General conversation — let Gemini respond
+            # Calendar queries
+            calendar_keywords = ("calendar", "schedule", "what's on", "what do i have",
+                                  "when is", "what time", "do i have", "any events")
+            if any(kw in lower for kw in calendar_keywords):
+                logger.info(f"Calendar query from user: '{text[:60]}'")
+                response = self.answer_calendar_query(text)
+                if response:
+                    self.imessage.send_to_self(f"Friday: {response}")
+                time.sleep(3)
+                continue
+
+            # General conversation
             logger.info(f"Processing standalone user reply: '{text[:60]}'")
             response = self._think(
                 f"The user sent you a message: {text}\n\nRespond helpfully and concisely.",
@@ -143,7 +174,7 @@ class FridayAgent:
 
     def process_groupme_messages(self, messages: list, groupme_config: dict):
         """
-        Filter GroupMe messages, save to memory first, then reason with Gemini.
+        Filter GroupMe messages, save to memory, then reason with Gemini.
         If action needed, go through permission gate before doing anything.
         """
         if not messages:
@@ -158,7 +189,6 @@ class FridayAgent:
 
             logger.info(f"GroupMe passed filter ({reason}): '{msg['text'][:80]}'")
 
-            # Save to memory BEFORE calling Gemini
             memory_entry = (
                 f"[GroupMe/{msg['group_name']}] "
                 f"{msg['sender_name']} at {msg['created_at']}: {msg['text']}"
@@ -171,16 +201,21 @@ Sender: {msg['sender_name']}
 Time: {msg['created_at']}
 Message: {msg['text']}
 
-Analyze this message. Does it mention a specific event, date, or time that should be added to the user's calendar or flagged for attention?
+Analyze this message. Does it mention a specific event, date, or time that should be
+added, edited, or deleted on the user's calendar, or flagged for attention?
 
 Respond in this exact format:
 
-ACTION: [CREATE_EVENT / REMIND / NO_ACTION]
-DRAFT: [A short friendly notification to show the user. If CREATE_EVENT, ask if they want it added to calendar.]
-TITLE: [Event title if CREATE_EVENT, else blank]
-DATE: [Date if mentioned e.g. "tomorrow", "May 9 2026", else blank]
+ACTION: [CREATE_EVENT / EDIT_EVENT / DELETE_EVENT / REMIND / NO_ACTION]
+DRAFT: [A short friendly notification to show the user. For calendar actions, ask confirmation.]
+TITLE: [Event title for CREATE_EVENT, or search term for EDIT_EVENT/DELETE_EVENT, else blank]
+NEW_TITLE: [Replacement title for EDIT_EVENT only, else blank]
+DATE: [Date if mentioned e.g. "May 9 2026", else blank]
 TIME: [Time if mentioned e.g. "8:00 AM", else blank]
-DURATION: [Duration in minutes if inferable, else 60]"""
+NEW_DATE: [New date for EDIT_EVENT only, else blank]
+NEW_TIME: [New time for EDIT_EVENT only, else blank]
+DURATION: [Duration in minutes if inferable, else 60]
+LOCATION: [Location if mentioned, else blank]"""
 
             response = self._think(prompt)
             time.sleep(3)
@@ -188,13 +223,11 @@ DURATION: [Duration in minutes if inferable, else 60]"""
             if not response or "NO_ACTION" in response:
                 continue
 
-            # Parse structured response from Gemini
             action_type, draft, action_data = self._parse_action_response(response, msg)
 
             if not draft:
                 continue
 
-            # Go through permission gate
             if self.permissions:
                 result = self.permissions.request(
                     action_type=action_type,
@@ -224,7 +257,7 @@ DURATION: [Duration in minutes if inferable, else 60]"""
     def _parse_action_response(self, response: str, msg: dict) -> tuple:
         """
         Parse Gemini's structured action response into (action_type, draft, action_data).
-        Falls back to a generic notification if parsing fails.
+        Handles CREATE_EVENT, EDIT_EVENT, DELETE_EVENT, and REMIND.
         """
         lines = response.strip().split("\n")
         fields = {}
@@ -236,23 +269,47 @@ DURATION: [Duration in minutes if inferable, else 60]"""
         action = fields.get("ACTION", "REMIND").upper()
         draft = fields.get("DRAFT", "").strip()
         title = fields.get("TITLE", "").strip()
+        new_title = fields.get("NEW_TITLE", "").strip()
         date = fields.get("DATE", "").strip()
         time_val = fields.get("TIME", "").strip()
-        duration = int(fields.get("DURATION", "60")) if fields.get("DURATION", "60").isdigit() else 60
+        new_date = fields.get("NEW_DATE", "").strip()
+        new_time = fields.get("NEW_TIME", "").strip()
+        location = fields.get("LOCATION", "").strip()
+        duration_raw = fields.get("DURATION", "60")
+        duration = int(duration_raw) if duration_raw.isdigit() else 60
 
-        # Fallback draft if parsing failed
+        # Fallback draft
         if not draft:
-            draft = f"New message in {msg['group_name']} from {msg['sender_name']}: {msg['text'][:100]}"
+            draft = (f"New message in {msg['group_name']} from "
+                     f"{msg['sender_name']}: {msg['text'][:100]}")
 
         if action == "CREATE_EVENT" and (title or date):
             return "create_event", draft, {
-                "title": title or msg['text'][:50],
+                "title": title or msg["text"][:50],
                 "date": date,
                 "time": time_val,
-                "duration_minutes": duration
+                "duration_minutes": duration,
+                "location": location
             }
+
+        elif action == "EDIT_EVENT" and title:
+            return "edit_event", draft, {
+                "title_search": title,
+                "new_title": new_title,
+                "new_date": new_date,
+                "new_time": new_time,
+                "new_duration_minutes": duration if new_date or new_time else 0,
+                "new_location": location
+            }
+
+        elif action == "DELETE_EVENT" and title:
+            return "delete_event", draft, {
+                "title_search": title
+            }
+
         elif action == "REMIND":
             return "groupme_notification", draft, {}
+
         else:
             return "groupme_notification", draft, {}
 
@@ -261,19 +318,17 @@ DURATION: [Duration in minutes if inferable, else 60]"""
     def send_evening_briefing(self):
         """
         Compose and send the daily evening briefing.
-        Now includes Apple Calendar events and unactioned GroupMe items.
+        Includes Apple Calendar events and unactioned GroupMe items.
         """
         today = datetime.now().strftime("%A, %B %d")
-        tomorrow = datetime.now().strftime("%A, %B %d")
 
         # Get calendar events
-        calendar_section = ""
         if self.calendar and self.calendar.enabled:
             calendar_section = self.calendar.format_for_briefing(days_ahead=2)
         else:
             calendar_section = "Calendar not connected yet."
 
-        # Get unactioned GroupMe items
+        # Get unactioned GroupMe items and general facts
         long_term = self.memory.recall_all()
         pending_items = []
         general_facts = []
