@@ -1,0 +1,192 @@
+"""
+friday.py
+Project Friday — Main entry point. Phase 2.
+Adds: two-way iMessage, Apple Calendar, permission gate.
+
+Usage:
+    python3 friday.py
+
+Requirements:
+    pip3 install google-genai requests pyyaml schedule
+    export GEMINI_API_KEY="your-key-here"
+"""
+
+import logging
+import os
+import sys
+import yaml
+import schedule
+import time
+import threading
+from datetime import datetime
+
+# ── Logging setup ─────────────────────────────────────────────────────────────
+
+os.makedirs("logs", exist_ok=True)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+    handlers=[
+        logging.FileHandler("logs/friday.log"),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger("friday")
+
+# ── Local imports ─────────────────────────────────────────────────────────────
+
+from agent.memory import Memory
+from agent.core import FridayAgent
+from agent.permissions import PermissionGate
+from channels.groupme import GroupMeChannel
+from channels.imessage import iMessageChannel
+from channels.apple_calendar import AppleCalendarChannel
+
+
+# ── Config loader ─────────────────────────────────────────────────────────────
+
+def load_config(path: str = "friday_config.yaml") -> dict:
+    if not os.path.exists(path):
+        logger.critical(f"Config file not found: {path}")
+        sys.exit(1)
+    with open(path, "r") as f:
+        return yaml.safe_load(f)
+
+
+# ── Startup checks ────────────────────────────────────────────────────────────
+
+def check_environment(config: dict):
+    errors = []
+
+    if not os.environ.get("GEMINI_API_KEY"):
+        errors.append("GEMINI_API_KEY environment variable not set.")
+
+    groupme_cfg = config.get("groupme", {})
+    if groupme_cfg.get("enabled") and not groupme_cfg.get("api_token"):
+        errors.append("GroupMe is enabled but 'api_token' is empty in friday_config.yaml.")
+
+    if not config.get("agent", {}).get("your_imessage_handle"):
+        errors.append("'your_imessage_handle' is empty in friday_config.yaml.")
+
+    if errors:
+        for e in errors:
+            logger.error(f"⚠ Config error: {e}")
+        sys.exit(1)
+
+
+# ── Poll cycle ────────────────────────────────────────────────────────────────
+
+def run_poll_cycle(agent: FridayAgent, groupme: GroupMeChannel, config: dict):
+    """One full observation cycle."""
+    logger.info("── Poll cycle starting ──")
+
+    # Check for user replies first
+    try:
+        agent.process_user_replies()
+    except Exception as e:
+        logger.error(f"Error processing user replies: {e}")
+
+    # Poll GroupMe
+    groupme_cfg = config.get("groupme", {})
+    if groupme_cfg.get("enabled"):
+        try:
+            messages = groupme.poll()
+            agent.process_groupme_messages(messages, groupme_cfg)
+        except Exception as e:
+            logger.error(f"GroupMe poll error: {e}")
+
+    logger.info("── Poll cycle complete ──")
+
+
+# ── Scheduler thread ──────────────────────────────────────────────────────────
+
+def run_scheduler():
+    while True:
+        schedule.run_pending()
+        time.sleep(30)
+
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+
+def main():
+    logger.info("=" * 50)
+    logger.info("  Project Friday — Phase 2 Starting up")
+    logger.info(f"  {datetime.now().strftime('%A, %B %d %Y %H:%M')}")
+    logger.info("=" * 50)
+
+    config = load_config()
+    agent_cfg = config.get("agent", {})
+    check_environment(config)
+
+    # Initialize memory
+    memory_cfg = config.get("memory", {})
+    memory = Memory(memory_cfg.get("db_path", "memory/friday_memory.db"))
+
+    # Initialize channels
+    imessage = iMessageChannel(config=config.get("imessage", {}), memory=memory)
+    imessage.your_handle = agent_cfg.get("your_imessage_handle", "")
+
+    groupme = GroupMeChannel(config=config.get("groupme", {}), memory=memory)
+
+    calendar_cfg = config.get("calendars", {}).get("apple", {})
+    calendar = AppleCalendarChannel(config=calendar_cfg)
+
+    # Initialize agent
+    agent = FridayAgent(
+        config=config,
+        memory=memory,
+        imessage_channel=imessage,
+        calendar_channel=calendar
+    )
+
+    # Initialize permission gate and inject into agent
+    permissions = PermissionGate(
+        memory=memory,
+        imessage_channel=imessage,
+        agent_core=agent,
+        calendar_channel=calendar
+    )
+    agent.set_permissions(permissions)
+
+    # Startup message
+    cal_status = "✓ Apple Calendar" if calendar_cfg.get("enabled") else "✗ Calendar (disabled)"
+    startup_msg = (
+        f"Friday is online. 🟢 [Phase 2]\n"
+        f"GroupMe: {', '.join(config.get('groupme', {}).get('approved_groups', []))}\n"
+        f"{cal_status}\n"
+        f"Two-way iMessage: ✓\n"
+        f"Permission gate: ✓\n"
+        f"Briefing: {agent_cfg.get('briefing_time', '21:00')}"
+    )
+    logger.info(startup_msg)
+    imessage.send_to_self(f"⚡ {startup_msg}")
+
+    # Schedule poll cycle
+    interval_mins = agent_cfg.get("poll_interval_seconds", 300) // 60
+    schedule.every(interval_mins).minutes.do(
+        run_poll_cycle, agent=agent, groupme=groupme, config=config
+    )
+
+    # Schedule evening briefing
+    briefing_time = agent_cfg.get("briefing_time", "21:00")
+    schedule.every().day.at(briefing_time).do(agent.send_evening_briefing)
+    logger.info(f"Evening briefing scheduled at {briefing_time}")
+
+    # Run one poll immediately
+    run_poll_cycle(agent, groupme, config)
+
+    # Start scheduler thread
+    scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
+    scheduler_thread.start()
+
+    logger.info("Friday is running. Press Ctrl+C to stop.")
+    try:
+        while True:
+            time.sleep(60)
+    except KeyboardInterrupt:
+        logger.info("Friday shutting down.")
+        imessage.send_to_self("Friday is going offline. 🔴")
+
+
+if __name__ == "__main__":
+    main()

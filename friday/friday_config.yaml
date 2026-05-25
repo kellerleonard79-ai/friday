@@ -1,0 +1,59 @@
+# ============================================================
+# Project Friday — Configuration File
+# Edit this file to configure Friday's behavior.
+# No code changes needed — everything lives here.
+# ============================================================
+
+agent:
+  name: Friday
+  poll_interval_seconds: 300        # How often to check sources (300 = 5 min)
+  briefing_time: "21:45"            # Evening briefing time (24h format, your local time)
+  timezone: "America/Chicago"       # Your local timezone — change if needed
+  your_phone_number: ""             # Your phone number as it appears in iMessage e.g. +12345678900
+  your_imessage_handle: "kellerleonard17@gmail.com"          # Your iMessage email or phone used to send TO yourself
+
+groupme:
+  enabled: true
+  api_token: "6e24cba02c9d013f6299061b572edee0"                     # Paste your GroupMe API token here
+  approved_groups:
+    - "Doubles"
+    - "First Students"
+    - "FBLA Officer - 2026/2027"
+    - "Los Muchachos Part 2"                 # Add more group names here as needed
+  poll_interval_seconds: 300
+
+gmail:
+  enabled: false                    # Enable in Phase 2
+  approved_labels:
+    - "School"
+    - "SGA"
+  approved_domains: []
+
+imessage:
+  enabled: true
+  approved_contacts: []             # Phase 2 — leave empty for now
+
+calendars:
+  google:
+    enabled: false                  # Enable in Phase 2 after OAuth setup
+    credentials_path: "~/.friday/google_credentials.json"
+  apple:
+    enabled: true                  # Enable in Phase 2
+
+memory:
+  db_path: "memory/friday_memory.db"
+  short_term_turns: 20
+
+gemini:
+  model: "models/gemini-2.5-flash-lite"
+  max_tokens: 1000
+  # API key loaded from environment variable: GEMINI_API_KEY
+
+skills:
+  stock_check:
+    enabled: false
+    watch_tickers: ["WDC"]
+  screen_watch:
+    enabled: false
+  weather:
+    enabled: false

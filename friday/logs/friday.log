@@ -1,0 +1,398 @@
+2026-05-09 16:44:24,785 [friday] INFO: ==================================================
+2026-05-09 16:44:24,785 [friday] INFO:   Project Friday — Phase 2 Starting up
+2026-05-09 16:44:24,785 [friday] INFO:   Saturday, May 09 2026 16:44
+2026-05-09 16:44:24,785 [friday] INFO: ==================================================
+2026-05-09 16:44:24,948 [friday.core] INFO: Gemini model loaded: models/gemini-2.5-flash-lite
+2026-05-09 16:44:24,948 [friday] INFO: Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Students, FBLA Officer - 2026/2027, Los Muchachos Part 2
+✓ Apple Calendar
+Two-way iMessage: ✓
+Permission gate: ✓
+Briefing: 14:51
+2026-05-09 16:44:25,220 [friday.imessage] INFO: iMessage sent: ⚡ Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Stud...
+2026-05-09 16:44:25,221 [friday] INFO: Evening briefing scheduled at 14:51
+2026-05-09 16:44:25,221 [friday] INFO: ── Poll cycle starting ──
+2026-05-09 16:44:25,532 [friday.groupme] INFO: Found approved GroupMe group: 'Los Muchachos Part 2' (ID: 106754677)
+2026-05-09 16:44:25,533 [friday.groupme] INFO: Found approved GroupMe group: 'First Students' (ID: 63856932)
+2026-05-09 16:44:25,533 [friday.groupme] INFO: Found approved GroupMe group: 'FBLA Officer - 2026/2027' (ID: 114368134)
+2026-05-09 16:44:25,533 [friday.groupme] INFO: Found approved GroupMe group: 'Doubles' (ID: 114025944)
+2026-05-09 16:44:25,755 [friday.groupme] INFO: GroupMe 'los muchachos part 2': 11 new message(s)
+2026-05-09 16:44:25,957 [friday.groupme] INFO: GroupMe 'first students': 18 new message(s)
+2026-05-09 16:44:26,155 [friday.groupme] INFO: GroupMe 'fbla officer - 2026/2027': 19 new message(s)
+2026-05-09 16:44:26,374 [friday.groupme] INFO: GroupMe 'doubles': 20 new message(s)
+2026-05-09 16:44:26,376 [friday.core] INFO: GroupMe passed filter (Scheduling signal detected in GroupMe message): 'We also have AP Lang on Wednesday'
+2026-05-09 16:44:26,378 [google_genai.models] INFO: AFC is enabled with max remote calls: 10.
+2026-05-09 16:44:27,223 [httpx] INFO: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent "HTTP/1.1 200 OK"
+2026-05-09 16:44:30,401 [friday.imessage] INFO: iMessage sent: 📋 Friday — Proposed Action
+
+Keller mentioned "AP Lang on Wed...
+2026-05-09 16:44:30,402 [friday.permissions] INFO: Permission requested for: groupme_notification
+2026-05-09 16:52:55,589 [friday] INFO: ==================================================
+2026-05-09 16:52:55,589 [friday] INFO:   Project Friday — Phase 2 Starting up
+2026-05-09 16:52:55,590 [friday] INFO:   Saturday, May 09 2026 16:52
+2026-05-09 16:52:55,590 [friday] INFO: ==================================================
+2026-05-09 16:52:55,752 [friday.core] INFO: Gemini model loaded: models/gemini-2.5-flash-lite
+2026-05-09 16:52:55,753 [friday] INFO: Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Students, FBLA Officer - 2026/2027, Los Muchachos Part 2
+✓ Apple Calendar
+Two-way iMessage: ✓
+Permission gate: ✓
+Briefing: 14:51
+2026-05-09 16:52:55,960 [friday.imessage] INFO: iMessage sent: ⚡ Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Stud...
+2026-05-09 16:52:55,961 [friday] INFO: Evening briefing scheduled at 14:51
+2026-05-09 16:52:55,961 [friday] INFO: ── Poll cycle starting ──
+2026-05-09 16:52:56,302 [friday.groupme] INFO: Found approved GroupMe group: 'Los Muchachos Part 2' (ID: 106754677)
+2026-05-09 16:52:56,302 [friday.groupme] INFO: Found approved GroupMe group: 'First Students' (ID: 63856932)
+2026-05-09 16:52:56,302 [friday.groupme] INFO: Found approved GroupMe group: 'FBLA Officer - 2026/2027' (ID: 114368134)
+2026-05-09 16:52:56,302 [friday.groupme] INFO: Found approved GroupMe group: 'Doubles' (ID: 114025944)
+2026-05-09 16:52:57,089 [friday] INFO: ── Poll cycle complete ──
+2026-05-09 16:52:57,090 [friday] INFO: Friday is running. Press Ctrl+C to stop.
+2026-05-09 16:54:01,400 [friday] INFO: Friday shutting down.
+2026-05-09 16:54:01,660 [friday.imessage] INFO: iMessage sent: Friday is going offline. 🔴...
+2026-05-12 21:37:46,500 [friday] INFO: ==================================================
+2026-05-12 21:37:46,501 [friday] INFO:   Project Friday — Phase 2 Starting up
+2026-05-12 21:37:46,501 [friday] INFO:   Tuesday, May 12 2026 21:37
+2026-05-12 21:37:46,501 [friday] INFO: ==================================================
+2026-05-12 21:37:46,721 [friday.core] INFO: Gemini model loaded: models/gemini-2.5-flash-lite
+2026-05-12 21:37:46,721 [friday] INFO: Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Students, FBLA Officer - 2026/2027, Los Muchachos Part 2
+✓ Apple Calendar
+Two-way iMessage: ✓
+Permission gate: ✓
+Briefing: 21:40
+2026-05-12 21:37:46,956 [friday.imessage] INFO: iMessage sent: ⚡ Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Stud...
+2026-05-12 21:37:46,957 [friday] INFO: Evening briefing scheduled at 21:40
+2026-05-12 21:37:46,957 [friday] INFO: ── Poll cycle starting ──
+2026-05-12 21:37:46,957 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-12 21:37:47,287 [friday.groupme] INFO: Found approved GroupMe group: 'First Students' (ID: 63856932)
+2026-05-12 21:37:47,287 [friday.groupme] INFO: Found approved GroupMe group: 'Los Muchachos Part 2' (ID: 106754677)
+2026-05-12 21:37:47,287 [friday.groupme] INFO: Found approved GroupMe group: 'FBLA Officer - 2026/2027' (ID: 114368134)
+2026-05-12 21:37:47,287 [friday.groupme] INFO: Found approved GroupMe group: 'Doubles' (ID: 114025944)
+2026-05-12 21:37:47,481 [friday.groupme] INFO: GroupMe 'first students': 4 new message(s)
+2026-05-12 21:37:48,047 [friday.core] INFO: GroupMe passed filter (Scheduling signal detected in GroupMe message): 'Hope to see you Wednesday for Pancake Study Break! 🥞
+
+We’ll have worship, family'
+2026-05-12 21:37:48,049 [google_genai.models] INFO: AFC is enabled with max remote calls: 10.
+2026-05-12 21:37:48,205 [httpx] INFO: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent "HTTP/1.1 400 Bad Request"
+2026-05-12 21:37:48,207 [friday.core] ERROR: Gemini API error: 400 INVALID_ARGUMENT. {'error': {'code': 400, 'message': 'API Key not found. Please pass a valid API key.', 'status': 'INVALID_ARGUMENT', 'details': [{'@type': 'type.googleapis.com/google.rpc.ErrorInfo', 'reason': 'API_KEY_INVALID', 'domain': 'googleapis.com', 'metadata': {'service': 'generativelanguage.googleapis.com'}}, {'@type': 'type.googleapis.com/google.rpc.LocalizedMessage', 'locale': 'en-US', 'message': 'API Key not found. Please pass a valid API key.'}]}}
+2026-05-12 21:37:51,208 [friday] INFO: ── Poll cycle complete ──
+2026-05-12 21:37:51,210 [friday] INFO: Friday is running. Press Ctrl+C to stop.
+2026-05-12 21:40:25,683 [friday.apple_calendar] INFO: No calendar events returned (calendar may be empty or disabled)
+2026-05-12 21:40:25,705 [google_genai.models] INFO: AFC is enabled with max remote calls: 10.
+2026-05-12 21:40:25,879 [httpx] INFO: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent "HTTP/1.1 400 Bad Request"
+2026-05-12 21:40:25,883 [friday.core] ERROR: Gemini API error: 400 INVALID_ARGUMENT. {'error': {'code': 400, 'message': 'API Key not found. Please pass a valid API key.', 'status': 'INVALID_ARGUMENT', 'details': [{'@type': 'type.googleapis.com/google.rpc.ErrorInfo', 'reason': 'API_KEY_INVALID', 'domain': 'googleapis.com', 'metadata': {'service': 'generativelanguage.googleapis.com'}}, {'@type': 'type.googleapis.com/google.rpc.LocalizedMessage', 'locale': 'en-US', 'message': 'API Key not found. Please pass a valid API key.'}]}}
+2026-05-12 21:40:25,883 [friday.core] ERROR: Failed to generate evening briefing
+2026-05-12 21:40:59,377 [friday] INFO: Friday shutting down.
+2026-05-12 21:40:59,633 [friday.imessage] INFO: iMessage sent: Friday is going offline. 🔴...
+2026-05-12 21:41:30,875 [friday] INFO: ==================================================
+2026-05-12 21:41:30,875 [friday] INFO:   Project Friday — Phase 2 Starting up
+2026-05-12 21:41:30,875 [friday] INFO:   Tuesday, May 12 2026 21:41
+2026-05-12 21:41:30,875 [friday] INFO: ==================================================
+2026-05-12 21:41:31,038 [friday.core] INFO: Gemini model loaded: models/gemini-2.5-flash-lite
+2026-05-12 21:41:31,038 [friday] INFO: Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Students, FBLA Officer - 2026/2027, Los Muchachos Part 2
+✓ Apple Calendar
+Two-way iMessage: ✓
+Permission gate: ✓
+Briefing: 21:45
+2026-05-12 21:41:31,261 [friday.imessage] INFO: iMessage sent: ⚡ Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Stud...
+2026-05-12 21:41:31,262 [friday] INFO: Evening briefing scheduled at 21:45
+2026-05-12 21:41:31,262 [friday] INFO: ── Poll cycle starting ──
+2026-05-12 21:41:31,262 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-12 21:41:31,596 [friday.groupme] INFO: Found approved GroupMe group: 'First Students' (ID: 63856932)
+2026-05-12 21:41:31,596 [friday.groupme] INFO: Found approved GroupMe group: 'Los Muchachos Part 2' (ID: 106754677)
+2026-05-12 21:41:31,596 [friday.groupme] INFO: Found approved GroupMe group: 'FBLA Officer - 2026/2027' (ID: 114368134)
+2026-05-12 21:41:31,596 [friday.groupme] INFO: Found approved GroupMe group: 'Doubles' (ID: 114025944)
+2026-05-12 21:41:32,351 [friday] INFO: ── Poll cycle complete ──
+2026-05-12 21:41:32,351 [friday] INFO: Friday is running. Press Ctrl+C to stop.
+2026-05-12 21:45:10,834 [friday.apple_calendar] INFO: No calendar events returned (calendar may be empty or disabled)
+2026-05-12 21:45:10,869 [google_genai.models] INFO: AFC is enabled with max remote calls: 10.
+2026-05-12 21:45:13,172 [httpx] INFO: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent "HTTP/1.1 200 OK"
+2026-05-12 21:45:13,495 [friday.imessage] INFO: iMessage sent: 🌙 Friday — Evening Briefing
+
+Good evening! Here's a look at ...
+2026-05-12 21:45:13,495 [friday.core] INFO: Evening briefing sent
+2026-05-12 21:46:43,522 [friday] INFO: ── Poll cycle starting ──
+2026-05-12 21:46:43,531 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-12 21:46:44,432 [friday] INFO: ── Poll cycle complete ──
+2026-05-12 21:51:44,540 [friday] INFO: ── Poll cycle starting ──
+2026-05-12 21:51:44,550 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-12 21:51:47,001 [friday] INFO: ── Poll cycle complete ──
+2026-05-12 21:56:47,070 [friday] INFO: ── Poll cycle starting ──
+2026-05-12 21:56:47,080 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-12 21:56:47,952 [friday] INFO: ── Poll cycle complete ──
+2026-05-12 22:01:48,009 [friday] INFO: ── Poll cycle starting ──
+2026-05-12 22:01:48,017 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-12 22:01:48,861 [friday] INFO: ── Poll cycle complete ──
+2026-05-12 22:08:16,887 [friday] INFO: ── Poll cycle starting ──
+2026-05-12 22:08:16,899 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-12 22:08:52,551 [friday] INFO: ── Poll cycle complete ──
+2026-05-12 22:13:52,648 [friday] INFO: ── Poll cycle starting ──
+2026-05-12 22:13:52,662 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-12 22:13:53,833 [friday] INFO: ── Poll cycle complete ──
+2026-05-12 22:18:53,909 [friday] INFO: ── Poll cycle starting ──
+2026-05-12 22:18:53,928 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-12 22:18:55,187 [friday] INFO: ── Poll cycle complete ──
+2026-05-12 22:23:55,239 [friday] INFO: ── Poll cycle starting ──
+2026-05-12 22:23:55,250 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-12 22:23:59,487 [friday] INFO: ── Poll cycle complete ──
+2026-05-12 22:28:59,533 [friday] INFO: ── Poll cycle starting ──
+2026-05-12 22:28:59,543 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-12 22:29:00,452 [friday] INFO: ── Poll cycle complete ──
+2026-05-12 22:34:00,484 [friday] INFO: ── Poll cycle starting ──
+2026-05-12 22:34:00,488 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-12 22:34:01,389 [friday] INFO: ── Poll cycle complete ──
+2026-05-12 22:39:01,431 [friday] INFO: ── Poll cycle starting ──
+2026-05-12 22:39:01,436 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-12 22:39:02,885 [friday] INFO: ── Poll cycle complete ──
+2026-05-12 22:44:02,930 [friday] INFO: ── Poll cycle starting ──
+2026-05-12 22:44:02,940 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-12 22:44:03,869 [friday] INFO: ── Poll cycle complete ──
+2026-05-12 22:49:03,905 [friday] INFO: ── Poll cycle starting ──
+2026-05-12 22:49:03,909 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-12 22:49:04,831 [friday] INFO: ── Poll cycle complete ──
+2026-05-12 22:54:04,864 [friday] INFO: ── Poll cycle starting ──
+2026-05-12 22:54:04,867 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-12 22:54:05,816 [friday] INFO: ── Poll cycle complete ──
+2026-05-12 22:59:05,855 [friday] INFO: ── Poll cycle starting ──
+2026-05-12 22:59:05,859 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-12 22:59:06,860 [friday] INFO: ── Poll cycle complete ──
+2026-05-12 23:04:06,908 [friday] INFO: ── Poll cycle starting ──
+2026-05-12 23:04:06,913 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-12 23:04:07,859 [friday] INFO: ── Poll cycle complete ──
+2026-05-12 23:09:07,903 [friday] INFO: ── Poll cycle starting ──
+2026-05-12 23:09:07,907 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-12 23:09:08,896 [friday] INFO: ── Poll cycle complete ──
+2026-05-12 23:14:08,947 [friday] INFO: ── Poll cycle starting ──
+2026-05-12 23:14:08,957 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-12 23:14:10,054 [friday] INFO: ── Poll cycle complete ──
+2026-05-12 23:19:10,106 [friday] INFO: ── Poll cycle starting ──
+2026-05-12 23:19:10,116 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-12 23:19:11,069 [friday] INFO: ── Poll cycle complete ──
+2026-05-12 23:24:11,107 [friday] INFO: ── Poll cycle starting ──
+2026-05-12 23:24:11,111 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-12 23:24:12,090 [friday] INFO: ── Poll cycle complete ──
+2026-05-12 23:29:12,131 [friday] INFO: ── Poll cycle starting ──
+2026-05-12 23:29:12,135 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-12 23:29:13,137 [friday] INFO: ── Poll cycle complete ──
+2026-05-12 23:34:13,174 [friday] INFO: ── Poll cycle starting ──
+2026-05-12 23:34:13,178 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-12 23:34:14,156 [friday] INFO: ── Poll cycle complete ──
+2026-05-12 23:39:14,205 [friday] INFO: ── Poll cycle starting ──
+2026-05-12 23:39:14,220 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-12 23:39:15,208 [friday] INFO: ── Poll cycle complete ──
+2026-05-12 23:44:15,245 [friday] INFO: ── Poll cycle starting ──
+2026-05-12 23:44:15,249 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-12 23:44:16,167 [friday] INFO: ── Poll cycle complete ──
+2026-05-12 23:49:16,213 [friday] INFO: ── Poll cycle starting ──
+2026-05-12 23:49:16,221 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-12 23:49:17,214 [friday] INFO: ── Poll cycle complete ──
+2026-05-12 23:54:17,253 [friday] INFO: ── Poll cycle starting ──
+2026-05-12 23:54:17,261 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-12 23:54:18,163 [friday] INFO: ── Poll cycle complete ──
+2026-05-12 23:59:45,568 [friday] INFO: ── Poll cycle starting ──
+2026-05-12 23:59:45,580 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-12 23:59:46,491 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 00:15:14,595 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 00:15:14,606 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 00:15:15,492 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 00:20:15,563 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 00:20:15,574 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 00:20:16,425 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 00:36:43,692 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 00:36:43,693 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 00:36:44,556 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 00:41:44,642 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 00:41:44,645 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 00:41:45,551 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 00:46:45,631 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 00:46:45,634 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 00:46:46,524 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 00:51:46,600 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 00:51:46,602 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 00:51:47,477 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 00:56:47,550 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 00:56:47,552 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 00:56:48,603 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 01:01:48,671 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 01:01:48,674 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 01:01:49,571 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 01:06:49,642 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 01:06:49,645 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 01:06:50,536 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 01:11:50,594 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 01:11:50,596 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 01:11:51,479 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 01:16:51,557 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 01:16:51,559 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 01:16:52,463 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 01:21:52,530 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 01:21:52,532 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 01:21:53,414 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 01:26:53,495 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 01:26:53,497 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 01:26:54,386 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 01:31:54,439 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 01:31:54,443 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 01:31:55,432 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 01:36:55,513 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 01:36:55,516 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 01:36:56,437 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 01:41:56,501 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 01:41:56,505 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 01:41:57,386 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 01:58:35,188 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 01:58:35,190 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 01:58:36,147 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 02:03:49,220 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 02:03:49,222 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 02:03:50,177 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 02:09:03,340 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 02:09:03,342 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 02:09:05,408 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 02:14:17,899 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 02:14:17,901 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 02:14:18,833 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 02:23:44,059 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 02:23:44,061 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 02:23:45,008 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 02:28:58,224 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 02:28:58,228 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 02:28:59,211 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 02:34:24,026 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 02:34:24,029 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 02:34:25,037 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 02:39:25,112 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 02:39:25,121 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 02:39:26,052 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 02:44:26,095 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 02:44:26,097 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 02:44:26,996 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 02:49:27,067 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 02:49:27,071 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 02:49:28,031 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 02:54:28,111 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 02:54:28,113 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 02:54:29,022 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 02:59:29,079 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 02:59:29,082 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 02:59:29,992 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 03:04:30,035 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 03:04:30,038 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 03:04:30,980 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 03:09:31,050 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 03:09:31,052 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 03:09:31,978 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 03:28:47,567 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 03:28:47,569 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 03:28:49,661 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 03:46:49,140 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 03:46:49,141 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 03:46:50,027 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 04:02:48,237 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 04:02:48,248 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 04:02:49,169 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 04:19:54,614 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 04:19:54,616 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 04:19:55,511 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 04:37:18,804 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 04:37:18,808 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 04:37:20,658 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 04:54:16,759 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 04:54:16,761 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 04:54:17,627 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 05:10:58,147 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 05:10:58,151 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 05:10:59,096 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 05:26:57,838 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 05:26:57,840 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 05:26:58,791 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 05:44:58,277 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 05:44:58,282 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 05:44:59,175 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 05:54:15,588 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 05:54:15,589 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 05:54:16,517 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 06:11:30,910 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 06:11:30,913 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 06:11:33,259 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 06:28:56,770 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 06:28:56,772 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 06:28:57,613 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 06:45:51,181 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 06:45:51,190 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 06:45:52,099 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 06:52:47,059 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 06:52:47,061 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 06:52:47,875 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 07:10:52,671 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 07:10:52,674 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 07:10:53,608 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 07:27:00,694 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 07:27:00,695 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 07:27:01,574 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 07:34:33,781 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 07:34:33,785 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 07:34:34,734 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 07:55:13,516 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 07:55:13,524 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 07:59:25,231 [friday.groupme] ERROR: Failed to fetch messages for group 63856932: HTTPSConnectionPool(host='api.groupme.com', port=443): Read timed out. (read timeout=10)
+2026-05-13 07:59:37,126 [friday.groupme] ERROR: Failed to fetch messages for group 106754677: HTTPSConnectionPool(host='api.groupme.com', port=443): Read timed out. (read timeout=10)
+2026-05-13 07:59:48,259 [friday.groupme] ERROR: Failed to fetch messages for group 114368134: HTTPSConnectionPool(host='api.groupme.com', port=443): Read timed out. (read timeout=10)
+2026-05-13 07:59:59,377 [friday.groupme] ERROR: Failed to fetch messages for group 114025944: HTTPSConnectionPool(host='api.groupme.com', port=443): Read timed out. (read timeout=10)
+2026-05-13 07:59:59,379 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 08:05:06,081 [friday] INFO: ── Poll cycle starting ──
+2026-05-13 08:05:06,097 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-13 08:05:16,279 [friday.groupme] ERROR: Failed to fetch messages for group 63856932: HTTPSConnectionPool(host='api.groupme.com', port=443): Read timed out. (read timeout=10)
+2026-05-13 08:05:26,443 [friday.groupme] ERROR: Failed to fetch messages for group 106754677: HTTPSConnectionPool(host='api.groupme.com', port=443): Read timed out. (read timeout=10)
+2026-05-13 08:05:36,543 [friday.groupme] ERROR: Failed to fetch messages for group 114368134: HTTPSConnectionPool(host='api.groupme.com', port=443): Read timed out. (read timeout=10)
+2026-05-13 08:05:46,763 [friday.groupme] ERROR: Failed to fetch messages for group 114025944: HTTPSConnectionPool(host='api.groupme.com', port=443): Read timed out. (read timeout=10)
+2026-05-13 08:05:46,764 [friday] INFO: ── Poll cycle complete ──
+2026-05-13 08:07:19,609 [friday] INFO: Friday shutting down.
+2026-05-13 08:07:19,851 [friday.imessage] INFO: iMessage sent: Friday is going offline. 🔴...
+2026-05-19 11:15:58,874 [friday] INFO: ==================================================
+2026-05-19 11:15:58,874 [friday] INFO:   Project Friday — Phase 2 Starting up
+2026-05-19 11:15:58,875 [friday] INFO:   Tuesday, May 19 2026 11:15
+2026-05-19 11:15:58,875 [friday] INFO: ==================================================
+2026-05-19 11:15:59,086 [friday.core] INFO: Gemini model loaded: models/gemini-2.5-flash-lite
+2026-05-19 11:15:59,086 [friday] INFO: Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Students, FBLA Officer - 2026/2027, Los Muchachos Part 2
+✓ Apple Calendar
+Two-way iMessage: ✓
+Permission gate: ✓
+Briefing: 21:45
+2026-05-19 11:15:59,325 [friday.imessage] INFO: iMessage sent: ⚡ Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Stud...
+2026-05-19 11:15:59,326 [friday] INFO: Evening briefing scheduled at 21:45
+2026-05-19 11:15:59,326 [friday] INFO: ── Poll cycle starting ──
+2026-05-19 11:15:59,326 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-19 11:16:09,484 [friday.groupme] ERROR: Failed to fetch GroupMe groups: HTTPSConnectionPool(host='api.groupme.com', port=443): Read timed out. (read timeout=10)
+2026-05-19 11:16:09,485 [friday.groupme] WARNING: No approved groups found. Looking for: ['doubles', 'first students', 'fbla officer - 2026/2027', 'los muchachos part 2']
+2026-05-19 11:16:09,486 [friday] INFO: ── Poll cycle complete ──
+2026-05-19 11:16:09,486 [friday] INFO: Friday is running. Press Ctrl+C to stop.
+2026-05-19 11:21:09,525 [friday] INFO: ── Poll cycle starting ──
+2026-05-19 11:21:09,529 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-19 11:21:19,691 [friday.groupme] ERROR: Failed to fetch GroupMe groups: HTTPSConnectionPool(host='api.groupme.com', port=443): Read timed out. (read timeout=10)
+2026-05-19 11:21:19,692 [friday.groupme] WARNING: No approved groups found. Looking for: ['doubles', 'first students', 'fbla officer - 2026/2027', 'los muchachos part 2']
+2026-05-19 11:21:19,692 [friday] INFO: ── Poll cycle complete ──
+2026-05-19 11:26:19,729 [friday] INFO: ── Poll cycle starting ──
+2026-05-19 11:26:19,732 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-19 11:26:29,837 [friday.groupme] ERROR: Failed to fetch GroupMe groups: HTTPSConnectionPool(host='api.groupme.com', port=443): Read timed out. (read timeout=10)
+2026-05-19 11:26:29,838 [friday.groupme] WARNING: No approved groups found. Looking for: ['doubles', 'first students', 'fbla officer - 2026/2027', 'los muchachos part 2']
+2026-05-19 11:26:29,838 [friday] INFO: ── Poll cycle complete ──
+2026-05-19 11:31:29,869 [friday] INFO: ── Poll cycle starting ──
+2026-05-19 11:31:29,872 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-19 11:31:40,028 [friday.groupme] ERROR: Failed to fetch GroupMe groups: HTTPSConnectionPool(host='api.groupme.com', port=443): Read timed out. (read timeout=10)
+2026-05-19 11:31:40,029 [friday.groupme] WARNING: No approved groups found. Looking for: ['doubles', 'first students', 'fbla officer - 2026/2027', 'los muchachos part 2']
+2026-05-19 11:31:40,029 [friday] INFO: ── Poll cycle complete ──
+2026-05-19 11:36:40,109 [friday] INFO: ── Poll cycle starting ──
+2026-05-19 11:36:40,119 [friday] ERROR: Error processing user replies: 'iMessageChannel' object has no attribute 'read_replies'
+2026-05-19 11:36:50,284 [friday.groupme] ERROR: Failed to fetch GroupMe groups: HTTPSConnectionPool(host='api.groupme.com', port=443): Read timed out. (read timeout=10)
+2026-05-19 11:36:50,285 [friday.groupme] WARNING: No approved groups found. Looking for: ['doubles', 'first students', 'fbla officer - 2026/2027', 'los muchachos part 2']
+2026-05-19 11:36:50,285 [friday] INFO: ── Poll cycle complete ──
+2026-05-19 11:40:31,703 [friday] INFO: Friday shutting down.
+2026-05-19 11:40:31,993 [friday.imessage] INFO: iMessage sent: Friday is going offline. 🔴...
