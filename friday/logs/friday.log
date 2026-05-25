@@ -504,3 +504,34 @@ DRAFT: Still seeing those plus sig...
 2026-05-25 18:45:01,479 [httpx] INFO: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent "HTTP/1.1 200 OK"
 2026-05-25 18:45:01,664 [friday.imessage] INFO: iMessage sent: Friday: ACTION: NO_ACTION
 DRAFT: Another plus sign. To confi...
+2026-05-25 18:50:20,492 [friday] INFO: ==================================================
+2026-05-25 18:50:20,493 [friday] INFO:   Project Friday — Phase 2 Starting up
+2026-05-25 18:50:20,493 [friday] INFO:   Monday, May 25 2026 18:50
+2026-05-25 18:50:20,493 [friday] INFO: ==================================================
+2026-05-25 18:50:20,654 [friday.core] INFO: Gemini model loaded: models/gemini-2.5-flash-lite
+2026-05-25 18:50:20,654 [friday] INFO: Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Students, FBLA Officer - 2026/2027, Los Muchachos Part 2
+✓ Apple Calendar
+Two-way iMessage: ✓
+Permission gate: ✓
+Briefing: 21:45
+2026-05-25 18:50:20,997 [friday.imessage] INFO: iMessage sent: ⚡ Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Stud...
+2026-05-25 18:50:20,999 [friday] INFO: Evening briefing scheduled at 21:45
+2026-05-25 18:50:20,999 [friday] INFO: ── Poll cycle starting ──
+2026-05-25 18:50:21,462 [friday.groupme] INFO: Found approved GroupMe group: 'First Students' (ID: 63856932)
+2026-05-25 18:50:21,462 [friday.groupme] INFO: Found approved GroupMe group: 'Doubles' (ID: 114025944)
+2026-05-25 18:50:21,462 [friday.groupme] INFO: Found approved GroupMe group: 'FBLA Officer - 2026/2027' (ID: 114368134)
+2026-05-25 18:50:21,462 [friday.groupme] INFO: Found approved GroupMe group: 'Los Muchachos Part 2' (ID: 106754677)
+2026-05-25 18:50:21,864 [friday.groupme] INFO: GroupMe 'doubles': 1 new message(s)
+2026-05-25 18:50:22,271 [friday] INFO: ── Poll cycle complete ──
+2026-05-25 18:50:22,271 [friday] INFO: Friday is running. Press Ctrl+C to stop.
+2026-05-25 18:55:22,363 [friday] INFO: ── Poll cycle starting ──
+2026-05-25 18:55:22,889 [friday.groupme] INFO: GroupMe 'doubles': 1 new message(s)
+2026-05-25 18:55:23,302 [friday.core] INFO: GroupMe passed filter (Scheduling signal detected in GroupMe message): 'So you are available Thursday?'
+2026-05-25 18:55:23,318 [google_genai.models] INFO: AFC is enabled with max remote calls: 10.
+2026-05-25 18:55:24,489 [httpx] INFO: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent "HTTP/1.1 200 OK"
+2026-05-25 18:55:27,942 [friday.imessage] INFO: iMessage sent: 📋 Friday — Proposed Action
+
+Jane Reed asked "So you are avai...
+2026-05-25 18:55:27,946 [friday.permissions] INFO: Permission requested for: groupme_notification

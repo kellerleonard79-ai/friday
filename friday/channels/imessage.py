@@ -94,6 +94,7 @@ end tell
             for row in rows:
                 msg_id = str(row[0])
                 text = self._extract_text(row[1], row[2])
+                logger.info(f"DEBUG extracted text for rowid {row[0]}: repr={repr(text)}")  # temp
                 if not text:
                     continue
 
