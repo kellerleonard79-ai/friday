@@ -1057,3 +1057,84 @@ Jane Reed sent a message asking ...
 2026-05-26 17:24:27,608 [friday] INFO: ── Poll cycle complete ──
 2026-05-26 17:26:12,902 [friday] INFO: Friday shutting down.
 2026-05-26 17:26:13,077 [friday.imessage] INFO: iMessage sent: Friday is going offline. 🔴...
+2026-05-26 17:31:46,244 [friday] INFO: ==================================================
+2026-05-26 17:31:46,244 [friday] INFO:   Project Friday — Phase 2 Starting up
+2026-05-26 17:31:46,244 [friday] INFO:   Tuesday, May 26 2026 17:31
+2026-05-26 17:31:46,244 [friday] INFO: ==================================================
+2026-05-26 17:31:46,250 [friday.core] INFO: LLM provider: ollama | model: llama3.2:1b
+2026-05-26 17:31:46,275 [friday.imessage] INFO: iMessage watcher active on /Users/keller/Library/Messages
+2026-05-26 17:31:46,275 [friday] INFO: Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Students, FBLA Officer - 2026/2027, Los Muchachos Part 2, NLC 2026, PHS SGA 2026-2027, Executive SGA Officers 26-27, SGA Officers 2026-2027, Pensacola High School FCA, PHS Tennis 2026, Varsity BOYS 2026, SLU 301
+✓ Apple Calendar
+Two-way iMessage: ✓
+Permission gate: ✓
+Briefing: 21:45
+2026-05-26 17:31:46,495 [friday.imessage] INFO: iMessage sent: ⚡ Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Stud...
+2026-05-26 17:31:46,498 [friday] INFO: Evening briefing scheduled at 21:45
+2026-05-26 17:31:46,498 [friday] INFO: ── Poll cycle starting ──
+2026-05-26 17:31:47,061 [friday.groupme] INFO: Found approved GroupMe group: 'NLC 2026' (ID: 113861947)
+2026-05-26 17:31:47,061 [friday.groupme] INFO: Found approved GroupMe group: 'First Students' (ID: 63856932)
+2026-05-26 17:31:47,061 [friday.groupme] INFO: Found approved GroupMe group: 'Doubles' (ID: 114025944)
+2026-05-26 17:31:47,061 [friday.groupme] INFO: Found approved GroupMe group: 'PHS SGA 2026-2027' (ID: 110357299)
+2026-05-26 17:31:47,061 [friday.groupme] INFO: Found approved GroupMe group: 'Executive SGA Officers 26-27' (ID: 114610395)
+2026-05-26 17:31:47,061 [friday.groupme] INFO: Found approved GroupMe group: 'FBLA Officer - 2026/2027' (ID: 114368134)
+2026-05-26 17:31:47,061 [friday.groupme] INFO: Found approved GroupMe group: 'SGA Officers 2026-2027' (ID: 114419976)
+2026-05-26 17:31:47,062 [friday.groupme] INFO: Found approved GroupMe group: 'Pensacola High School FCA' (ID: 108956712)
+2026-05-26 17:31:47,062 [friday.groupme] INFO: Found approved GroupMe group: 'PHS Tennis 2026' (ID: 99023793)
+2026-05-26 17:31:47,062 [friday.groupme] INFO: Found approved GroupMe group: 'Varsity BOYS 2026' (ID: 112816608)
+2026-05-26 17:31:47,062 [friday.groupme] INFO: Found approved GroupMe group: 'Los Muchachos Part 2' (ID: 106754677)
+2026-05-26 17:31:47,062 [friday.groupme] INFO: Found approved GroupMe group: 'SLU 301' (ID: 102074118)
+2026-05-26 17:31:47,689 [friday.groupme] INFO: GroupMe 'doubles': 1 new message(s)
+2026-05-26 17:31:48,266 [friday.imessage] INFO: DEBUG extracted text for rowid 290820: repr='NSObject'
+2026-05-26 17:31:48,268 [friday.imessage] INFO: Read reply from user: 'NSObject'
+2026-05-26 17:31:48,268 [friday.imessage] INFO: DEBUG extracted text for rowid 290819: repr='NSObject'
+2026-05-26 17:31:48,269 [friday.imessage] INFO: Read reply from user: 'NSObject'
+2026-05-26 17:31:49,544 [friday.core] INFO: GroupMe passed filter (Scheduling signal detected in GroupMe message): 'Brah 7:30 am is diabolical but I’ll live nonetheless
+[Resolved dates: "7:30 am" '
+2026-05-26 17:32:03,036 [friday.imessage] INFO: iMessage sent: 📋 Friday — Proposed Action
+
+Keller Leonard sent a message su...
+2026-05-26 17:32:03,038 [friday.permissions] INFO: Permission requested for: groupme_notification
+2026-05-26 17:32:11,061 [friday.imessage] INFO: DEBUG extracted text for rowid 290822: repr='Edit: [your instructions]\x02iI\x01\x03 NSDictionary\x00\x01i\x01 __kIMMessagePartAttributeName\x08NSNumber\x00\x07NSValue\x00\x01*\x00\x02\x06\x02 __kIMCalendarEventAttributeName NSMutableData\x00\x06NSData\x00\x02\x06[752c]bplist00\x01\x02\x03\x04\x05\x06\x07 X$versionY$archiver'
+2026-05-26 17:32:11,072 [friday.imessage] INFO: Read reply from user: 'Edit: [your instructions]iI NSDictionary i __kIMMessagePartAttributeNameNSNumber NSValue *  __kIMCalendarEventAttributeName NSMutableData NSData [752c]bplist00 X$versionY$archiver'
+2026-05-26 17:32:11,073 [friday.imessage] INFO: DEBUG extracted text for rowid 290820: repr='NSObject'
+2026-05-26 17:32:11,074 [friday.permissions] INFO: User requested edit: [your instructions]iI NSDictionary i __kIMMessagePartAttributeNameNSNumber NSValue *  __kIMCalendarEventAttributeName NSMutableData NSData [752c]bplist00 X$versionY$archiver
+2026-05-26 17:32:17,465 [friday.imessage] INFO: iMessage sent: 📋 Friday — Revised Draft
+
+ACTION: EDIT_EVENT
+DRAFT: Keller L...
+2026-05-26 17:32:25,488 [friday.imessage] INFO: DEBUG extracted text for rowid 290823: repr='Edit: [your instructions]\x02iI\x01\x03 NSDictionary\x00\x01i\x01 __kIMMessagePartAttributeName\x08NSNumber\x00\x07NSValue\x00\x01*\x00\x02\x06\x02 __kIMCalendarEventAttributeName NSMutableData\x00\x06NSData\x00\x02\x06[752c]bplist00\x01\x02\x03\x04\x05\x06\x07 X$versionY$archiver'
+2026-05-26 17:32:25,493 [friday.imessage] INFO: Read reply from user: 'Edit: [your instructions]iI NSDictionary i __kIMMessagePartAttributeNameNSNumber NSValue *  __kIMCalendarEventAttributeName NSMutableData NSData [752c]bplist00 X$versionY$archiver'
+2026-05-26 17:32:25,493 [friday.imessage] INFO: DEBUG extracted text for rowid 290822: repr='Edit: [your instructions]\x02iI\x01\x03 NSDictionary\x00\x01i\x01 __kIMMessagePartAttributeName\x08NSNumber\x00\x07NSValue\x00\x01*\x00\x02\x06\x02 __kIMCalendarEventAttributeName NSMutableData\x00\x06NSData\x00\x02\x06[752c]bplist00\x01\x02\x03\x04\x05\x06\x07 X$versionY$archiver'
+2026-05-26 17:32:25,495 [friday.imessage] INFO: DEBUG extracted text for rowid 290820: repr='NSObject'
+2026-05-26 17:32:25,498 [friday.permissions] INFO: User requested edit: [your instructions]iI NSDictionary i __kIMMessagePartAttributeNameNSNumber NSValue *  __kIMCalendarEventAttributeName NSMutableData NSData [752c]bplist00 X$versionY$archiver
+2026-05-26 17:32:32,089 [friday.imessage] INFO: iMessage sent: 📋 Friday — Revised Draft
+
+ACTION: EDIT_EVENT
+DRAFT: Keller L...
+2026-05-26 17:32:40,137 [friday.imessage] INFO: DEBUG extracted text for rowid 290825: repr='NSObject'
+2026-05-26 17:32:40,143 [friday.imessage] INFO: Read reply from user: 'NSObject'
+2026-05-26 17:32:40,144 [friday.imessage] INFO: DEBUG extracted text for rowid 290824: repr='Edit: [your instructions]\x02iI\x01\x03 NSDictionary\x00\x01i\x01 __kIMMessagePartAttributeName\x08NSNumber\x00\x07NSValue\x00\x01*\x00\x02\x06\x02 __kIMCalendarEventAttributeName NSMutableData\x00\x06NSData\x00\x02\x06[752c]bplist00\x01\x02\x03\x04\x05\x06\x07 X$versionY$archiver'
+2026-05-26 17:32:40,145 [friday.imessage] INFO: Read reply from user: 'Edit: [your instructions]iI NSDictionary i __kIMMessagePartAttributeNameNSNumber NSValue *  __kIMCalendarEventAttributeName NSMutableData NSData [752c]bplist00 X$versionY$archiver'
+2026-05-26 17:32:40,146 [friday.imessage] INFO: DEBUG extracted text for rowid 290823: repr='Edit: [your instructions]\x02iI\x01\x03 NSDictionary\x00\x01i\x01 __kIMMessagePartAttributeName\x08NSNumber\x00\x07NSValue\x00\x01*\x00\x02\x06\x02 __kIMCalendarEventAttributeName NSMutableData\x00\x06NSData\x00\x02\x06[752c]bplist00\x01\x02\x03\x04\x05\x06\x07 X$versionY$archiver'
+2026-05-26 17:32:40,149 [friday.imessage] INFO: DEBUG extracted text for rowid 290822: repr='Edit: [your instructions]\x02iI\x01\x03 NSDictionary\x00\x01i\x01 __kIMMessagePartAttributeName\x08NSNumber\x00\x07NSValue\x00\x01*\x00\x02\x06\x02 __kIMCalendarEventAttributeName NSMutableData\x00\x06NSData\x00\x02\x06[752c]bplist00\x01\x02\x03\x04\x05\x06\x07 X$versionY$archiver'
+2026-05-26 17:32:40,149 [friday.imessage] INFO: DEBUG extracted text for rowid 290820: repr='NSObject'
+2026-05-26 17:32:40,150 [friday.permissions] INFO: User requested edit: [your instructions]iI NSDictionary i __kIMMessagePartAttributeNameNSNumber NSValue *  __kIMCalendarEventAttributeName NSMutableData NSData [752c]bplist00 X$versionY$archiver
+2026-05-26 17:32:46,656 [friday.imessage] INFO: iMessage sent: 📋 Friday — Revised Draft
+
+ACTION: DELETE_EVENT
+DRAFT: Keller...
+2026-05-26 17:32:48,305 [friday.imessage] INFO: DEBUG extracted text for rowid 290826: repr='Edit: [your instructions]\x02iI\x01\x03 NSDictionary\x00\x01i\x01 __kIMMessagePartAttributeName\x08NSNumber\x00\x07NSValue\x00\x01*\x00\x02\x06\x02 __kIMCalendarEventAttributeName NSMutableData\x00\x06NSData\x00\x02\x06[752c]bplist00\x01\x02\x03\x04\x05\x06\x07 X$versionY$archiver'
+2026-05-26 17:32:48,310 [friday.imessage] INFO: Read reply from user: 'Edit: [your instructions]iI NSDictionary i __kIMMessagePartAttributeNameNSNumber NSValue *  __kIMCalendarEventAttributeName NSMutableData NSData [752c]bplist00 X$versionY$archiver'
+2026-05-26 17:32:48,310 [friday.imessage] INFO: DEBUG extracted text for rowid 290825: repr='NSObject'
+2026-05-26 17:32:48,311 [friday.imessage] INFO: DEBUG extracted text for rowid 290824: repr='Edit: [your instructions]\x02iI\x01\x03 NSDictionary\x00\x01i\x01 __kIMMessagePartAttributeName\x08NSNumber\x00\x07NSValue\x00\x01*\x00\x02\x06\x02 __kIMCalendarEventAttributeName NSMutableData\x00\x06NSData\x00\x02\x06[752c]bplist00\x01\x02\x03\x04\x05\x06\x07 X$versionY$archiver'
+2026-05-26 17:32:48,320 [friday.imessage] INFO: DEBUG extracted text for rowid 290823: repr='Edit: [your instructions]\x02iI\x01\x03 NSDictionary\x00\x01i\x01 __kIMMessagePartAttributeName\x08NSNumber\x00\x07NSValue\x00\x01*\x00\x02\x06\x02 __kIMCalendarEventAttributeName NSMutableData\x00\x06NSData\x00\x02\x06[752c]bplist00\x01\x02\x03\x04\x05\x06\x07 X$versionY$archiver'
+2026-05-26 17:32:48,321 [friday.imessage] INFO: DEBUG extracted text for rowid 290822: repr='Edit: [your instructions]\x02iI\x01\x03 NSDictionary\x00\x01i\x01 __kIMMessagePartAttributeName\x08NSNumber\x00\x07NSValue\x00\x01*\x00\x02\x06\x02 __kIMCalendarEventAttributeName NSMutableData\x00\x06NSData\x00\x02\x06[752c]bplist00\x01\x02\x03\x04\x05\x06\x07 X$versionY$archiver'
+2026-05-26 17:32:48,321 [friday.imessage] INFO: DEBUG extracted text for rowid 290820: repr='NSObject'
+2026-05-26 17:32:54,679 [friday.imessage] INFO: DEBUG extracted text for rowid 290826: repr='Edit: [your instructions]\x02iI\x01\x03 NSDictionary\x00\x01i\x01 __kIMMessagePartAttributeName\x08NSNumber\x00\x07NSValue\x00\x01*\x00\x02\x06\x02 __kIMCalendarEventAttributeName NSMutableData\x00\x06NSData\x00\x02\x06[752c]bplist00\x01\x02\x03\x04\x05\x06\x07 X$versionY$archiver'
+2026-05-26 17:32:54,682 [friday.imessage] INFO: DEBUG extracted text for rowid 290825: repr='NSObject'
+2026-05-26 17:32:54,684 [friday.imessage] INFO: DEBUG extracted text for rowid 290824: repr='Edit: [your instructions]\x02iI\x01\x03 NSDictionary\x00\x01i\x01 __kIMMessagePartAttributeName\x08NSNumber\x00\x07NSValue\x00\x01*\x00\x02\x06\x02 __kIMCalendarEventAttributeName NSMutableData\x00\x06NSData\x00\x02\x06[752c]bplist00\x01\x02\x03\x04\x05\x06\x07 X$versionY$archiver'
+2026-05-26 17:32:54,685 [friday.imessage] INFO: DEBUG extracted text for rowid 290823: repr='Edit: [your instructions]\x02iI\x01\x03 NSDictionary\x00\x01i\x01 __kIMMessagePartAttributeName\x08NSNumber\x00\x07NSValue\x00\x01*\x00\x02\x06\x02 __kIMCalendarEventAttributeName NSMutableData\x00\x06NSData\x00\x02\x06[752c]bplist00\x01\x02\x03\x04\x05\x06\x07 X$versionY$archiver'
+2026-05-26 17:32:54,685 [friday.imessage] INFO: DEBUG extracted text for rowid 290822: repr='Edit: [your instructions]\x02iI\x01\x03 NSDictionary\x00\x01i\x01 __kIMMessagePartAttributeName\x08NSNumber\x00\x07NSValue\x00\x01*\x00\x02\x06\x02 __kIMCalendarEventAttributeName NSMutableData\x00\x06NSData\x00\x02\x06[752c]bplist00\x01\x02\x03\x04\x05\x06\x07 X$versionY$archiver'
+2026-05-26 17:32:54,687 [friday.imessage] INFO: DEBUG extracted text for rowid 290820: repr='NSObject'

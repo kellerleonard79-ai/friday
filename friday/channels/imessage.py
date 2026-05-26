@@ -133,17 +133,35 @@ end tell
                     LIMIT 10
                 """, (self.your_handle, cutoff_mac)).fetchall()
 
+            # Markers that identify Friday's own outbound messages
+            _friday_markers = (
+                "📋 Friday", "⏰ Friday", "🌙 Friday",
+                "Reply: Yes / No / Edit",
+                "✅ Added to calendar", "✅ Deleted", "✅ Message sent",
+                "✅ Calendar event", "✅ Noted",
+                "❌ Couldn't", "⚠️",
+                "Got it — action cancelled",
+                "Trouble redrafting",
+                "What should I change?",
+                "Friday is online",
+                "Friday: ",
+            )
+
             replies = []
             for row in rows:
                 msg_id = str(row[0])
                 text = self._extract_text(row[1], row[2])
-                logger.info(f"DEBUG extracted text for rowid {row[0]}: repr={repr(text)}")  # temp
                 if not text:
                     continue
 
-                # Clean and validate — ignore anything under 2 chars or pure symbols
                 text = text.strip()
                 if len(text) < 2 or not any(c.isalpha() for c in text):
+                    continue
+
+                # Skip Friday's own outbound messages — mark processed so they don't re-appear
+                if any(marker in text for marker in _friday_markers):
+                    if not self.memory.is_processed("imessage_reply", msg_id):
+                        self.memory.mark_processed("imessage_reply", msg_id)
                     continue
 
                 if self.memory.is_processed("imessage_reply", msg_id):
@@ -229,7 +247,8 @@ end tell
         except Exception:
             pass
 
-        # 2) Raw bytes fallback — reliable for short permission-gate responses
+        # 2) Raw bytes fallback — exact-match only to avoid false positives
+        # (Edit: not detected here — iPhone Edit replies have m.text populated)
         try:
             decoded = attributed_body.decode("utf-8", errors="ignore")
             cleaned = " ".join(decoded.split())  # collapses null bytes and whitespace runs
@@ -238,9 +257,6 @@ end tell
                 return "Yes"
             if lower == "no":
                 return "No"
-            for prefix in ("Edit:", "edit:"):
-                if prefix in cleaned:
-                    return cleaned[cleaned.find(prefix):cleaned.find(prefix) + 200].strip()
         except Exception:
             pass
 

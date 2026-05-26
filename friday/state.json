@@ -1,14 +1,14 @@
 {
   "status": "running",
-  "pid": 12117,
+  "pid": 12757,
   "provider": "ollama",
   "model": "llama3.2:1b",
-  "started_at": "2026-05-26T17:19:07.677793",
-  "last_poll_at": "2026-05-26T17:24:27.607358",
-  "think_calls_total": 1,
-  "tokens_in_total": 3046,
-  "tokens_out_total": 99,
-  "last_message_at": "2026-05-26T17:19:10.548942",
-  "last_message_source": "groupme/doubles",
-  "last_message_preview": "So the final is 7:30 am at UWF on Thursday ??\n[Resolved dates: \"thursday\" \u2192 2026"
+  "started_at": "2026-05-26T17:31:46.250154",
+  "last_poll_at": "2026-05-26T17:31:46.495675",
+  "think_calls_total": 0,
+  "tokens_in_total": 0,
+  "tokens_out_total": 0,
+  "last_message_at": null,
+  "last_message_source": null,
+  "last_message_preview": null
 }
