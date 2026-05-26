@@ -593,3 +593,53 @@ DRAFT: I'm still not sure what "NS...
 DRAFT: I'm still not clear on "NSO...
 2026-05-25 19:04:05,837 [friday.core] INFO: Processing standalone user reply: 'NSObject'
 2026-05-25 19:04:05,841 [google_genai.models] INFO: AFC is enabled with max remote calls: 10.
+2026-05-25 19:09:26,567 [friday] INFO: ==================================================
+2026-05-25 19:09:26,567 [friday] INFO:   Project Friday — Phase 2 Starting up
+2026-05-25 19:09:26,567 [friday] INFO:   Monday, May 25 2026 19:09
+2026-05-25 19:09:26,567 [friday] INFO: ==================================================
+2026-05-25 19:09:26,732 [friday.core] INFO: Gemini model loaded: models/gemini-2.5-flash-lite
+2026-05-25 19:09:26,732 [friday] INFO: Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Students, FBLA Officer - 2026/2027, Los Muchachos Part 2
+✓ Apple Calendar
+Two-way iMessage: ✓
+Permission gate: ✓
+Briefing: 21:45
+2026-05-25 19:09:27,173 [friday.imessage] INFO: iMessage sent: ⚡ Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Stud...
+2026-05-25 19:09:27,174 [friday] INFO: Evening briefing scheduled at 21:45
+2026-05-25 19:09:27,174 [friday] INFO: ── Poll cycle starting ──
+2026-05-25 19:09:27,197 [friday.imessage] INFO: DEBUG extracted text for rowid 290658: repr='NSObject'
+2026-05-25 19:09:27,199 [friday.imessage] INFO: Read reply from user: 'NSObject'
+2026-05-25 19:09:27,199 [friday.imessage] INFO: DEBUG extracted text for rowid 290657: repr='NSObject'
+2026-05-25 19:09:27,200 [friday.imessage] INFO: Read reply from user: 'NSObject'
+2026-05-25 19:09:27,200 [friday.imessage] INFO: DEBUG extracted text for rowid 290656: repr='NSObject'
+2026-05-25 19:09:27,201 [friday.imessage] INFO: Read reply from user: 'NSObject'
+2026-05-25 19:09:27,202 [friday.imessage] INFO: DEBUG extracted text for rowid 290655: repr='NSObject'
+2026-05-25 19:09:27,203 [friday.imessage] INFO: Read reply from user: 'NSObject'
+2026-05-25 19:09:27,203 [friday.imessage] INFO: DEBUG extracted text for rowid 290654: repr='NSObject'
+2026-05-25 19:09:27,204 [friday.imessage] INFO: Read reply from user: 'NSObject'
+2026-05-25 19:09:27,204 [friday.imessage] INFO: DEBUG extracted text for rowid 290653: repr='NSObject'
+2026-05-25 19:09:27,205 [friday.imessage] INFO: DEBUG extracted text for rowid 290652: repr='NSObject'
+2026-05-25 19:09:27,205 [friday.imessage] INFO: DEBUG extracted text for rowid 290651: repr='NSObject'
+2026-05-25 19:09:27,206 [friday.imessage] INFO: DEBUG extracted text for rowid 290650: repr='NSObject'
+2026-05-25 19:09:27,207 [friday.imessage] INFO: DEBUG extracted text for rowid 290649: repr='NSObject'
+2026-05-25 19:09:27,208 [friday.core] INFO: Processing standalone user reply: 'NSObject'
+2026-05-25 19:09:27,212 [google_genai.models] INFO: AFC is enabled with max remote calls: 10.
+2026-05-25 19:09:28,253 [httpx] INFO: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent "HTTP/1.1 200 OK"
+2026-05-25 19:09:28,433 [friday.imessage] INFO: iMessage sent: Friday: ACTION: NO_ACTION
+DRAFT: I'm still not sure what "NS...
+2026-05-25 19:09:31,439 [friday.core] INFO: Processing standalone user reply: 'NSObject'
+2026-05-25 19:09:31,442 [google_genai.models] INFO: AFC is enabled with max remote calls: 10.
+2026-05-25 19:09:33,107 [httpx] INFO: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent "HTTP/1.1 200 OK"
+2026-05-25 19:09:33,322 [friday.imessage] INFO: iMessage sent: Friday: ACTION: NO_ACTION
+DRAFT: I'm still unsure about "NSO...
+2026-05-25 19:09:36,328 [friday.core] INFO: Processing standalone user reply: 'NSObject'
+2026-05-25 19:09:36,333 [google_genai.models] INFO: AFC is enabled with max remote calls: 10.
+2026-05-25 19:09:37,592 [httpx] INFO: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent "HTTP/1.1 200 OK"
+2026-05-25 19:09:37,764 [friday.imessage] INFO: iMessage sent: Friday: ACTION: NO_ACTION
+DRAFT: I'm still unclear on "NSObj...
+2026-05-25 19:09:40,770 [friday.core] INFO: Processing standalone user reply: 'NSObject'
+2026-05-25 19:09:40,775 [google_genai.models] INFO: AFC is enabled with max remote calls: 10.
+2026-05-25 19:09:41,786 [httpx] INFO: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent "HTTP/1.1 200 OK"
+2026-05-25 19:09:41,982 [friday.imessage] INFO: iMessage sent: Friday: ACTION: NO_ACTION
+DRAFT: I'm still not sure what "NS...

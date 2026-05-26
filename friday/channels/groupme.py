@@ -4,6 +4,7 @@ GroupMe channel adapter for Project Friday.
 Polls approved groups for new messages and returns structured message dicts.
 """
 
+import collections
 import requests
 import logging
 from datetime import datetime
@@ -18,7 +19,8 @@ class GroupMeChannel:
         self.token = config.get("api_token", "")
         self.approved_groups = [g.lower() for g in config.get("approved_groups", [])]
         self.memory = memory
-        self._group_cache = {}  # name → group_id
+        self._group_cache = {}           # name → group_id
+        self._context_buffer: dict = {}  # group_id → deque(maxlen=10)
 
     def _headers(self):
         return {"X-Access-Token": self.token}
@@ -97,6 +99,16 @@ class GroupMeChannel:
             # Skip system messages (GroupMe join/leave notifications etc.)
             if sender_type == "system":
                 continue
+
+            # Buffer every real message for the sliding context window, even if
+            # already processed, so the window reflects the true thread history.
+            buf = self._context_buffer.setdefault(
+                group_id, collections.deque(maxlen=10)
+            )
+            buf.append({
+                "sender_name": msg.get("name", "Unknown"),
+                "text": msg.get("text", "") or "",
+            })
 
             if msg_id and not self.memory.is_processed("groupme", msg_id):
                 self.memory.mark_processed("groupme", msg_id)

@@ -9,12 +9,15 @@ Using Google Gemini API (google-genai SDK) as the AI backend.
 import os
 import logging
 import time
+import requests
 from datetime import datetime
 from google import genai
 from google.genai import types
 
-from agent.filter import filter_groupme
+from agent.context_window import gather_groupme_context, gather_imessage_context
+from agent.filter import filter_groupme, has_scheduling_signal
 from agent.memory import Memory
+from agent.preprocess import annotate_with_resolved_dates
 
 logger = logging.getLogger("friday.core")
 
@@ -42,16 +45,24 @@ class FridayAgent:
         self.persona = load_persona()
         self.permissions = None  # Set after init to avoid circular reference
 
-        # Configure Gemini
-        api_key = os.environ.get("GEMINI_API_KEY")
-        if not api_key:
-            raise EnvironmentError("GEMINI_API_KEY environment variable not set.")
+        self.provider = config.get("provider", "gemini")
 
-        self.client = genai.Client(api_key=api_key)
-        self.model_name = config.get("gemini", {}).get("model", "models/gemini-2.0-flash-lite")
-        self.max_tokens = config.get("gemini", {}).get("max_tokens", 1000)
+        if self.provider == "gemini":
+            api_key = os.environ.get("GEMINI_API_KEY")
+            if not api_key:
+                raise EnvironmentError("GEMINI_API_KEY environment variable not set.")
+            self.client = genai.Client(api_key=api_key)
+            self.model_name = config.get("gemini", {}).get("model", "models/gemini-2.0-flash-lite")
+            self.max_tokens = config.get("gemini", {}).get("max_tokens", 1000)
+            self.ollama_base_url = None
+        else:
+            self.client = None
+            ollama_cfg = config.get("ollama", {})
+            self.model_name = ollama_cfg.get("model", "llama3.2:3b")
+            self.max_tokens = ollama_cfg.get("max_tokens", 1000)
+            self.ollama_base_url = ollama_cfg.get("base_url", "http://localhost:11434")
 
-        logger.info(f"Gemini model loaded: {self.model_name}")
+        logger.info(f"LLM provider: {self.provider} | model: {self.model_name}")
 
     def set_permissions(self, permissions):
         """Inject the permission gate after construction."""
@@ -91,23 +102,46 @@ class FridayAgent:
         contents = history + [{"role": "user", "parts": [{"text": full_message}]}]
 
         try:
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    system_instruction=self.persona,
-                    max_output_tokens=self.max_tokens
+            if self.provider == "gemini":
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=contents,
+                    config=types.GenerateContentConfig(
+                        system_instruction=self.persona,
+                        max_output_tokens=self.max_tokens
+                    )
                 )
-            )
-            reply = response.text
+                reply = response.text
+
+            else:  # ollama
+                messages = []
+                if self.persona:
+                    messages.append({"role": "system", "content": self.persona})
+                for turn in contents[:-1]:  # history turns, excluding the new user message
+                    role = "assistant" if turn["role"] == "model" else turn["role"]
+                    messages.append({"role": role, "content": turn["parts"][0]["text"]})
+                messages.append({"role": "user", "content": contents[-1]["parts"][0]["text"]})
+
+                payload = {
+                    "model": self.model_name,
+                    "messages": messages,
+                    "stream": False,
+                    "options": {"num_predict": self.max_tokens},
+                }
+                resp = requests.post(
+                    f"{self.ollama_base_url}/api/chat",
+                    json=payload,
+                    timeout=120,
+                )
+                resp.raise_for_status()
+                reply = resp.json()["message"]["content"]
 
             self.memory.add_turn("user", user_message, source="internal")
             self.memory.add_turn("assistant", reply, source="friday")
-
             return reply
 
         except Exception as e:
-            logger.error(f"Gemini API error: {e}")
+            logger.error(f"LLM error ({self.provider}): {e}")
             return None
 
     # ── Calendar query (conversational) ──────────────────────────────────────
@@ -120,6 +154,7 @@ class FridayAgent:
         if not self.calendar or not self.calendar.enabled:
             return "Calendar isn't connected — enable Apple Calendar in friday_config.yaml."
 
+        query = annotate_with_resolved_dates(query, now=datetime.now())
         calendar_data = self.calendar.format_for_briefing(days_ahead=14)
 
         prompt = f"""The user is asking about their calendar: "{query}"
@@ -129,7 +164,11 @@ Here are their upcoming events for the next 14 days:
 
 Answer the question directly and concisely. If no relevant events exist, say so clearly."""
 
-        return self._think(prompt, context="Calendar query")
+        ctx = gather_imessage_context(self.imessage.your_handle, self.imessage.chat_db)
+        context_str = "Calendar query"
+        if ctx:
+            context_str += f"\n\nRecent conversation thread:\n{ctx}"
+        return self._think(prompt, context=context_str)
 
     # ── Reply processing ──────────────────────────────────────────────────────
 
@@ -147,6 +186,8 @@ Answer the question directly and concisely. If no relevant events exist, say so 
             # Ignore Friday's own outbound messages being read back
             if text.startswith("Friday:") or "ACTION:" in text or "DRAFT:" in text:
                 continue
+            text = annotate_with_resolved_dates(text, now=datetime.now())
+            lower = text.lower()
 
             # Skip permission gate keywords — handled by permissions.py
             if lower in ("yes", "no") or lower.startswith("edit"):
@@ -163,11 +204,19 @@ Answer the question directly and concisely. If no relevant events exist, say so 
                 time.sleep(3)
                 continue
 
-            # General conversation
-            logger.info(f"Processing standalone user reply: '{text[:60]}'")
+            # Scheduling signal gate — skip Gemini for non-scheduling messages
+            if not has_scheduling_signal(text):
+                logger.debug(f"Reply skipped — no scheduling signal: '{text[:60]}'")
+                continue
+
+            logger.info(f"Processing scheduling reply from user: '{text[:60]}'")
+            ctx = gather_imessage_context(self.imessage.your_handle, self.imessage.chat_db)
+            context_str = "User reply in Friday iMessage thread"
+            if ctx:
+                context_str += f"\n\nRecent conversation thread:\n{ctx}"
             response = self._think(
                 f"The user sent you a message: {text}\n\nRespond helpfully and concisely.",
-                context="User reply in Friday iMessage thread"
+                context=context_str
             )
             if response:
                 self.imessage.send_to_self(f"Friday: {response}")
@@ -175,7 +224,7 @@ Answer the question directly and concisely. If no relevant events exist, say so 
 
     # ── GroupMe processing ────────────────────────────────────────────────────
 
-    def process_groupme_messages(self, messages: list, groupme_config: dict):
+    def process_groupme_messages(self, messages: list, groupme_config: dict, groupme_channel=None):
         """
         Filter GroupMe messages, save to memory, then reason with Gemini.
         If action needed, go through permission gate before doing anything.
@@ -190,6 +239,8 @@ Answer the question directly and concisely. If no relevant events exist, say so 
                 logger.debug(f"GroupMe filtered — {reason}: '{msg['text'][:60]}'")
                 continue
 
+            msg = dict(msg)  # shallow copy — don't mutate the original list element
+            msg["text"] = annotate_with_resolved_dates(msg["text"], now=datetime.now())
             logger.info(f"GroupMe passed filter ({reason}): '{msg['text'][:80]}'")
 
             memory_entry = (
@@ -220,7 +271,11 @@ NEW_TIME: [New time for EDIT_EVENT only, else blank]
 DURATION: [Duration in minutes if inferable, else 60]
 LOCATION: [Location if mentioned, else blank]"""
 
-            response = self._think(prompt)
+            thread_ctx = ""
+            if groupme_channel:
+                thread_ctx = gather_groupme_context(msg["group_id"], groupme_channel)
+
+            response = self._think(prompt, context=thread_ctx)
             time.sleep(3)
 
             if not response or "NO_ACTION" in response:

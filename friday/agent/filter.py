@@ -87,6 +87,11 @@ def filter_imessage(message: dict, config: dict) -> tuple[bool, str]:
     return False, "No scheduling signal found"
 
 
+def has_scheduling_signal(text: str) -> bool:
+    """Return True if text contains any scheduling-related pattern."""
+    return _matches_any(text, SCHEDULING_PATTERNS)
+
+
 def filter_gmail(message: dict, config: dict) -> tuple[bool, str]:
     """
     Filter a Gmail message using subject line and snippet only.

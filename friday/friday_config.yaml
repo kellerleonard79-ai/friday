@@ -44,10 +44,18 @@ memory:
   db_path: "memory/friday_memory.db"
   short_term_turns: 20
 
+# LLM provider: "gemini" (default, production) or "ollama" (local, zero cost)
+provider: "gemini"
+
 gemini:
   model: "models/gemini-2.5-flash-lite"
   max_tokens: 1000
   # API key loaded from environment variable: GEMINI_API_KEY
+
+ollama:
+  model: "llama3.2:3b"           # swap to "llama3.2:1b" for fastest iteration
+  base_url: "http://localhost:11434"
+  max_tokens: 1000
 
 skills:
   stock_check:

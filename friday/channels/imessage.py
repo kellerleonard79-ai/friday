@@ -11,9 +11,36 @@ import subprocess
 import logging
 import sqlite3
 import os
+import threading
 from datetime import datetime, timedelta
 
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+
 logger = logging.getLogger("friday.imessage")
+
+
+class _ChatDBHandler(FileSystemEventHandler):
+    """Debounced FSEvents handler that fires a callback when chat.db (or its WAL) changes."""
+
+    def __init__(self, db_path: str, callback, debounce_seconds: float = 1.5):
+        abs_db = os.path.abspath(db_path)
+        self._targets = {abs_db, abs_db + "-wal"}
+        self._callback = callback
+        self._debounce = debounce_seconds
+        self._timer = None
+        self._lock = threading.Lock()
+
+    def on_modified(self, event):
+        if event.is_directory or os.path.abspath(event.src_path) not in self._targets:
+            return
+        with self._lock:
+            if self._timer:
+                self._timer.cancel()
+            t = threading.Timer(self._debounce, self._callback)
+            t.daemon = True
+            t.start()
+            self._timer = t
 
 
 class iMessageChannel:
@@ -22,6 +49,24 @@ class iMessageChannel:
         self.memory = memory
         self.your_handle = config.get("your_imessage_handle", "")
         self.chat_db = os.path.expanduser("~/Library/Messages/chat.db")
+
+    # ── Watcher ───────────────────────────────────────────────────────────────
+
+    def start_watcher(self, on_change, debounce_seconds: float = 1.5) -> Observer:
+        """Start a watchdog FSEvents observer on the Messages directory.
+
+        Calls on_change after debounce_seconds of quiet whenever chat.db or
+        its WAL file is modified.  Returns the running Observer so the caller
+        can stop() it on shutdown.
+        """
+        watch_dir = os.path.dirname(self.chat_db)
+        handler = _ChatDBHandler(self.chat_db, on_change, debounce_seconds)
+        observer = Observer()
+        observer.schedule(handler, path=watch_dir, recursive=False)
+        observer.daemon = True
+        observer.start()
+        logger.info(f"iMessage watcher active on {watch_dir}")
+        return observer
 
     # ── Sending ───────────────────────────────────────────────────────────────
 

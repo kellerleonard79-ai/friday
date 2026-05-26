@@ -58,7 +58,7 @@ def load_config(path: str = "friday_config.yaml") -> dict:
 def check_environment(config: dict):
     errors = []
 
-    if not os.environ.get("GEMINI_API_KEY"):
+    if config.get("provider", "gemini") == "gemini" and not os.environ.get("GEMINI_API_KEY"):
         errors.append("GEMINI_API_KEY environment variable not set.")
 
     groupme_cfg = config.get("groupme", {})
@@ -77,21 +77,14 @@ def check_environment(config: dict):
 # ── Poll cycle ────────────────────────────────────────────────────────────────
 
 def run_poll_cycle(agent: FridayAgent, groupme: GroupMeChannel, config: dict):
-    """One full observation cycle."""
+    """Periodic GroupMe observation cycle. iMessage is handled by the watchdog."""
     logger.info("── Poll cycle starting ──")
 
-    # Check for user replies first
-    try:
-        agent.process_user_replies()
-    except Exception as e:
-        logger.error(f"Error processing user replies: {e}")
-
-    # Poll GroupMe
     groupme_cfg = config.get("groupme", {})
     if groupme_cfg.get("enabled"):
         try:
             messages = groupme.poll()
-            agent.process_groupme_messages(messages, groupme_cfg)
+            agent.process_groupme_messages(messages, groupme_cfg, groupme_channel=groupme)
         except Exception as e:
             logger.error(f"GroupMe poll error: {e}")
 
@@ -148,6 +141,9 @@ def main():
     )
     agent.set_permissions(permissions)
 
+    # Start iMessage filesystem watcher (replaces the interval-based reply poll)
+    imessage_observer = imessage.start_watcher(agent.process_user_replies)
+
     # Startup message
     cal_status = "✓ Apple Calendar" if calendar_cfg.get("enabled") else "✗ Calendar (disabled)"
     startup_msg = (
@@ -185,6 +181,8 @@ def main():
             time.sleep(60)
     except KeyboardInterrupt:
         logger.info("Friday shutting down.")
+        imessage_observer.stop()
+        imessage_observer.join()
         imessage.send_to_self("Friday is going offline. 🔴")
 
 
