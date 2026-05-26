@@ -213,10 +213,27 @@ Answer the question directly and concisely. If no relevant events exist, say so 
             if lower in ("yes", "no") or lower.startswith("edit"):
                 continue
 
-            # Calendar queries
-            calendar_keywords = ("calendar", "schedule", "what's on", "what do i have",
-                                  "when is", "what time", "do i have", "any events")
-            if any(kw in lower for kw in calendar_keywords):
+            # Direct scheduling commands — user explicitly asking Friday to act
+            command_verbs = ("add", "put", "create", "schedule", "set up", "book",
+                             "block off", "remind me", "move", "cancel", "delete",
+                             "remove", "reschedule", "change")
+            scheduling_nouns = ("calendar", "event", "meeting", "appointment",
+                                "reminder", "block", "slot")
+            is_direct_command = (
+                any(lower.startswith(v) or f" {v} " in lower for v in command_verbs)
+                and any(n in lower for n in scheduling_nouns)
+            )
+            if is_direct_command:
+                logger.info(f"Direct command from user: '{text[:60]}'")
+                self._handle_direct_command(text)
+                time.sleep(3)
+                continue
+
+            # Calendar read queries
+            query_keywords = ("what's on", "what do i have", "when is", "what time",
+                               "do i have", "any events", "show my", "what are my",
+                               "what's my schedule", "what is on my")
+            if any(kw in lower for kw in query_keywords):
                 logger.info(f"Calendar query from user: '{text[:60]}'")
                 response = self.answer_calendar_query(text)
                 if response:
@@ -245,6 +262,58 @@ Answer the question directly and concisely. If no relevant events exist, say so 
             if response:
                 self.imessage.send_to_self(f"Friday: {response}")
             time.sleep(3)
+
+    def _handle_direct_command(self, text: str):
+        """Process a direct scheduling command the user sent via iMessage."""
+        ctx = gather_imessage_context(self.imessage.your_handle, self.imessage.chat_db)
+        context_str = "Direct user command via iMessage"
+        if ctx:
+            context_str += f"\n\nRecent conversation:\n{ctx}"
+
+        prompt = f"""The user sent you a direct scheduling command: "{text}"
+
+Parse this command and respond in this exact format:
+
+ACTION: [CREATE_EVENT / EDIT_EVENT / DELETE_EVENT / NO_ACTION]
+DRAFT: [Short friendly confirmation for the user — present the parsed details clearly and ask for confirmation]
+TITLE: [Event title for CREATE_EVENT, or search term for EDIT_EVENT/DELETE_EVENT, else blank]
+NEW_TITLE: [Replacement title for EDIT_EVENT only, else blank]
+DATE: [Date e.g. "May 9 2026", else blank]
+TIME: [Time e.g. "8:00 AM", else blank]
+NEW_DATE: [New date for EDIT_EVENT only, else blank]
+NEW_TIME: [New time for EDIT_EVENT only, else blank]
+DURATION: [Duration in minutes if mentioned, else 60]
+LOCATION: [Location if mentioned, else blank]"""
+
+        response = self._think(prompt, context=context_str)
+        if not response or "NO_ACTION" in response:
+            self.imessage.send_to_self(
+                "Friday: Got it — but I couldn't parse a clear event. "
+                "Try: 'Add [event name] on [date] at [time]'"
+            )
+            return
+
+        synthetic_msg = {"group_name": "direct", "sender_name": "you", "text": text}
+        action_type, draft, action_data = self._parse_action_response(response, synthetic_msg)
+
+        if not draft:
+            return
+
+        self._stats["last_message_at"] = datetime.now().isoformat()
+        self._stats["last_message_source"] = "imessage_direct"
+        self._stats["last_message_preview"] = text[:80]
+
+        if self.permissions:
+            result = self.permissions.request(
+                action_type=action_type,
+                draft=draft,
+                context=f"Direct command: {text}",
+                action_data=action_data
+            )
+            if result.get("approved"):
+                logger.info(f"Direct command approved: {action_type}")
+        else:
+            self.imessage.send_to_self(f"Friday: {draft}")
 
     # ── GroupMe processing ────────────────────────────────────────────────────
 

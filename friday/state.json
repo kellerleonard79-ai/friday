@@ -1,14 +1,14 @@
 {
   "status": "running",
-  "pid": 11749,
+  "pid": 11954,
   "provider": "ollama",
   "model": "llama3.2:1b",
-  "started_at": "2026-05-26T17:14:14.852127",
-  "last_poll_at": "2026-05-26T17:14:14.963913",
-  "think_calls_total": 0,
-  "tokens_in_total": 0,
-  "tokens_out_total": 0,
-  "last_message_at": null,
-  "last_message_source": null,
-  "last_message_preview": null
+  "started_at": "2026-05-26T17:17:17.327477",
+  "last_poll_at": "2026-05-26T17:17:28.575627",
+  "think_calls_total": 1,
+  "tokens_in_total": 2719,
+  "tokens_out_total": 85,
+  "last_message_at": "2026-05-26T17:17:20.242099",
+  "last_message_source": "groupme/doubles",
+  "last_message_preview": "If it\u2019s in the morning then I\u2019d defiantly need a ride from someone please\n[Resol"
 }
