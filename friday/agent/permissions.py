@@ -304,5 +304,12 @@ Original:
 Edit instruction: {instruction}
 Context: {context}
 
-Rewrite incorporating the instruction. Return ONLY the revised text."""
-        return self.agent._think(prompt)
+Rewrite incorporating the instruction. Return ONLY the revised plain-text draft — no ACTION/TITLE/DATE fields."""
+        raw = self.agent._think(prompt)
+        if not raw:
+            return ""
+        # Strip Action Block leakage — return only the DRAFT line content if present
+        for line in raw.splitlines():
+            if line.upper().startswith("DRAFT:"):
+                return line.partition(":")[2].strip()
+        return raw.strip()

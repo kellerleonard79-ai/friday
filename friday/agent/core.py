@@ -206,6 +206,16 @@ Answer the question directly and concisely. If no relevant events exist, say so 
             # Ignore Friday's own outbound messages being read back
             if text.startswith("Friday:") or "ACTION:" in text or "DRAFT:" in text:
                 continue
+
+            # Hard-coded backstop: discard status/system messages and self-triggers
+            _self_triggers = (
+                "friday is online", "friday is going offline",
+                "⚡ friday", "reply: yes / no / edit",
+                "action:", "draft:",
+            )
+            if any(t in lower for t in _self_triggers):
+                continue
+
             text = annotate_with_resolved_dates(text, now=datetime.now())
             lower = text.lower()
 
