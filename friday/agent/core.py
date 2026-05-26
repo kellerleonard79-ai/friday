@@ -48,12 +48,13 @@ class FridayAgent:
         self.provider = config.get("provider", "gemini")
 
         if self.provider == "gemini":
-            api_key = os.environ.get("GEMINI_API_KEY")
+            gemini_cfg = config.get("gemini", {})
+            api_key = gemini_cfg.get("api_key") or os.environ.get("GEMINI_API_KEY")
             if not api_key:
-                raise EnvironmentError("GEMINI_API_KEY environment variable not set.")
+                raise EnvironmentError("GEMINI_API_KEY not set in config or environment.")
             self.client = genai.Client(api_key=api_key)
-            self.model_name = config.get("gemini", {}).get("model", "models/gemini-2.0-flash-lite")
-            self.max_tokens = config.get("gemini", {}).get("max_tokens", 1000)
+            self.model_name = gemini_cfg.get("model", "models/gemini-2.0-flash-lite")
+            self.max_tokens = gemini_cfg.get("max_tokens", 1000)
             self.ollama_base_url = None
         else:
             self.client = None
@@ -61,6 +62,15 @@ class FridayAgent:
             self.model_name = ollama_cfg.get("model", "llama3.2:3b")
             self.max_tokens = ollama_cfg.get("max_tokens", 1000)
             self.ollama_base_url = ollama_cfg.get("base_url", "http://localhost:11434")
+
+        self._stats = {
+            "think_calls_total": 0,
+            "tokens_in_total": 0,
+            "tokens_out_total": 0,
+            "last_message_at": None,
+            "last_message_source": None,
+            "last_message_preview": None,
+        }
 
         logger.info(f"LLM provider: {self.provider} | model: {self.model_name}")
 
@@ -112,6 +122,12 @@ class FridayAgent:
                     )
                 )
                 reply = response.text
+                try:
+                    usage = response.usage_metadata
+                    self._stats["tokens_in_total"] += usage.prompt_token_count or 0
+                    self._stats["tokens_out_total"] += usage.candidates_token_count or 0
+                except Exception:
+                    pass
 
             else:  # ollama
                 messages = []
@@ -134,8 +150,12 @@ class FridayAgent:
                     timeout=120,
                 )
                 resp.raise_for_status()
-                reply = resp.json()["message"]["content"]
+                resp_data = resp.json()
+                reply = resp_data["message"]["content"]
+                self._stats["tokens_in_total"] += resp_data.get("prompt_eval_count", 0)
+                self._stats["tokens_out_total"] += resp_data.get("eval_count", 0)
 
+            self._stats["think_calls_total"] += 1
             self.memory.add_turn("user", user_message, source="internal")
             self.memory.add_turn("assistant", reply, source="friday")
             return reply
@@ -209,6 +229,10 @@ Answer the question directly and concisely. If no relevant events exist, say so 
                 logger.debug(f"Reply skipped — no scheduling signal: '{text[:60]}'")
                 continue
 
+            self._stats["last_message_at"] = datetime.now().isoformat()
+            self._stats["last_message_source"] = "imessage"
+            self._stats["last_message_preview"] = text[:80]
+
             logger.info(f"Processing scheduling reply from user: '{text[:60]}'")
             ctx = gather_imessage_context(self.imessage.your_handle, self.imessage.chat_db)
             context_str = "User reply in Friday iMessage thread"
@@ -242,6 +266,10 @@ Answer the question directly and concisely. If no relevant events exist, say so 
             msg = dict(msg)  # shallow copy — don't mutate the original list element
             msg["text"] = annotate_with_resolved_dates(msg["text"], now=datetime.now())
             logger.info(f"GroupMe passed filter ({reason}): '{msg['text'][:80]}'")
+
+            self._stats["last_message_at"] = datetime.now().isoformat()
+            self._stats["last_message_source"] = f"groupme/{msg['group_name']}"
+            self._stats["last_message_preview"] = msg["text"][:80]
 
             memory_entry = (
                 f"[GroupMe/{msg['group_name']}] "

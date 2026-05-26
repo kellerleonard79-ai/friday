@@ -11,6 +11,7 @@ Requirements:
     export GEMINI_API_KEY="your-key-here"
 """
 
+import json
 import logging
 import os
 import sys
@@ -19,6 +20,9 @@ import schedule
 import time
 import threading
 from datetime import datetime
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+STATE_FILE = os.path.join(_HERE, "state.json")
 
 # ── Logging setup ─────────────────────────────────────────────────────────────
 
@@ -74,9 +78,32 @@ def check_environment(config: dict):
         sys.exit(1)
 
 
+# ── State file ────────────────────────────────────────────────────────────────
+
+def write_state(agent: "FridayAgent", config: dict, started_at: str):
+    """Atomically write runtime stats to state.json for the dashboard to read."""
+    data = {
+        "status": "running",
+        "pid": os.getpid(),
+        "provider": config.get("provider", "gemini"),
+        "model": agent.model_name,
+        "started_at": started_at,
+        "last_poll_at": datetime.now().isoformat(),
+        **agent._stats,
+    }
+    tmp = STATE_FILE + ".tmp"
+    try:
+        with open(tmp, "w") as f:
+            json.dump(data, f, indent=2)
+        os.replace(tmp, STATE_FILE)
+    except Exception as e:
+        logger.warning(f"Could not write state.json: {e}")
+
+
 # ── Poll cycle ────────────────────────────────────────────────────────────────
 
-def run_poll_cycle(agent: FridayAgent, groupme: GroupMeChannel, config: dict):
+def run_poll_cycle(agent: FridayAgent, groupme: GroupMeChannel, config: dict,
+                   started_at: str = ""):
     """Periodic GroupMe observation cycle. iMessage is handled by the watchdog."""
     logger.info("── Poll cycle starting ──")
 
@@ -88,6 +115,7 @@ def run_poll_cycle(agent: FridayAgent, groupme: GroupMeChannel, config: dict):
         except Exception as e:
             logger.error(f"GroupMe poll error: {e}")
 
+    write_state(agent, config, started_at)
     logger.info("── Poll cycle complete ──")
 
 
@@ -141,6 +169,8 @@ def main():
     )
     agent.set_permissions(permissions)
 
+    started_at = datetime.now().isoformat()
+
     # Start iMessage filesystem watcher (replaces the interval-based reply poll)
     imessage_observer = imessage.start_watcher(agent.process_user_replies)
 
@@ -157,10 +187,14 @@ def main():
     logger.info(startup_msg)
     imessage.send_to_self(f"⚡ {startup_msg}")
 
+    # Write initial state so the dashboard shows "Running" immediately
+    write_state(agent, config, started_at)
+
     # Schedule poll cycle
     interval_mins = agent_cfg.get("poll_interval_seconds", 300) // 60
     schedule.every(interval_mins).minutes.do(
-        run_poll_cycle, agent=agent, groupme=groupme, config=config
+        run_poll_cycle, agent=agent, groupme=groupme, config=config,
+        started_at=started_at
     )
 
     # Schedule evening briefing
@@ -169,7 +203,7 @@ def main():
     logger.info(f"Evening briefing scheduled at {briefing_time}")
 
     # Run one poll immediately
-    run_poll_cycle(agent, groupme, config)
+    run_poll_cycle(agent, groupme, config, started_at=started_at)
 
     # Start scheduler thread
     scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)

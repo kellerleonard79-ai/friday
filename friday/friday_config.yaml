@@ -50,12 +50,13 @@ provider: "gemini"
 gemini:
   model: "models/gemini-2.5-flash-lite"
   max_tokens: 1000
-  # API key loaded from environment variable: GEMINI_API_KEY
+  api_key: ""   # overrides GEMINI_API_KEY env var when non-empty
 
 ollama:
   model: "llama3.2:3b"           # swap to "llama3.2:1b" for fastest iteration
   base_url: "http://localhost:11434"
   max_tokens: 1000
+  api_key: ""   # unused by Ollama — reserved for future auth
 
 skills:
   stock_check:
