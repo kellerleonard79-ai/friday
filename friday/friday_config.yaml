@@ -40,7 +40,7 @@ calendars:
 memory:
   db_path: memory/friday_memory.db
   short_term_turns: 20
-provider: ollama
+provider: gemini
 gemini:
   model: models/gemini-2.5-flash-lite
   max_tokens: 1000

@@ -158,6 +158,14 @@ end tell
                 if len(text) < 2 or not any(c.isalpha() for c in text):
                     continue
 
+                # Skip known ObjC class names that leak through binary blob parsing
+                _objc_noise = {"NSObject", "NSString", "NSAttributedString",
+                                "NSMutableAttributedString", "NSDictionary", "NSArray"}
+                if text in _objc_noise:
+                    if not self.memory.is_processed("imessage_reply", msg_id):
+                        self.memory.mark_processed("imessage_reply", msg_id)
+                    continue
+
                 # Skip Friday's own outbound messages — mark processed so they don't re-appear
                 if any(marker in text for marker in _friday_markers):
                     if not self.memory.is_processed("imessage_reply", msg_id):
