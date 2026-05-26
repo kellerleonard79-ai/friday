@@ -222,78 +222,62 @@ end tell
             return []
 
     def _extract_text(self, row_text: str, attributed_body: bytes) -> str:
-        """Extract message text from text column or attributedBody blob.
+        """Extract message text from the m.text column or an attributedBody blob.
 
-        Strategy:
-        1. If `row_text` is present return it.
-        2. Try to parse `attributed_body` as a plist (XML) and pull text strings from
-           the `$objects` array (common for archived attributedBody data).
-        3. Fallback to scanning for known NSString/NSAttributedString markers and
-           extract a nearby printable UTF-8 run.
+        Three stages:
+        1. Return m.text directly if present.
+        2. Parse the blob as a binary/XML plist (NSKeyedArchiver) and pull the
+           first non-metadata string from $objects.
+        3. Decode the raw bytes as UTF-8 (errors ignored), collect every
+           printable run, filter ObjC noise, return the longest survivor.
         """
+        import plistlib
+        import re
+
+        # Stage 1 — plain text column
         if row_text and row_text.strip():
             return row_text.strip()
         if not attributed_body:
             return ""
 
-        # 1) Try parsing attributedBody as a plist (handles both binary and XML)
+        # Metadata strings that must never be returned as message text
+        _skip = {
+            "$null", "NSString", "NSMutableString", "NSObject",
+            "NSAttributedString", "NSMutableAttributedString",
+            "NSDictionary", "NSMutableDictionary", "NSArray",
+            "NSColor", "NSFont", "NSParagraphStyle",
+            "NSMutableParagraphStyle", "NSValue", "NSNumber",
+            "NSShadow", "NSUnderlineColorAttributeName",
+        }
+
+        # Stage 2 — binary or XML plist (NSKeyedArchiver)
         try:
-            import plistlib
             plist = plistlib.loads(attributed_body)
-            objects = plist.get("$objects", [])
-            # Skip known NSKeyedArchiver metadata strings
-            _skip = {
-                "$null", "NSString", "NSMutableString", "NSObject",
-                "NSAttributedString", "NSMutableAttributedString",
-                "NSDictionary", "NSMutableDictionary", "NSArray",
-                "NSColor", "NSFont", "NSParagraphStyle",
-                "NSMutableParagraphStyle", "NSValue",
-            }
-            for obj in objects:
-                if isinstance(obj, str) and obj not in _skip and len(obj) > 1 and any(c.isalpha() for c in obj):
+            for obj in plist.get("$objects", []):
+                if (isinstance(obj, str)
+                        and obj not in _skip
+                        and len(obj) > 1
+                        and any(c.isalpha() for c in obj)):
                     return obj.strip()
         except Exception:
             pass
 
-        # 2) Raw bytes fallback — exact-match only to avoid false positives
-        # (Edit: not detected here — iPhone Edit replies have m.text populated)
+        # Stage 3 — UTF-8 decode + printable-run scan (replaces the old
+        # ObjC-marker heuristic that was returning "NSObject")
+        _noise = _skip | {
+            "bplist", "streamtyped", "NSAttributes",
+        }
         try:
             decoded = attributed_body.decode("utf-8", errors="ignore")
-            cleaned = " ".join(decoded.split())  # collapses null bytes and whitespace runs
-            lower = cleaned.lower()
-            if lower == "yes":
-                return "Yes"
-            if lower == "no":
-                return "No"
+            runs = re.findall(r'[^\x00-\x1f\x7f-\x9f]{2,}', decoded)
+            candidates = [
+                r.strip() for r in runs
+                if any(c.isalpha() for c in r) and r.strip() not in _noise
+            ]
+            if candidates:
+                return max(candidates, key=len)
         except Exception:
             pass
-
-        # 3) Heuristic scan for printable UTF-8 runs near known ObjC class markers
-        try:
-            for marker in (b"NSAttributedString", b"NSMutableAttributedString", b"NSString"):
-                idx = attributed_body.find(marker)
-                if idx == -1:
-                    continue
-                chunk = attributed_body[idx + len(marker):]
-                # Find first printable ASCII char within the next 200 bytes
-                start = None
-                for i in range(min(200, len(chunk))):
-                    if 0x20 <= chunk[i] <= 0x7E:
-                        start = i
-                        break
-                if start is None:
-                    continue
-                end = start
-                while end < len(chunk) and 0x20 <= chunk[end] <= 0x7E:
-                    end += 1
-                try:
-                    text = chunk[start:end].decode("utf-8", errors="ignore").strip()
-                except Exception:
-                    text = ""
-                if text and any(c.isalpha() for c in text):
-                    return text
-        except Exception as e:
-            logger.debug(f"attributedBody heuristic parse error: {e}")
 
         return ""
     
