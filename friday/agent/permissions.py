@@ -10,6 +10,7 @@ Friday NEVER acts without going through this gate.
 """
 
 import logging
+import re
 import time
 from datetime import datetime
 
@@ -127,13 +128,15 @@ class PermissionGate:
                 self.imessage.send_to_self("Trouble redrafting — try again?")
                 return None
 
+            updated_action_data = self._apply_edit_to_action_data(action_data, instruction)
+
             self.imessage.send_to_self(
                 f"📋 Friday — Revised Draft\n\n{new_draft}\n\n"
                 f"Reply: Yes / No / Edit: [your instructions]"
             )
             saved = self.memory.recall(pending_key) or {}
             self.memory.remember(pending_key, {**saved, "draft": new_draft})
-            return {"_redraft": new_draft, "_action_data": action_data}
+            return {"_redraft": new_draft, "_action_data": updated_action_data}
 
         return None
 
@@ -260,6 +263,37 @@ class PermissionGate:
                 f"❌ Couldn't find '{title_search}' in your calendar. "
                 f"Check the event title and try again."
             )
+
+    def _apply_edit_to_action_data(self, action_data: dict, instruction: str) -> dict:
+        """Apply structured field changes from an edit instruction to action_data."""
+        updated = dict(action_data)
+
+        # Time: "7:30 AM", "7:30am", "19:30", "7 PM"
+        time_match = re.search(
+            r'\b(\d{1,2}(?::\d{2})?\s*(?:AM|PM|am|pm)|\d{2}:\d{2})\b', instruction
+        )
+        if time_match:
+            updated["time"] = time_match.group(1).strip()
+            if "new_time" in action_data:
+                updated["new_time"] = updated["time"]
+
+        # Duration: "30 minutes", "1 hour", "90 min"
+        dur_match = re.search(r'\b(\d+)\s*(hour|hr|minute|min)s?\b', instruction, re.I)
+        if dur_match:
+            val, unit = int(dur_match.group(1)), dur_match.group(2).lower()
+            minutes = val * 60 if unit.startswith("h") else val
+            updated["duration_minutes"] = minutes
+            if "new_duration_minutes" in action_data:
+                updated["new_duration_minutes"] = minutes
+
+        # Date: ISO format "2026-05-27" or simple "May 27"
+        iso_match = re.search(r'\b(\d{4}-\d{2}-\d{2})\b', instruction)
+        if iso_match:
+            updated["date"] = iso_match.group(1)
+            if "new_date" in action_data:
+                updated["new_date"] = updated["date"]
+
+        return updated
 
     def _redraft(self, original_draft: str, instruction: str, context: str) -> str:
         prompt = f"""The user wants to edit this proposed action:

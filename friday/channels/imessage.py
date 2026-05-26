@@ -130,7 +130,8 @@ end tell
                     JOIN chat c ON c.rowid = cmj.chat_id
                     WHERE c.chat_identifier = ?
                     AND m.date > ?
-                    AND m.attributedBody IS NOT NULL
+                    AND m.is_from_me = 0
+                    AND (m.text IS NOT NULL OR m.attributedBody IS NOT NULL)
                     ORDER BY m.date DESC
                     LIMIT 10
                 """, (self.your_handle, cutoff_mac)).fetchall()
@@ -212,16 +213,23 @@ end tell
         if not attributed_body:
             return ""
 
-        # 1) Try parsing attributedBody as an XML plist and extract $objects
+        # 1) Try parsing attributedBody as a plist (handles both binary and XML)
         try:
             import plistlib
-            plist = plistlib.loads(attributed_body, fmt=plistlib.FMT_XML)
+            plist = plistlib.loads(attributed_body)
             objects = plist.get("$objects", [])
+            # Skip known NSKeyedArchiver metadata strings
+            _skip = {
+                "$null", "NSString", "NSMutableString", "NSObject",
+                "NSAttributedString", "NSMutableAttributedString",
+                "NSDictionary", "NSMutableDictionary", "NSArray",
+                "NSColor", "NSFont", "NSParagraphStyle",
+                "NSMutableParagraphStyle", "NSValue",
+            }
             for obj in objects:
-                if isinstance(obj, str) and len(obj) > 1 and any(c.isalpha() for c in obj):
+                if isinstance(obj, str) and obj not in _skip and len(obj) > 1 and any(c.isalpha() for c in obj):
                     return obj.strip()
         except Exception:
-            # Not an XML plist or parsing failed — continue to heuristic
             pass
 
         # 2) Heuristic scan for printable UTF-8 runs near known ObjC class markers

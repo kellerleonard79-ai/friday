@@ -643,3 +643,261 @@ DRAFT: I'm still unclear on "NSObj...
 2026-05-25 19:09:41,786 [httpx] INFO: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent "HTTP/1.1 200 OK"
 2026-05-25 19:09:41,982 [friday.imessage] INFO: iMessage sent: Friday: ACTION: NO_ACTION
 DRAFT: I'm still not sure what "NS...
+2026-05-26 16:51:31,801 [friday] INFO: ==================================================
+2026-05-26 16:51:31,802 [friday] INFO:   Project Friday — Phase 2 Starting up
+2026-05-26 16:51:31,802 [friday] INFO:   Tuesday, May 26 2026 16:51
+2026-05-26 16:51:31,802 [friday] INFO: ==================================================
+2026-05-26 16:51:31,925 [friday.core] INFO: LLM provider: gemini | model: models/gemini-2.5-flash-lite
+2026-05-26 16:51:31,953 [friday.imessage] INFO: iMessage watcher active on /Users/keller/Library/Messages
+2026-05-26 16:51:31,953 [friday] INFO: Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Students, FBLA Officer - 2026/2027, Los Muchachos Part 2
+✓ Apple Calendar
+Two-way iMessage: ✓
+Permission gate: ✓
+Briefing: 21:45
+2026-05-26 16:51:32,320 [friday.imessage] INFO: iMessage sent: ⚡ Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Stud...
+2026-05-26 16:51:32,323 [friday] INFO: Evening briefing scheduled at 21:45
+2026-05-26 16:51:32,323 [friday] INFO: ── Poll cycle starting ──
+2026-05-26 16:51:32,686 [friday.groupme] INFO: Found approved GroupMe group: 'First Students' (ID: 63856932)
+2026-05-26 16:51:32,686 [friday.groupme] INFO: Found approved GroupMe group: 'Doubles' (ID: 114025944)
+2026-05-26 16:51:32,686 [friday.groupme] INFO: Found approved GroupMe group: 'FBLA Officer - 2026/2027' (ID: 114368134)
+2026-05-26 16:51:32,686 [friday.groupme] INFO: Found approved GroupMe group: 'Los Muchachos Part 2' (ID: 106754677)
+2026-05-26 16:51:33,068 [friday.groupme] INFO: GroupMe 'doubles': 1 new message(s)
+2026-05-26 16:51:33,426 [friday] INFO: ── Poll cycle complete ──
+2026-05-26 16:51:33,426 [friday] INFO: Friday is running. Press Ctrl+C to stop.
+2026-05-26 16:54:01,548 [friday] INFO: Friday shutting down.
+2026-05-26 16:54:01,804 [friday.imessage] INFO: iMessage sent: Friday is going offline. 🔴...
+2026-05-26 16:54:09,725 [friday] INFO: ==================================================
+2026-05-26 16:54:09,725 [friday] INFO:   Project Friday — Phase 2 Starting up
+2026-05-26 16:54:09,725 [friday] INFO:   Tuesday, May 26 2026 16:54
+2026-05-26 16:54:09,725 [friday] INFO: ==================================================
+2026-05-26 16:54:09,730 [friday.core] INFO: LLM provider: ollama | model: llama3.2:1b
+2026-05-26 16:54:09,731 [friday.imessage] INFO: iMessage watcher active on /Users/keller/Library/Messages
+2026-05-26 16:54:09,731 [friday] INFO: Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Students, FBLA Officer - 2026/2027, Los Muchachos Part 2
+✓ Apple Calendar
+Two-way iMessage: ✓
+Permission gate: ✓
+Briefing: 21:45
+2026-05-26 16:54:09,848 [friday.imessage] INFO: iMessage sent: ⚡ Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Stud...
+2026-05-26 16:54:09,850 [friday] INFO: Evening briefing scheduled at 21:45
+2026-05-26 16:54:09,850 [friday] INFO: ── Poll cycle starting ──
+2026-05-26 16:54:10,156 [friday.groupme] INFO: Found approved GroupMe group: 'First Students' (ID: 63856932)
+2026-05-26 16:54:10,156 [friday.groupme] INFO: Found approved GroupMe group: 'Doubles' (ID: 114025944)
+2026-05-26 16:54:10,156 [friday.groupme] INFO: Found approved GroupMe group: 'FBLA Officer - 2026/2027' (ID: 114368134)
+2026-05-26 16:54:10,156 [friday.groupme] INFO: Found approved GroupMe group: 'Los Muchachos Part 2' (ID: 106754677)
+2026-05-26 16:54:10,560 [friday.groupme] INFO: GroupMe 'doubles': 1 new message(s)
+2026-05-26 16:54:10,969 [friday.core] INFO: GroupMe passed filter (Scheduling signal detected in GroupMe message): '7:30 on Thursday?
+[Resolved dates: "thursday" → 2026-05-28]'
+2026-05-26 16:54:21,938 [friday.imessage] INFO: iMessage sent: 📋 Friday — Proposed Action
+
+Zella Trahan asked about her ava...
+2026-05-26 16:54:21,939 [friday.permissions] INFO: Permission requested for: groupme_notification
+2026-05-26 16:54:30,008 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:54:30,011 [friday.imessage] INFO: Read reply from user: 'NSObject'
+2026-05-26 16:54:30,011 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:54:30,012 [friday.imessage] INFO: Read reply from user: 'NSObject'
+2026-05-26 16:54:30,012 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:54:30,014 [friday.imessage] INFO: Read reply from user: 'NSObject'
+2026-05-26 16:54:30,014 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:54:30,015 [friday.imessage] INFO: Read reply from user: 'NSObject'
+2026-05-26 16:54:38,031 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:54:38,033 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:54:38,034 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:54:38,035 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:54:46,058 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:54:46,063 [friday.imessage] INFO: Read reply from user: 'NSObject'
+2026-05-26 16:54:46,063 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:54:46,064 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:54:46,064 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:54:46,064 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:54:54,086 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:54:54,087 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:54:54,088 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:54:54,088 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:54:54,088 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:55:02,104 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:55:02,106 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:55:02,107 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:55:02,107 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:55:02,107 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:55:10,123 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:55:10,124 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:55:10,125 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:55:10,125 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:55:10,125 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:55:18,135 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:55:18,136 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:55:18,137 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:55:18,138 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:55:18,139 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:55:26,154 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:55:26,156 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:55:26,157 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:55:26,157 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:55:26,157 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:55:34,184 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:55:34,194 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:55:34,194 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:55:34,194 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:55:34,194 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:55:40,366 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:55:40,368 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:55:40,368 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:55:40,368 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:55:40,375 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:55:42,210 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:55:42,211 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:55:42,213 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:55:42,214 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:55:42,215 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:55:50,246 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:55:50,249 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:55:50,250 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:55:50,251 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:55:50,251 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:55:58,271 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:55:58,275 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:55:58,275 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:55:58,276 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:55:58,276 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:56:06,295 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:56:06,297 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:56:06,298 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:56:06,299 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:56:06,300 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:56:14,319 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:56:14,321 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:56:14,322 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:56:14,323 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:56:14,324 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:56:22,353 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:56:22,356 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:56:22,356 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:56:22,357 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:56:22,358 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:56:30,385 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:56:30,389 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:56:30,390 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:56:30,390 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:56:30,391 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:56:38,415 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:56:38,418 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:56:38,419 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:56:38,419 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:56:38,420 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:56:46,443 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:56:46,447 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:56:46,448 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:56:46,448 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:56:46,449 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:56:54,467 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:56:54,469 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:56:54,470 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:56:54,470 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:56:54,471 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:57:02,486 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:57:02,488 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:57:02,488 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:57:02,489 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:57:02,490 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:57:10,507 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:57:10,509 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:57:10,510 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:57:10,511 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:57:10,511 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:57:18,527 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:57:18,529 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:57:18,530 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:57:18,531 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:57:18,531 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:57:26,543 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:57:26,544 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:57:26,545 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:57:26,545 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:57:26,546 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:57:34,557 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:57:34,559 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:57:34,560 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:57:34,560 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:57:34,561 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:57:42,579 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:57:42,580 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:57:42,581 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:57:42,581 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:57:42,582 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:57:50,597 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:57:50,599 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:57:50,599 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:57:50,599 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:57:50,600 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:57:58,618 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:57:58,620 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:57:58,621 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:57:58,622 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:57:58,623 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:58:06,645 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:58:06,647 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:58:06,648 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:58:06,649 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:58:06,650 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:58:14,666 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:58:14,668 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:58:14,669 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:58:14,670 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:58:14,671 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:58:22,691 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:58:22,713 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:58:22,714 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:58:22,714 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:58:22,715 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:58:30,731 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:58:30,734 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:58:30,735 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:58:30,735 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:58:30,736 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:58:38,746 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:58:38,747 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:58:38,748 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:58:38,749 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:58:38,750 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:58:46,763 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:58:46,765 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:58:46,766 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:58:46,767 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:58:46,767 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:58:54,783 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:58:54,785 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:58:54,786 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:58:54,787 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:58:54,788 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:59:02,794 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:59:02,795 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:59:02,795 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:59:02,796 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:59:02,797 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:59:10,807 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:59:10,809 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:59:10,810 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:59:10,811 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:59:10,812 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:59:18,827 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:59:18,829 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:59:18,830 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:59:18,831 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:59:18,832 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:59:26,835 [friday.imessage] INFO: DEBUG extracted text for rowid 290803: repr='NSObject'
+2026-05-26 16:59:26,836 [friday.imessage] INFO: DEBUG extracted text for rowid 290802: repr='NSObject'
+2026-05-26 16:59:26,836 [friday.imessage] INFO: DEBUG extracted text for rowid 290801: repr='NSObject'
+2026-05-26 16:59:26,837 [friday.imessage] INFO: DEBUG extracted text for rowid 290800: repr='NSObject'
+2026-05-26 16:59:26,837 [friday.imessage] INFO: DEBUG extracted text for rowid 290799: repr='NSObject'
+2026-05-26 16:59:26,837 [friday.permissions] INFO: Permission timed out for: groupme_notification
+2026-05-26 16:59:27,113 [friday.imessage] INFO: iMessage sent: ⏰ Friday — no reply received, action cancelled....
+2026-05-26 16:59:27,114 [friday.core] INFO: Action not approved: timeout
+2026-05-26 16:59:27,116 [friday] INFO: ── Poll cycle complete ──
+2026-05-26 16:59:27,116 [friday] INFO: ── Poll cycle starting ──
+2026-05-26 16:59:27,116 [friday] INFO: Friday is running. Press Ctrl+C to stop.
+2026-05-26 16:59:27,543 [friday.groupme] INFO: GroupMe 'doubles': 1 new message(s)
+2026-05-26 16:59:27,950 [friday] INFO: ── Poll cycle complete ──
