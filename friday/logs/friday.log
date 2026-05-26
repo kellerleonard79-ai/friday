@@ -1138,3 +1138,37 @@ DRAFT: Keller...
 2026-05-26 17:32:54,685 [friday.imessage] INFO: DEBUG extracted text for rowid 290823: repr='Edit: [your instructions]\x02iI\x01\x03 NSDictionary\x00\x01i\x01 __kIMMessagePartAttributeName\x08NSNumber\x00\x07NSValue\x00\x01*\x00\x02\x06\x02 __kIMCalendarEventAttributeName NSMutableData\x00\x06NSData\x00\x02\x06[752c]bplist00\x01\x02\x03\x04\x05\x06\x07 X$versionY$archiver'
 2026-05-26 17:32:54,685 [friday.imessage] INFO: DEBUG extracted text for rowid 290822: repr='Edit: [your instructions]\x02iI\x01\x03 NSDictionary\x00\x01i\x01 __kIMMessagePartAttributeName\x08NSNumber\x00\x07NSValue\x00\x01*\x00\x02\x06\x02 __kIMCalendarEventAttributeName NSMutableData\x00\x06NSData\x00\x02\x06[752c]bplist00\x01\x02\x03\x04\x05\x06\x07 X$versionY$archiver'
 2026-05-26 17:32:54,687 [friday.imessage] INFO: DEBUG extracted text for rowid 290820: repr='NSObject'
+2026-05-26 17:35:58,748 [friday] INFO: ==================================================
+2026-05-26 17:35:58,749 [friday] INFO:   Project Friday — Phase 2 Starting up
+2026-05-26 17:35:58,749 [friday] INFO:   Tuesday, May 26 2026 17:35
+2026-05-26 17:35:58,749 [friday] INFO: ==================================================
+2026-05-26 17:35:58,754 [friday.core] INFO: LLM provider: ollama | model: llama3.2:1b
+2026-05-26 17:35:58,756 [friday.imessage] INFO: iMessage watcher active on /Users/keller/Library/Messages
+2026-05-26 17:35:58,756 [friday] INFO: Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Students, FBLA Officer - 2026/2027, Los Muchachos Part 2, NLC 2026, PHS SGA 2026-2027, Executive SGA Officers 26-27, SGA Officers 2026-2027, Pensacola High School FCA, PHS Tennis 2026, Varsity BOYS 2026, SLU 301
+✓ Apple Calendar
+Two-way iMessage: ✓
+Permission gate: ✓
+Briefing: 21:45
+2026-05-26 17:35:59,008 [friday.imessage] INFO: iMessage sent: ⚡ Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Stud...
+2026-05-26 17:35:59,015 [friday] INFO: Evening briefing scheduled at 21:45
+2026-05-26 17:35:59,015 [friday] INFO: ── Poll cycle starting ──
+2026-05-26 17:35:59,542 [friday.groupme] INFO: Found approved GroupMe group: 'NLC 2026' (ID: 113861947)
+2026-05-26 17:35:59,542 [friday.groupme] INFO: Found approved GroupMe group: 'First Students' (ID: 63856932)
+2026-05-26 17:35:59,542 [friday.groupme] INFO: Found approved GroupMe group: 'Doubles' (ID: 114025944)
+2026-05-26 17:35:59,542 [friday.groupme] INFO: Found approved GroupMe group: 'PHS SGA 2026-2027' (ID: 110357299)
+2026-05-26 17:35:59,542 [friday.groupme] INFO: Found approved GroupMe group: 'Executive SGA Officers 26-27' (ID: 114610395)
+2026-05-26 17:35:59,543 [friday.groupme] INFO: Found approved GroupMe group: 'FBLA Officer - 2026/2027' (ID: 114368134)
+2026-05-26 17:35:59,543 [friday.groupme] INFO: Found approved GroupMe group: 'SGA Officers 2026-2027' (ID: 114419976)
+2026-05-26 17:35:59,543 [friday.groupme] INFO: Found approved GroupMe group: 'Pensacola High School FCA' (ID: 108956712)
+2026-05-26 17:35:59,543 [friday.groupme] INFO: Found approved GroupMe group: 'PHS Tennis 2026' (ID: 99023793)
+2026-05-26 17:35:59,543 [friday.groupme] INFO: Found approved GroupMe group: 'Varsity BOYS 2026' (ID: 112816608)
+2026-05-26 17:35:59,543 [friday.groupme] INFO: Found approved GroupMe group: 'Los Muchachos Part 2' (ID: 106754677)
+2026-05-26 17:35:59,543 [friday.groupme] INFO: Found approved GroupMe group: 'SLU 301' (ID: 102074118)
+2026-05-26 17:36:00,902 [friday.groupme] INFO: GroupMe 'doubles': 1 new message(s)
+2026-05-26 17:36:03,588 [friday] INFO: ── Poll cycle complete ──
+2026-05-26 17:36:03,589 [friday] INFO: Friday is running. Press Ctrl+C to stop.
+2026-05-26 17:41:03,653 [friday] INFO: ── Poll cycle starting ──
+2026-05-26 17:41:04,371 [friday.groupme] INFO: GroupMe 'doubles': 1 new message(s)
+2026-05-26 17:41:06,370 [friday] INFO: ── Poll cycle complete ──
