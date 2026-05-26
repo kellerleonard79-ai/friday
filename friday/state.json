@@ -1,14 +1,14 @@
 {
   "status": "running",
-  "pid": 14077,
+  "pid": 14299,
   "provider": "ollama",
   "model": "llama3.2:1b",
-  "started_at": "2026-05-26T18:03:00.510081",
-  "last_poll_at": "2026-05-26T18:03:03.379810",
+  "started_at": "2026-05-26T18:07:31.299049",
+  "last_poll_at": "2026-05-26T18:07:34.131321",
   "think_calls_total": 0,
   "tokens_in_total": 0,
   "tokens_out_total": 0,
-  "last_message_at": "2026-05-26T18:03:03.061770",
-  "last_message_source": "imessage",
-  "last_message_preview": "GroupMe: Doubles, First Students, FBLA Officer - 2026/2027, Los Muchachos Part 2"
+  "last_message_at": null,
+  "last_message_source": null,
+  "last_message_preview": null
 }

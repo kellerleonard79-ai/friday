@@ -43,7 +43,7 @@ from agent.memory import Memory
 from agent.core import FridayAgent
 from agent.permissions import PermissionGate
 from channels.groupme import GroupMeChannel
-from channels.imessage import iMessageChannel
+from channels.telegram import TelegramChannel
 from channels.apple_calendar import AppleCalendarChannel
 
 
@@ -69,8 +69,13 @@ def check_environment(config: dict):
     if groupme_cfg.get("enabled") and not groupme_cfg.get("api_token"):
         errors.append("GroupMe is enabled but 'api_token' is empty in friday_config.yaml.")
 
-    if not config.get("agent", {}).get("your_imessage_handle"):
-        errors.append("'your_imessage_handle' is empty in friday_config.yaml.")
+    tg_cfg = config.get("telegram", {})
+    tg_token = tg_cfg.get("bot_token") or os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    tg_chat  = tg_cfg.get("chat_id")   or os.environ.get("TELEGRAM_CHAT_ID", "")
+    if not tg_token:
+        errors.append("Telegram bot_token is not set (friday_config.yaml or TELEGRAM_BOT_TOKEN).")
+    if not tg_chat:
+        errors.append("Telegram chat_id is not set (friday_config.yaml or TELEGRAM_CHAT_ID).")
 
     if errors:
         for e in errors:
@@ -144,8 +149,7 @@ def main():
     memory = Memory(memory_cfg.get("db_path", "memory/friday_memory.db"))
 
     # Initialize channels
-    imessage = iMessageChannel(config=config.get("imessage", {}), memory=memory)
-    imessage.your_handle = agent_cfg.get("your_imessage_handle", "")
+    telegram = TelegramChannel(config=config.get("telegram", {}), memory=memory)
 
     groupme = GroupMeChannel(config=config.get("groupme", {}), memory=memory)
 
@@ -156,14 +160,14 @@ def main():
     agent = FridayAgent(
         config=config,
         memory=memory,
-        imessage_channel=imessage,
+        telegram_channel=telegram,
         calendar_channel=calendar
     )
 
     # Initialize permission gate and inject into agent
     permissions = PermissionGate(
         memory=memory,
-        imessage_channel=imessage,
+        telegram_channel=telegram,
         agent_core=agent,
         calendar_channel=calendar
     )
@@ -171,21 +175,21 @@ def main():
 
     started_at = datetime.now().isoformat()
 
-    # Start iMessage filesystem watcher (replaces the interval-based reply poll)
-    imessage_observer = imessage.start_watcher(agent.process_user_replies)
+    # Start Telegram polling — delivers incoming messages to process_telegram_message()
+    telegram.start_polling(agent.process_telegram_message)
 
     # Startup message
     cal_status = "✓ Apple Calendar" if calendar_cfg.get("enabled") else "✗ Calendar (disabled)"
     startup_msg = (
-        f"Friday is online. 🟢 [Phase 2]\n"
+        f"⚡ Friday is online. 🟢 [Phase 2]\n"
         f"GroupMe: {', '.join(config.get('groupme', {}).get('approved_groups', []))}\n"
         f"{cal_status}\n"
-        f"Two-way iMessage: ✓\n"
+        f"Telegram: ✓\n"
         f"Permission gate: ✓\n"
         f"Briefing: {agent_cfg.get('briefing_time', '21:00')}"
     )
     logger.info(startup_msg)
-    imessage.send_to_self(f"⚡ {startup_msg}")
+    telegram.send(startup_msg)
 
     # Write initial state so the dashboard shows "Running" immediately
     write_state(agent, config, started_at)
@@ -215,9 +219,8 @@ def main():
             time.sleep(60)
     except KeyboardInterrupt:
         logger.info("Friday shutting down.")
-        imessage_observer.stop()
-        imessage_observer.join()
-        imessage.send_to_self("Friday is going offline. 🔴")
+        telegram.send("Friday is going offline. 🔴")
+        telegram.stop_polling()
 
 
 if __name__ == "__main__":

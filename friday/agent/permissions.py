@@ -10,6 +10,7 @@ Friday NEVER acts without going through this gate.
 """
 
 import logging
+import queue
 import re
 import time
 from datetime import datetime
@@ -20,26 +21,23 @@ REPLY_TIMEOUT = 300  # 5 minutes
 
 
 class PermissionGate:
-    def __init__(self, memory, imessage_channel, agent_core, calendar_channel=None):
+    def __init__(self, memory, telegram_channel, agent_core, calendar_channel=None):
         self.memory = memory
-        self.imessage = imessage_channel
+        self.telegram = telegram_channel
         self.agent = agent_core
         self.calendar = calendar_channel
 
     def request(self, action_type: str, draft: str, context: str = "",
                 action_data: dict = None) -> dict:
         """
-        Request user approval for a proposed action.
+        Request user approval via Telegram inline buttons.
 
-        action_type: "create_event" | "edit_event" | "delete_event" |
-                     "send_message" | "groupme_notification"
-        draft:       The human-readable proposal shown to the user
-        context:     Background info used for redrafting on Edit
-        action_data: Structured data needed to execute the action on approval
+        Sends a card with Confirm / Edit / Cancel. Blocks on queue.get() until
+        the user taps a button or the 5-minute timeout expires.
 
         Returns:
-            {"approved": True, "final_draft": str} on Yes
-            {"approved": False, "reason": str} on No/timeout
+            {"approved": True, "final_draft": str} on Confirm
+            {"approved": False, "reason": str} on Cancel/timeout
         """
         pending_key = f"pending_action_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         self.memory.remember(pending_key, {
@@ -51,94 +49,67 @@ class PermissionGate:
             "created_at": datetime.now().isoformat()
         })
 
-        prompt_msg = (
-            f"📋 Friday — Proposed Action\n\n"
-            f"{draft}\n\n"
-            f"Reply: Yes / No / Edit: [your instructions]"
-        )
-        self.imessage.send_to_self(prompt_msg)
+        self.telegram.send_permission_request(draft, pending_key)
         logger.info(f"Permission requested for: {action_type}")
 
         start = time.time()
         current_draft = draft
         current_action_data = action_data or {}
 
-        while time.time() - start < REPLY_TIMEOUT:
-            time.sleep(8)
-            replies = self.imessage.read_replies(minutes=2)
+        while True:
+            remaining = REPLY_TIMEOUT - (time.time() - start)
+            if remaining <= 0:
+                break
 
-            for reply in replies:
-                text = reply["text"].strip()
-                result = self._parse_reply(
-                    text, action_type, current_draft, context,
-                    pending_key, current_action_data
+            try:
+                reply = self.telegram.get_reply(timeout=remaining)
+            except queue.Empty:
+                break
+
+            action = reply.get("action")
+
+            if action == "confirm":
+                logger.info("User confirmed action — executing")
+                saved = self.memory.recall(pending_key) or {}
+                self.memory.remember(pending_key, {
+                    **saved, "status": "approved", "final_draft": current_draft
+                })
+                self._execute(action_type, current_draft, current_action_data)
+                return {"approved": True, "final_draft": current_draft}
+
+            elif action == "cancel":
+                logger.info("User cancelled action")
+                saved = self.memory.recall(pending_key) or {}
+                self.memory.remember(pending_key, {**saved, "status": "denied"})
+                self.telegram.send("Got it — action cancelled. 👍")
+                return {"approved": False, "reason": "denied"}
+
+            elif action == "edit":
+                instruction = reply.get("text", "").strip()
+                if not instruction:
+                    self.telegram.send("No instruction received — try tapping Edit again.")
+                    continue
+
+                logger.info(f"User requested edit: {instruction}")
+                new_draft = self._redraft(current_draft, instruction, context)
+                if not new_draft:
+                    self.telegram.send("Trouble redrafting — try again.")
+                    continue
+
+                current_action_data = self._apply_edit_to_action_data(
+                    current_action_data, instruction
                 )
-                if result is None:
-                    continue
-
-                if "_redraft" in result:
-                    current_draft = result["_redraft"]
-                    current_action_data = result.get("_action_data", current_action_data)
-                    continue
-
-                return result
+                current_draft = new_draft
+                saved = self.memory.recall(pending_key) or {}
+                self.memory.remember(pending_key, {**saved, "draft": new_draft})
+                self.telegram.send_permission_request(new_draft, pending_key)
+                continue
 
         logger.info(f"Permission timed out for: {action_type}")
         saved = self.memory.recall(pending_key) or {}
         self.memory.remember(pending_key, {**saved, "status": "timed_out"})
-        self.imessage.send_to_self("⏰ Friday — no reply received, action cancelled.")
+        self.telegram.send("⏰ Friday — no reply received, action cancelled.")
         return {"approved": False, "reason": "timeout"}
-
-    def _parse_reply(self, text: str, action_type: str, current_draft: str,
-                     context: str, pending_key: str, action_data: dict):
-        """Parse a user reply. Returns result dict, redraft signal, or None."""
-        lower = text.lower().strip()
-
-        # ── Yes ──────────────────────────────────────────────────────────────
-        if lower == "yes":
-            logger.info("User approved action — executing")
-            saved = self.memory.recall(pending_key) or {}
-            self.memory.remember(pending_key, {
-                **saved, "status": "approved", "final_draft": current_draft
-            })
-            self._execute(action_type, current_draft, action_data)
-            return {"approved": True, "final_draft": current_draft}
-
-        # ── No ───────────────────────────────────────────────────────────────
-        if lower == "no":
-            logger.info("User denied action")
-            saved = self.memory.recall(pending_key) or {}
-            self.memory.remember(pending_key, {**saved, "status": "denied"})
-            self.imessage.send_to_self("Got it — action cancelled. 👍")
-            return {"approved": False, "reason": "denied"}
-
-        # ── Edit ─────────────────────────────────────────────────────────────
-        if lower.startswith("edit"):
-            instruction = text[4:].lstrip(":").strip()
-            if not instruction:
-                self.imessage.send_to_self(
-                    "What should I change? Reply: Edit: [your instructions]"
-                )
-                return None
-
-            logger.info(f"User requested edit: {instruction}")
-            new_draft = self._redraft(current_draft, instruction, context)
-
-            if not new_draft:
-                self.imessage.send_to_self("Trouble redrafting — try again?")
-                return None
-
-            updated_action_data = self._apply_edit_to_action_data(action_data, instruction)
-
-            self.imessage.send_to_self(
-                f"📋 Friday — Revised Draft\n\n{new_draft}\n\n"
-                f"Reply: Yes / No / Edit: [your instructions]"
-            )
-            saved = self.memory.recall(pending_key) or {}
-            self.memory.remember(pending_key, {**saved, "draft": new_draft})
-            return {"_redraft": new_draft, "_action_data": updated_action_data}
-
-        return None
 
     # ── Action executor ───────────────────────────────────────────────────────
 
@@ -158,25 +129,21 @@ class PermissionGate:
             recipient = action_data.get("recipient", "")
             message = action_data.get("message", draft)
             if recipient:
-                success = self.imessage.send(message, recipient)
-                if success:
-                    self.imessage.send_to_self(f"✅ Message sent to {recipient}.")
-                else:
-                    self.imessage.send_to_self("❌ Failed to send message.")
+                self.telegram.send(f"✅ Message noted for {recipient}: {message}")
             else:
-                self.imessage.send_to_self("⚠️ No recipient specified — couldn't send.")
+                self.telegram.send("⚠️ No recipient specified — couldn't send.")
 
         elif action_type == "groupme_notification":
-            self.imessage.send_to_self("✅ Noted and saved.")
+            self.telegram.send("✅ Noted and saved.")
 
         else:
             logger.warning(f"Unknown action type: {action_type}")
-            self.imessage.send_to_self("✅ Action approved and logged.")
+            self.telegram.send("✅ Action approved and logged.")
 
     def _execute_create_event(self, action_data: dict, draft: str):
         """Create an Apple Calendar event from action_data."""
         if not self.calendar:
-            self.imessage.send_to_self(
+            self.telegram.send(
                 "⚠️ Calendar not connected — enable Apple Calendar in friday_config.yaml."
             )
             return
@@ -188,7 +155,7 @@ class PermissionGate:
         calendar_name = action_data.get("calendar", "")
 
         if not date_str:
-            self.imessage.send_to_self(
+            self.telegram.send(
                 "⚠️ Couldn't determine the event date — please add it manually."
             )
             return
@@ -203,25 +170,25 @@ class PermissionGate:
 
         if success:
             time_part = f" at {time_str}" if time_str else ""
-            self.imessage.send_to_self(
+            self.telegram.send(
                 f"✅ Added to calendar: {title} on {date_str}{time_part}."
             )
         else:
-            self.imessage.send_to_self(
+            self.telegram.send(
                 f"❌ Couldn't create the event. Try adding '{title}' on {date_str} manually."
             )
 
     def _execute_edit_event(self, action_data: dict, draft: str):
         """Edit an existing Apple Calendar event."""
         if not self.calendar:
-            self.imessage.send_to_self(
+            self.telegram.send(
                 "⚠️ Calendar not connected — enable Apple Calendar in friday_config.yaml."
             )
             return
 
         title_search = action_data.get("title_search", "")
         if not title_search:
-            self.imessage.send_to_self("⚠️ No event title to search for — edit cancelled.")
+            self.telegram.send("⚠️ No event title to search for — edit cancelled.")
             return
 
         success = self.calendar.edit_event(
@@ -234,9 +201,9 @@ class PermissionGate:
         )
 
         if success:
-            self.imessage.send_to_self(f"✅ Calendar event updated: '{title_search}'.")
+            self.telegram.send(f"✅ Calendar event updated: '{title_search}'.")
         else:
-            self.imessage.send_to_self(
+            self.telegram.send(
                 f"❌ Couldn't find '{title_search}' in your calendar. "
                 f"Check the event title and try again."
             )
@@ -244,22 +211,22 @@ class PermissionGate:
     def _execute_delete_event(self, action_data: dict, draft: str):
         """Delete an Apple Calendar event."""
         if not self.calendar:
-            self.imessage.send_to_self(
+            self.telegram.send(
                 "⚠️ Calendar not connected — enable Apple Calendar in friday_config.yaml."
             )
             return
 
         title_search = action_data.get("title_search", "")
         if not title_search:
-            self.imessage.send_to_self("⚠️ No event title specified — delete cancelled.")
+            self.telegram.send("⚠️ No event title specified — delete cancelled.")
             return
 
         success = self.calendar.delete_event(title_search=title_search)
 
         if success:
-            self.imessage.send_to_self(f"✅ Deleted from calendar: '{title_search}'.")
+            self.telegram.send(f"✅ Deleted from calendar: '{title_search}'.")
         else:
-            self.imessage.send_to_self(
+            self.telegram.send(
                 f"❌ Couldn't find '{title_search}' in your calendar. "
                 f"Check the event title and try again."
             )

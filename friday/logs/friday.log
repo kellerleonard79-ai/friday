@@ -1381,3 +1381,54 @@ DRAFT: Adding tennis practice t...
 [Resolved dates: "thursday"'
 2026-05-26 18:03:21,015 [friday.imessage] INFO: iMessage sent: Friday: ACTION: CREATE_EVENT
 DRAFT: The user wants to add a ...
+2026-05-26 18:07:27,078 [friday] INFO: Friday shutting down.
+2026-05-26 18:07:27,348 [friday.imessage] INFO: iMessage sent: Friday is going offline. 🔴...
+2026-05-26 18:07:31,294 [friday] INFO: ==================================================
+2026-05-26 18:07:31,294 [friday] INFO:   Project Friday — Phase 2 Starting up
+2026-05-26 18:07:31,294 [friday] INFO:   Tuesday, May 26 2026 18:07
+2026-05-26 18:07:31,294 [friday] INFO: ==================================================
+2026-05-26 18:07:31,299 [friday.core] INFO: LLM provider: ollama | model: llama3.2:1b
+2026-05-26 18:07:31,300 [friday.imessage] INFO: iMessage watcher active on /Users/keller/Library/Messages
+2026-05-26 18:07:31,300 [friday] INFO: Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Students, FBLA Officer - 2026/2027, Los Muchachos Part 2, NLC 2026, PHS SGA 2026-2027, Executive SGA Officers 26-27, SGA Officers 2026-2027, Pensacola High School FCA, PHS Tennis 2026, Varsity BOYS 2026, SLU 301
+✓ Apple Calendar
+Two-way iMessage: ✓
+Permission gate: ✓
+Briefing: 21:45
+2026-05-26 18:07:31,412 [friday.imessage] INFO: iMessage sent: ⚡ Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Stud...
+2026-05-26 18:07:31,413 [friday] INFO: Evening briefing scheduled at 21:45
+2026-05-26 18:07:31,414 [friday] INFO: ── Poll cycle starting ──
+2026-05-26 18:07:31,805 [friday.groupme] INFO: Found approved GroupMe group: 'NLC 2026' (ID: 113861947)
+2026-05-26 18:07:31,805 [friday.groupme] INFO: Found approved GroupMe group: 'First Students' (ID: 63856932)
+2026-05-26 18:07:31,806 [friday.groupme] INFO: Found approved GroupMe group: 'Doubles' (ID: 114025944)
+2026-05-26 18:07:31,806 [friday.groupme] INFO: Found approved GroupMe group: 'PHS SGA 2026-2027' (ID: 110357299)
+2026-05-26 18:07:31,806 [friday.groupme] INFO: Found approved GroupMe group: 'Executive SGA Officers 26-27' (ID: 114610395)
+2026-05-26 18:07:31,806 [friday.groupme] INFO: Found approved GroupMe group: 'FBLA Officer - 2026/2027' (ID: 114368134)
+2026-05-26 18:07:31,806 [friday.groupme] INFO: Found approved GroupMe group: 'SGA Officers 2026-2027' (ID: 114419976)
+2026-05-26 18:07:31,806 [friday.groupme] INFO: Found approved GroupMe group: 'Pensacola High School FCA' (ID: 108956712)
+2026-05-26 18:07:31,806 [friday.groupme] INFO: Found approved GroupMe group: 'PHS Tennis 2026' (ID: 99023793)
+2026-05-26 18:07:31,806 [friday.groupme] INFO: Found approved GroupMe group: 'Varsity BOYS 2026' (ID: 112816608)
+2026-05-26 18:07:31,806 [friday.groupme] INFO: Found approved GroupMe group: 'Los Muchachos Part 2' (ID: 106754677)
+2026-05-26 18:07:31,806 [friday.groupme] INFO: Found approved GroupMe group: 'SLU 301' (ID: 102074118)
+2026-05-26 18:07:32,420 [friday.groupme] INFO: GroupMe 'doubles': 1 new message(s)
+2026-05-26 18:07:34,132 [friday] INFO: ── Poll cycle complete ──
+2026-05-26 18:07:34,132 [friday] INFO: Friday is running. Press Ctrl+C to stop.
+2026-05-26 18:07:52,073 [friday.imessage] INFO: Read reply from user: ''()*Z$classnameX$classesWNSValue)+XNSObject\thursday 8amXDateTime/'
+2026-05-26 18:07:52,075 [friday.imessage] INFO: Read reply from user: 'GroupMe: Doubles, First Students, FBLA Officer - 2026/2027, Los Muchachos Part 2, NLC 2026, PHS SGA 2026-2027, Executive SGA Officers 26-27, SGA Officers 2026-2027, Pensacola High School FCA, PHS Tennis 2026, Varsity BOYS 2026, SLU 301'
+2026-05-26 18:07:52,077 [friday.imessage] INFO: Read reply from user: ''()*Z$classnameX$classesWNSValue)+XNSObjectVFridayTDate/'
+2026-05-26 18:07:52,079 [friday.imessage] INFO: Read reply from user: 'Add tennis practice thursday 8am'
+2026-05-26 18:07:52,081 [friday.imessage] INFO: Read reply from user: 'DRAFT: The user wants to add a tennis practice event for Thursday at 8:00 AM on the calendar. Is this correct?'
+2026-05-26 18:07:52,082 [friday.imessage] INFO: Read reply from user: 'DRAFT: Adding tennis practice to the user's calendar for Thursday at 8am is not needed. However, the user sent you a message asking about an event related to Doubles, First Students, FBLA Officer - 2026/2027.'
+2026-05-26 18:07:52,085 [friday.core] INFO: Processing scheduling reply from user: ''()*Z$classnameX$classesWNSValue)+XNSObject\thursday 8amXDat'
+2026-05-26 18:07:59,540 [friday.imessage] INFO: iMessage sent: Friday: ACTION: CREATE_EVENT
+DRAFT: The user wants to add a ...
+2026-05-26 18:08:02,555 [friday.core] INFO: Processing scheduling reply from user: 'GroupMe: Doubles, First Students, FBLA Officer - 2026/2027, '
+2026-05-26 18:08:07,967 [friday.imessage] INFO: iMessage sent: Friday: ACTION: CREATE_EVENT
+DRAFT: The user wants to add a ...
+2026-05-26 18:08:10,977 [friday.core] INFO: Processing scheduling reply from user: 'Add tennis practice thursday 8am
+[Resolved dates: "thursday"'
+2026-05-26 18:08:15,839 [friday.imessage] INFO: iMessage sent: Friday: ACTION: CREATE_EVENT
+DRAFT: The user wants to add a ...
+2026-05-26 18:10:20,707 [friday] INFO: Friday shutting down.
+2026-05-26 18:10:21,163 [friday.imessage] INFO: iMessage sent: Friday is going offline. 🔴...

@@ -3,8 +3,9 @@ agent:
   poll_interval_seconds: 300
   briefing_time: '21:45'
   timezone: America/Chicago
-  your_phone_number: ''
-  your_imessage_handle: kellerleonard17@gmail.com
+telegram:
+  bot_token: ''
+  chat_id: ''
 groupme:
   enabled: true
   api_token: 6e24cba02c9d013f6299061b572edee0

@@ -14,7 +14,7 @@ from datetime import datetime
 from google import genai
 from google.genai import types
 
-from agent.context_window import gather_groupme_context, gather_imessage_context
+from agent.context_window import gather_groupme_context
 from agent.filter import filter_groupme, has_scheduling_signal
 from agent.memory import Memory
 from agent.preprocess import annotate_with_resolved_dates
@@ -37,10 +37,10 @@ def load_persona() -> str:
 
 
 class FridayAgent:
-    def __init__(self, config: dict, memory: Memory, imessage_channel, calendar_channel=None):
+    def __init__(self, config: dict, memory: Memory, telegram_channel, calendar_channel=None):
         self.config = config
         self.memory = memory
-        self.imessage = imessage_channel
+        self.telegram = telegram_channel
         self.calendar = calendar_channel
         self.persona = load_persona()
         self.permissions = None  # Set after init to avoid circular reference
@@ -167,10 +167,7 @@ class FridayAgent:
     # ── Calendar query (conversational) ──────────────────────────────────────
 
     def answer_calendar_query(self, query: str) -> str:
-        """
-        Answer a natural language question about the user's calendar.
-        Fetches current events and lets Gemini compose a natural reply.
-        """
+        """Answer a natural language question about the user's calendar."""
         if not self.calendar or not self.calendar.enabled:
             return "Calendar isn't connected — enable Apple Calendar in friday_config.yaml."
 
@@ -184,102 +181,68 @@ Here are their upcoming events for the next 14 days:
 
 Answer the question directly and concisely. If no relevant events exist, say so clearly."""
 
-        ctx = gather_imessage_context(self.imessage.your_handle, self.imessage.chat_db)
-        context_str = "Calendar query"
-        if ctx:
-            context_str += f"\n\nRecent conversation thread:\n{ctx}"
-        return self._think(prompt, context=context_str)
+        return self._think(prompt, context="Calendar query")
 
-    # ── Reply processing ──────────────────────────────────────────────────────
+    # ── Telegram message handler ──────────────────────────────────────────────
 
-    def process_user_replies(self):
+    def process_telegram_message(self, text: str):
         """
-        Check for new replies from the user in the Friday iMessage thread.
-        Handles general messages that aren't part of a permission flow.
-        Permission gate handles its own reply polling internally.
+        Called by TelegramChannel whenever the user sends a text message.
+        Routes to direct command, calendar query, or general scheduling response.
+        Button callbacks (Confirm/Cancel/Edit) are handled by the permission gate
+        directly via TelegramChannel.get_reply() — they never reach here.
         """
-        replies = self.imessage.read_replies(minutes=6)
+        text = text.strip()
+        lower = text.lower()
 
-        for reply in replies:
-            text = reply["text"].strip()
-            lower = text.lower()
-            # Ignore Friday's own outbound messages being read back
-            if text.startswith("Friday:") or "ACTION:" in text or "DRAFT:" in text:
-                continue
+        text = annotate_with_resolved_dates(text, now=datetime.now())
+        lower = text.lower()
 
-            # Hard-coded backstop: discard status/system messages and self-triggers
-            _self_triggers = (
-                "friday is online", "friday is going offline",
-                "⚡ friday", "reply: yes / no / edit",
-                "action:", "draft:",
-            )
-            if any(t in lower for t in _self_triggers):
-                continue
+        # Direct scheduling commands
+        command_verbs = ("add", "put", "create", "schedule", "set up", "book",
+                         "block off", "remind me", "move", "cancel", "delete",
+                         "remove", "reschedule", "change")
+        scheduling_nouns = ("calendar", "event", "meeting", "appointment",
+                            "reminder", "block", "slot")
+        is_direct_command = (
+            any(lower.startswith(v) or f" {v} " in lower for v in command_verbs)
+            and any(n in lower for n in scheduling_nouns)
+        )
+        if is_direct_command:
+            logger.info(f"Direct command from user: '{text[:60]}'")
+            self._handle_direct_command(text)
+            return
 
-            text = annotate_with_resolved_dates(text, now=datetime.now())
-            lower = text.lower()
-
-            # Skip permission gate keywords — handled by permissions.py
-            if lower in ("yes", "no") or lower.startswith("edit"):
-                continue
-
-            # Direct scheduling commands — user explicitly asking Friday to act
-            command_verbs = ("add", "put", "create", "schedule", "set up", "book",
-                             "block off", "remind me", "move", "cancel", "delete",
-                             "remove", "reschedule", "change")
-            scheduling_nouns = ("calendar", "event", "meeting", "appointment",
-                                "reminder", "block", "slot")
-            is_direct_command = (
-                any(lower.startswith(v) or f" {v} " in lower for v in command_verbs)
-                and any(n in lower for n in scheduling_nouns)
-            )
-            if is_direct_command:
-                logger.info(f"Direct command from user: '{text[:60]}'")
-                self._handle_direct_command(text)
-                time.sleep(3)
-                continue
-
-            # Calendar read queries
-            query_keywords = ("what's on", "what do i have", "when is", "what time",
-                               "do i have", "any events", "show my", "what are my",
-                               "what's my schedule", "what is on my")
-            if any(kw in lower for kw in query_keywords):
-                logger.info(f"Calendar query from user: '{text[:60]}'")
-                response = self.answer_calendar_query(text)
-                if response:
-                    self.imessage.send_to_self(f"Friday: {response}")
-                time.sleep(3)
-                continue
-
-            # Scheduling signal gate — skip Gemini for non-scheduling messages
-            if not has_scheduling_signal(text):
-                logger.debug(f"Reply skipped — no scheduling signal: '{text[:60]}'")
-                continue
-
-            self._stats["last_message_at"] = datetime.now().isoformat()
-            self._stats["last_message_source"] = "imessage"
-            self._stats["last_message_preview"] = text[:80]
-
-            logger.info(f"Processing scheduling reply from user: '{text[:60]}'")
-            ctx = gather_imessage_context(self.imessage.your_handle, self.imessage.chat_db)
-            context_str = "User reply in Friday iMessage thread"
-            if ctx:
-                context_str += f"\n\nRecent conversation thread:\n{ctx}"
-            response = self._think(
-                f"The user sent you a message: {text}\n\nRespond helpfully and concisely.",
-                context=context_str
-            )
+        # Calendar read queries
+        query_keywords = ("what's on", "what do i have", "when is", "what time",
+                          "do i have", "any events", "show my", "what are my",
+                          "what's my schedule", "what is on my")
+        if any(kw in lower for kw in query_keywords):
+            logger.info(f"Calendar query from user: '{text[:60]}'")
+            response = self.answer_calendar_query(text)
             if response:
-                self.imessage.send_to_self(f"Friday: {response}")
-            time.sleep(3)
+                self.telegram.send(f"Friday: {response}")
+            return
+
+        # General scheduling signal
+        if not has_scheduling_signal(text):
+            logger.debug(f"Message skipped — no scheduling signal: '{text[:60]}'")
+            return
+
+        self._stats["last_message_at"] = datetime.now().isoformat()
+        self._stats["last_message_source"] = "telegram"
+        self._stats["last_message_preview"] = text[:80]
+
+        logger.info(f"Processing scheduling message from user: '{text[:60]}'")
+        response = self._think(
+            f"The user sent you a message: {text}\n\nRespond helpfully and concisely.",
+            context="User message via Telegram"
+        )
+        if response:
+            self.telegram.send(f"Friday: {response}")
 
     def _handle_direct_command(self, text: str):
-        """Process a direct scheduling command the user sent via iMessage."""
-        ctx = gather_imessage_context(self.imessage.your_handle, self.imessage.chat_db)
-        context_str = "Direct user command via iMessage"
-        if ctx:
-            context_str += f"\n\nRecent conversation:\n{ctx}"
-
+        """Process a direct scheduling command from the user via Telegram."""
         prompt = f"""The user sent you a direct scheduling command: "{text}"
 
 Parse this command and respond in this exact format:
@@ -295,9 +258,9 @@ NEW_TIME: [New time for EDIT_EVENT only, else blank]
 DURATION: [Duration in minutes if mentioned, else 60]
 LOCATION: [Location if mentioned, else blank]"""
 
-        response = self._think(prompt, context=context_str)
+        response = self._think(prompt, context="Direct command via Telegram")
         if not response or "NO_ACTION" in response:
-            self.imessage.send_to_self(
+            self.telegram.send(
                 "Friday: Got it — but I couldn't parse a clear event. "
                 "Try: 'Add [event name] on [date] at [time]'"
             )
@@ -310,7 +273,7 @@ LOCATION: [Location if mentioned, else blank]"""
             return
 
         self._stats["last_message_at"] = datetime.now().isoformat()
-        self._stats["last_message_source"] = "imessage_direct"
+        self._stats["last_message_source"] = "telegram_direct"
         self._stats["last_message_preview"] = text[:80]
 
         if self.permissions:
@@ -323,7 +286,7 @@ LOCATION: [Location if mentioned, else blank]"""
             if result.get("approved"):
                 logger.info(f"Direct command approved: {action_type}")
         else:
-            self.imessage.send_to_self(f"Friday: {draft}")
+            self.telegram.send(draft)
 
     # ── GroupMe processing ────────────────────────────────────────────────────
 
@@ -409,7 +372,7 @@ LOCATION: [Location if mentioned, else blank]"""
                 else:
                     logger.info(f"Action not approved: {result.get('reason')}")
             else:
-                self.imessage.send_to_self(
+                self.telegram.send(
                     f"📬 Friday | GroupMe ({msg['group_name']})\n\n{draft}"
                 )
                 self.memory.remember(
@@ -532,7 +495,7 @@ Instructions:
         briefing = self._think(prompt, context=f"Evening briefing for {today}")
 
         if briefing:
-            self.imessage.send_to_self(f"🌙 Friday — Evening Briefing\n\n{briefing}")
+            self.telegram.send(f"🌙 Friday — Evening Briefing\n\n{briefing}")
             logger.info("Evening briefing sent")
         else:
             logger.error("Failed to generate evening briefing")
