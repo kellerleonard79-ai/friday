@@ -1,14 +1,14 @@
 {
   "status": "running",
-  "pid": 11081,
+  "pid": 11749,
   "provider": "ollama",
   "model": "llama3.2:1b",
-  "started_at": "2026-05-26T16:54:09.730283",
-  "last_poll_at": "2026-05-26T16:59:27.948446",
-  "think_calls_total": 1,
-  "tokens_in_total": 1914,
-  "tokens_out_total": 88,
-  "last_message_at": "2026-05-26T16:54:10.969274",
-  "last_message_source": "groupme/doubles",
-  "last_message_preview": "7:30 on Thursday?\n[Resolved dates: \"thursday\" \u2192 2026-05-28]"
+  "started_at": "2026-05-26T17:14:14.852127",
+  "last_poll_at": "2026-05-26T17:14:14.963913",
+  "think_calls_total": 0,
+  "tokens_in_total": 0,
+  "tokens_out_total": 0,
+  "last_message_at": null,
+  "last_message_source": null,
+  "last_message_preview": null
 }

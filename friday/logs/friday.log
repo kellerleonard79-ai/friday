@@ -901,3 +901,79 @@ Zella Trahan asked about her ava...
 2026-05-26 16:59:27,116 [friday] INFO: Friday is running. Press Ctrl+C to stop.
 2026-05-26 16:59:27,543 [friday.groupme] INFO: GroupMe 'doubles': 1 new message(s)
 2026-05-26 16:59:27,950 [friday] INFO: ── Poll cycle complete ──
+2026-05-26 17:03:41,985 [friday] INFO: Friday shutting down.
+2026-05-26 17:03:42,127 [friday.imessage] INFO: iMessage sent: Friday is going offline. 🔴...
+2026-05-26 17:03:49,341 [friday] INFO: ==================================================
+2026-05-26 17:03:49,341 [friday] INFO:   Project Friday — Phase 2 Starting up
+2026-05-26 17:03:49,341 [friday] INFO:   Tuesday, May 26 2026 17:03
+2026-05-26 17:03:49,341 [friday] INFO: ==================================================
+2026-05-26 17:03:49,343 [friday.core] INFO: LLM provider: ollama | model: llama3.2:1b
+2026-05-26 17:03:49,344 [friday.imessage] INFO: iMessage watcher active on /Users/keller/Library/Messages
+2026-05-26 17:03:49,344 [friday] INFO: Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Students, FBLA Officer - 2026/2027, Los Muchachos Part 2
+✓ Apple Calendar
+Two-way iMessage: ✓
+Permission gate: ✓
+Briefing: 21:45
+2026-05-26 17:03:49,457 [friday.imessage] INFO: iMessage sent: ⚡ Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Stud...
+2026-05-26 17:03:49,461 [friday] INFO: Evening briefing scheduled at 21:45
+2026-05-26 17:03:49,461 [friday] INFO: ── Poll cycle starting ──
+2026-05-26 17:03:49,764 [friday.groupme] INFO: Found approved GroupMe group: 'First Students' (ID: 63856932)
+2026-05-26 17:03:49,764 [friday.groupme] INFO: Found approved GroupMe group: 'Doubles' (ID: 114025944)
+2026-05-26 17:03:49,764 [friday.groupme] INFO: Found approved GroupMe group: 'FBLA Officer - 2026/2027' (ID: 114368134)
+2026-05-26 17:03:49,764 [friday.groupme] INFO: Found approved GroupMe group: 'Los Muchachos Part 2' (ID: 106754677)
+2026-05-26 17:03:50,180 [friday.groupme] INFO: GroupMe 'doubles': 1 new message(s)
+2026-05-26 17:03:50,603 [friday] INFO: ── Poll cycle complete ──
+2026-05-26 17:03:50,603 [friday] INFO: Friday is running. Press Ctrl+C to stop.
+2026-05-26 17:08:50,652 [friday] INFO: ── Poll cycle starting ──
+2026-05-26 17:08:51,173 [friday.groupme] INFO: GroupMe 'doubles': 1 new message(s)
+2026-05-26 17:08:51,600 [friday] INFO: ── Poll cycle complete ──
+2026-05-26 17:13:51,647 [friday] INFO: ── Poll cycle starting ──
+2026-05-26 17:13:52,149 [friday.groupme] INFO: GroupMe 'doubles': 1 new message(s)
+2026-05-26 17:13:52,528 [friday] INFO: ── Poll cycle complete ──
+2026-05-26 17:14:09,102 [friday] INFO: Friday shutting down.
+2026-05-26 17:14:09,337 [friday.imessage] INFO: iMessage sent: Friday is going offline. 🔴...
+2026-05-26 17:14:14,849 [friday] INFO: ==================================================
+2026-05-26 17:14:14,849 [friday] INFO:   Project Friday — Phase 2 Starting up
+2026-05-26 17:14:14,849 [friday] INFO:   Tuesday, May 26 2026 17:14
+2026-05-26 17:14:14,849 [friday] INFO: ==================================================
+2026-05-26 17:14:14,852 [friday.core] INFO: LLM provider: ollama | model: llama3.2:1b
+2026-05-26 17:14:14,853 [friday.imessage] INFO: iMessage watcher active on /Users/keller/Library/Messages
+2026-05-26 17:14:14,853 [friday] INFO: Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Students, FBLA Officer - 2026/2027, Los Muchachos Part 2, NLC 2026, PHS SGA 2026-2027, Executive SGA Officers 26-27, SGA Officers 2026-2027, Pensacola High School FCA, PHS Tennis 2026, Varsity BOYS 2026, SLU 301
+✓ Apple Calendar
+Two-way iMessage: ✓
+Permission gate: ✓
+Briefing: 21:45
+2026-05-26 17:14:14,963 [friday.imessage] INFO: iMessage sent: ⚡ Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Stud...
+2026-05-26 17:14:14,964 [friday] INFO: Evening briefing scheduled at 21:45
+2026-05-26 17:14:14,964 [friday] INFO: ── Poll cycle starting ──
+2026-05-26 17:14:15,257 [friday.groupme] INFO: Found approved GroupMe group: 'NLC 2026' (ID: 113861947)
+2026-05-26 17:14:15,257 [friday.groupme] INFO: Found approved GroupMe group: 'First Students' (ID: 63856932)
+2026-05-26 17:14:15,257 [friday.groupme] INFO: Found approved GroupMe group: 'Doubles' (ID: 114025944)
+2026-05-26 17:14:15,257 [friday.groupme] INFO: Found approved GroupMe group: 'PHS SGA 2026-2027' (ID: 110357299)
+2026-05-26 17:14:15,258 [friday.groupme] INFO: Found approved GroupMe group: 'Executive SGA Officers 26-27' (ID: 114610395)
+2026-05-26 17:14:15,258 [friday.groupme] INFO: Found approved GroupMe group: 'FBLA Officer - 2026/2027' (ID: 114368134)
+2026-05-26 17:14:15,258 [friday.groupme] INFO: Found approved GroupMe group: 'SGA Officers 2026-2027' (ID: 114419976)
+2026-05-26 17:14:15,258 [friday.groupme] INFO: Found approved GroupMe group: 'Pensacola High School FCA' (ID: 108956712)
+2026-05-26 17:14:15,258 [friday.groupme] INFO: Found approved GroupMe group: 'PHS Tennis 2026' (ID: 99023793)
+2026-05-26 17:14:15,258 [friday.groupme] INFO: Found approved GroupMe group: 'Varsity BOYS 2026' (ID: 112816608)
+2026-05-26 17:14:15,258 [friday.groupme] INFO: Found approved GroupMe group: 'Los Muchachos Part 2' (ID: 106754677)
+2026-05-26 17:14:15,258 [friday.groupme] INFO: Found approved GroupMe group: 'SLU 301' (ID: 102074118)
+2026-05-26 17:14:15,538 [friday.groupme] INFO: GroupMe 'nlc 2026': 17 new message(s)
+2026-05-26 17:14:15,944 [friday.groupme] INFO: GroupMe 'doubles': 1 new message(s)
+2026-05-26 17:14:16,187 [friday.groupme] INFO: GroupMe 'phs sga 2026-2027': 19 new message(s)
+2026-05-26 17:14:16,404 [friday.groupme] INFO: GroupMe 'executive sga officers 26-27': 20 new message(s)
+2026-05-26 17:14:16,844 [friday.groupme] INFO: GroupMe 'sga officers 2026-2027': 18 new message(s)
+2026-05-26 17:14:17,051 [friday.groupme] INFO: GroupMe 'pensacola high school fca': 15 new message(s)
+2026-05-26 17:14:17,274 [friday.groupme] INFO: GroupMe 'phs tennis 2026': 9 new message(s)
+2026-05-26 17:14:17,477 [friday.groupme] INFO: GroupMe 'varsity boys 2026': 13 new message(s)
+2026-05-26 17:14:17,900 [friday.groupme] INFO: GroupMe 'slu 301': 19 new message(s)
+2026-05-26 17:14:17,903 [friday.core] INFO: GroupMe passed filter (Scheduling signal detected in GroupMe message): 'I said yes - all 3 of you will prepare'
+2026-05-26 17:14:28,896 [friday.core] INFO: GroupMe passed filter (Scheduling signal detected in GroupMe message): 'David Knoblock Henry White Melody Nguyen - can you send me your personal email a'
+2026-05-26 17:14:37,698 [friday.imessage] INFO: iMessage sent: 📋 Friday — Proposed Action
+
+Jacob Hill sent a reminder to as...
+2026-05-26 17:14:37,699 [friday.permissions] INFO: Permission requested for: groupme_notification
