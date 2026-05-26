@@ -144,6 +144,9 @@ Answer the question directly and concisely. If no relevant events exist, say so 
         for reply in replies:
             text = reply["text"].strip()
             lower = text.lower()
+            # Ignore Friday's own outbound messages being read back
+            if text.startswith("Friday:") or "ACTION:" in text or "DRAFT:" in text:
+                continue
 
             # Skip permission gate keywords — handled by permissions.py
             if lower in ("yes", "no") or lower.startswith("edit"):

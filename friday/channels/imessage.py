@@ -116,6 +116,42 @@ end tell
             logger.error(f"Error reading iMessages: {e}")
             return []
 
+    def debug_dump_messages(self, chat_identifier: str = None, limit: int = 5):
+        """Run a debug SQL query against the Messages DB and print recent rows.
+
+        Equivalent shell command:
+        sqlite3 ~/Library/Messages/chat.db \
+        "SELECT m.rowid, m.text, m.attributedBody, m.is_from_me, m.date \
+         FROM message m \
+         JOIN chat_message_join cmj ON cmj.message_id = m.rowid \
+         JOIN chat c ON c.rowid = cmj.chat_id \
+         WHERE c.chat_identifier = 'kellerleonard17@gmail.com' \
+         ORDER BY m.date DESC LIMIT 5;" | cat
+        """
+        cid = chat_identifier or self.your_handle
+        try:
+            with sqlite3.connect(self.chat_db) as conn:
+                cur = conn.execute(
+                    """
+                    SELECT m.rowid, m.text, m.attributedBody, m.is_from_me, m.date
+                    FROM message m
+                    JOIN chat_message_join cmj ON cmj.message_id = m.rowid
+                    JOIN chat c ON c.rowid = cmj.chat_id
+                    WHERE c.chat_identifier = ?
+                    ORDER BY m.date DESC
+                    LIMIT ?
+                    """,
+                    (cid, limit),
+                )
+                rows = cur.fetchall()
+                for row in rows:
+                    # print a compact representation; attributedBody may be large/binary
+                    print((row[0], row[1], bool(row[2]), row[3], row[4]))
+                return rows
+        except Exception as e:
+            logger.error(f"debug_dump_messages error: {e}")
+            return []
+
     def _extract_text(self, row_text: str, attributed_body: bytes) -> str:
         """Extract message text from text column or attributedBody blob.
 
