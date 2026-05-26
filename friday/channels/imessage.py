@@ -123,14 +123,15 @@ end tell
         1. If `row_text` is present return it.
         2. Try to parse `attributed_body` as a plist (XML) and pull text strings from
            the `$objects` array (common for archived attributedBody data).
-        3. Fallback to a heuristic byte-scan for embedded NSString text.
+        3. Fallback to scanning for known NSString/NSAttributedString markers and
+           extract a nearby printable UTF-8 run.
         """
         if row_text and row_text.strip():
             return row_text.strip()
         if not attributed_body:
             return ""
 
-        # First try parsing as a plist (works when the blob can be decoded as XML plist)
+        # 1) Try parsing attributedBody as an XML plist and extract $objects
         try:
             import plistlib
             plist = plistlib.loads(attributed_body, fmt=plistlib.FMT_XML)
@@ -139,19 +140,35 @@ end tell
                 if isinstance(obj, str) and len(obj) > 1 and any(c.isalpha() for c in obj):
                     return obj.strip()
         except Exception:
-            # Not an XML plist or parsing failed — fallthrough to heuristic
+            # Not an XML plist or parsing failed — continue to heuristic
             pass
 
-        # Fallback heuristic: scan the binary data for plausible UTF-8 strings
+        # 2) Heuristic scan for printable UTF-8 runs near known ObjC class markers
         try:
-            idx = attributed_body.find(b"NSString")
-            if idx != -1:
-                chunk = attributed_body[idx + 12:]
-                end = next((i for i, b in enumerate(chunk) if b < 0x20 and b not in (0x09, 0x0a)), len(chunk))
-                text = chunk[:end].decode("utf-8", errors="ignore").strip()
+            for marker in (b"NSAttributedString", b"NSMutableAttributedString", b"NSString"):
+                idx = attributed_body.find(marker)
+                if idx == -1:
+                    continue
+                chunk = attributed_body[idx + len(marker):]
+                # Find first printable ASCII char within the next 200 bytes
+                start = None
+                for i in range(min(200, len(chunk))):
+                    if 0x20 <= chunk[i] <= 0x7E:
+                        start = i
+                        break
+                if start is None:
+                    continue
+                end = start
+                while end < len(chunk) and 0x20 <= chunk[end] <= 0x7E:
+                    end += 1
+                try:
+                    text = chunk[start:end].decode("utf-8", errors="ignore").strip()
+                except Exception:
+                    text = ""
                 if text and any(c.isalpha() for c in text):
                     return text
         except Exception as e:
             logger.debug(f"attributedBody heuristic parse error: {e}")
 
         return ""
+    
