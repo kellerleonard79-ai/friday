@@ -1010,3 +1010,50 @@ GroupMe: Doubles, First Stud...
 [Resol'
 2026-05-26 17:17:28,579 [friday] INFO: ── Poll cycle complete ──
 2026-05-26 17:17:28,582 [friday] INFO: Friday is running. Press Ctrl+C to stop.
+2026-05-26 17:18:55,569 [friday] INFO: Friday shutting down.
+2026-05-26 17:18:55,867 [friday.imessage] INFO: iMessage sent: Friday is going offline. 🔴...
+2026-05-26 17:19:07,670 [friday] INFO: ==================================================
+2026-05-26 17:19:07,671 [friday] INFO:   Project Friday — Phase 2 Starting up
+2026-05-26 17:19:07,671 [friday] INFO:   Tuesday, May 26 2026 17:19
+2026-05-26 17:19:07,671 [friday] INFO: ==================================================
+2026-05-26 17:19:07,677 [friday.core] INFO: LLM provider: ollama | model: llama3.2:1b
+2026-05-26 17:19:07,679 [friday.imessage] INFO: iMessage watcher active on /Users/keller/Library/Messages
+2026-05-26 17:19:07,679 [friday] INFO: Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Students, FBLA Officer - 2026/2027, Los Muchachos Part 2, NLC 2026, PHS SGA 2026-2027, Executive SGA Officers 26-27, SGA Officers 2026-2027, Pensacola High School FCA, PHS Tennis 2026, Varsity BOYS 2026, SLU 301
+✓ Apple Calendar
+Two-way iMessage: ✓
+Permission gate: ✓
+Briefing: 21:45
+2026-05-26 17:19:07,889 [friday.imessage] INFO: iMessage sent: ⚡ Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Stud...
+2026-05-26 17:19:07,891 [friday] INFO: Evening briefing scheduled at 21:45
+2026-05-26 17:19:07,891 [friday] INFO: ── Poll cycle starting ──
+2026-05-26 17:19:08,201 [friday.groupme] INFO: Found approved GroupMe group: 'NLC 2026' (ID: 113861947)
+2026-05-26 17:19:08,201 [friday.groupme] INFO: Found approved GroupMe group: 'First Students' (ID: 63856932)
+2026-05-26 17:19:08,201 [friday.groupme] INFO: Found approved GroupMe group: 'Doubles' (ID: 114025944)
+2026-05-26 17:19:08,201 [friday.groupme] INFO: Found approved GroupMe group: 'PHS SGA 2026-2027' (ID: 110357299)
+2026-05-26 17:19:08,201 [friday.groupme] INFO: Found approved GroupMe group: 'Executive SGA Officers 26-27' (ID: 114610395)
+2026-05-26 17:19:08,201 [friday.groupme] INFO: Found approved GroupMe group: 'FBLA Officer - 2026/2027' (ID: 114368134)
+2026-05-26 17:19:08,201 [friday.groupme] INFO: Found approved GroupMe group: 'SGA Officers 2026-2027' (ID: 114419976)
+2026-05-26 17:19:08,201 [friday.groupme] INFO: Found approved GroupMe group: 'Pensacola High School FCA' (ID: 108956712)
+2026-05-26 17:19:08,201 [friday.groupme] INFO: Found approved GroupMe group: 'PHS Tennis 2026' (ID: 99023793)
+2026-05-26 17:19:08,201 [friday.groupme] INFO: Found approved GroupMe group: 'Varsity BOYS 2026' (ID: 112816608)
+2026-05-26 17:19:08,201 [friday.groupme] INFO: Found approved GroupMe group: 'Los Muchachos Part 2' (ID: 106754677)
+2026-05-26 17:19:08,201 [friday.groupme] INFO: Found approved GroupMe group: 'SLU 301' (ID: 102074118)
+2026-05-26 17:19:08,764 [friday.groupme] INFO: GroupMe 'doubles': 1 new message(s)
+2026-05-26 17:19:10,548 [friday.core] INFO: GroupMe passed filter (Scheduling signal detected in GroupMe message): 'So the final is 7:30 am at UWF on Thursday ??
+[Resolved dates: "thursday" → 2026'
+2026-05-26 17:19:19,987 [friday.imessage] INFO: iMessage sent: 📋 Friday — Proposed Action
+
+Jane Reed sent a message asking ...
+2026-05-26 17:19:19,988 [friday.permissions] INFO: Permission requested for: create_event
+2026-05-26 17:24:24,633 [friday.permissions] INFO: Permission timed out for: create_event
+2026-05-26 17:24:25,024 [friday.imessage] INFO: iMessage sent: ⏰ Friday — no reply received, action cancelled....
+2026-05-26 17:24:25,025 [friday.core] INFO: Action not approved: timeout
+2026-05-26 17:24:25,029 [friday] INFO: ── Poll cycle complete ──
+2026-05-26 17:24:25,031 [friday] INFO: ── Poll cycle starting ──
+2026-05-26 17:24:25,031 [friday] INFO: Friday is running. Press Ctrl+C to stop.
+2026-05-26 17:24:25,684 [friday.groupme] INFO: GroupMe 'doubles': 1 new message(s)
+2026-05-26 17:24:27,608 [friday] INFO: ── Poll cycle complete ──
+2026-05-26 17:26:12,902 [friday] INFO: Friday shutting down.
+2026-05-26 17:26:13,077 [friday.imessage] INFO: iMessage sent: Friday is going offline. 🔴...

@@ -11,8 +11,8 @@ import subprocess
 import logging
 import sqlite3
 import os
+import time
 import threading
-from datetime import datetime, timedelta
 
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -117,9 +117,7 @@ end tell
             logger.warning("Messages database not found.")
             return []
 
-        cutoff = datetime.now() - timedelta(minutes=minutes)
-        mac_epoch = datetime(2001, 1, 1)
-        cutoff_mac = (cutoff - mac_epoch).total_seconds() * 1e9
+        cutoff_mac = int((time.time() - minutes * 60 - 978307200) * 1_000_000_000)
 
         try:
             with sqlite3.connect(f"file:{self.chat_db}?mode=ro", uri=True) as conn:
@@ -130,7 +128,6 @@ end tell
                     JOIN chat c ON c.rowid = cmj.chat_id
                     WHERE c.chat_identifier = ?
                     AND m.date > ?
-                    AND m.is_from_me = 0
                     AND (m.text IS NOT NULL OR m.attributedBody IS NOT NULL)
                     ORDER BY m.date DESC
                     LIMIT 10
@@ -232,7 +229,22 @@ end tell
         except Exception:
             pass
 
-        # 2) Heuristic scan for printable UTF-8 runs near known ObjC class markers
+        # 2) Raw bytes fallback — reliable for short permission-gate responses
+        try:
+            decoded = attributed_body.decode("utf-8", errors="ignore")
+            cleaned = " ".join(decoded.split())  # collapses null bytes and whitespace runs
+            lower = cleaned.lower()
+            if lower == "yes":
+                return "Yes"
+            if lower == "no":
+                return "No"
+            for prefix in ("Edit:", "edit:"):
+                if prefix in cleaned:
+                    return cleaned[cleaned.find(prefix):cleaned.find(prefix) + 200].strip()
+        except Exception:
+            pass
+
+        # 3) Heuristic scan for printable UTF-8 runs near known ObjC class markers
         try:
             for marker in (b"NSAttributedString", b"NSMutableAttributedString", b"NSString"):
                 idx = attributed_body.find(marker)
