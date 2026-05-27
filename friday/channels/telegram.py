@@ -26,10 +26,9 @@ _API_BASE = "https://api.telegram.org/bot{token}/{method}"
 
 
 class TelegramChannel:
-    def __init__(self, config: dict, memory):
+    def __init__(self, config: dict):
         self.bot_token = config.get("bot_token") or os.environ.get("TELEGRAM_BOT_TOKEN", "")
         self.chat_id   = str(config.get("chat_id") or os.environ.get("TELEGRAM_CHAT_ID", ""))
-        self.memory    = memory
 
         self._reply_queue: queue.Queue = queue.Queue()
         self._awaiting_edit = False
