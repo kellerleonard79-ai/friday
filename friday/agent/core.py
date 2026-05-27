@@ -203,15 +203,21 @@ Answer the question directly and concisely. If no relevant events exist, say so 
         lower = text.lower()
 
         # Direct scheduling commands
+        # Starting with a command verb is sufficient — no noun gating needed.
         command_verbs = ("add", "put", "create", "schedule", "set up", "book",
                          "block off", "remind me", "move", "cancel", "delete",
                          "remove", "reschedule", "change")
         scheduling_nouns = ("calendar", "event", "meeting", "appointment",
-                            "reminder", "block", "slot")
-        is_direct_command = (
-            any(lower.startswith(v) or f" {v} " in lower for v in command_verbs)
+                            "reminder", "block", "slot", "practice", "game",
+                            "match", "training", "session", "class", "lesson",
+                            "tournament", "tryout", "workout", "lunch", "dinner",
+                            "call", "interview", "exam", "test", "trip")
+        starts_with_verb = any(lower.startswith(v) for v in command_verbs)
+        verb_and_noun = (
+            any(f" {v} " in lower or lower.startswith(v) for v in command_verbs)
             and any(n in lower for n in scheduling_nouns)
         )
+        is_direct_command = starts_with_verb or verb_and_noun
         if is_direct_command:
             logger.info(f"Direct command from user: '{text[:60]}'")
             self._handle_direct_command(text)

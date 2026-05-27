@@ -1598,3 +1598,57 @@ DRAFT: The event with groupMe_last_id_114610395 (Pe
 2026-05-26 19:53:01,400 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
 2026-05-26 19:53:11,605 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
 2026-05-26 19:53:21,742 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 19:53:30,843 [friday] INFO: ── Poll cycle starting ──
+2026-05-26 19:53:31,620 [friday.groupme] INFO: GroupMe 'doubles': 1 new message(s)
+2026-05-26 19:53:31,882 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 19:53:33,526 [friday] INFO: ── Poll cycle complete ──
+2026-05-26 19:53:36,868 [friday] INFO: Friday shutting down.
+2026-05-26 19:53:37,422 [friday.telegram] INFO: Telegram sent: Friday is going offline. 🔴
+2026-05-26 19:53:42,977 [friday] INFO: ==================================================
+2026-05-26 19:53:42,977 [friday] INFO:   Project Friday — Phase 2 Starting up
+2026-05-26 19:53:42,977 [friday] INFO:   Tuesday, May 26 2026 19:53
+2026-05-26 19:53:42,977 [friday] INFO: ==================================================
+2026-05-26 19:53:42,980 [friday.core] INFO: LLM provider: ollama | model: llama3.2:1b
+2026-05-26 19:53:42,980 [friday.telegram] INFO: Telegram polling started
+2026-05-26 19:53:42,980 [friday] INFO: ⚡ Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Students, FBLA Officer - 2026/2027, Los Muchachos Part 2, NLC 2026, PHS SGA 2026-2027, Executive SGA Officers 26-27, SGA Officers 2026-2027, Pensacola High School FCA, PHS Tennis 2026, Varsity BOYS 2026, SLU 301
+✓ Apple Calendar
+Telegram: ✓
+Permission gate: ✓
+Briefing: 21:45
+2026-05-26 19:53:43,468 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getMe "HTTP/1.1 200 OK"
+2026-05-26 19:53:43,529 [friday.telegram] INFO: Telegram sent: ⚡ Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Students, FBLA Officer -
+2026-05-26 19:53:43,532 [friday] INFO: Evening briefing scheduled at 21:45
+2026-05-26 19:53:43,532 [friday] INFO: ── Poll cycle starting ──
+2026-05-26 19:53:43,584 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/deleteWebhook "HTTP/1.1 200 OK"
+2026-05-26 19:53:43,585 [telegram.ext.Application] INFO: Application started
+2026-05-26 19:53:43,807 [friday.groupme] INFO: Found approved GroupMe group: 'NLC 2026' (ID: 113861947)
+2026-05-26 19:53:43,807 [friday.groupme] INFO: Found approved GroupMe group: 'First Students' (ID: 63856932)
+2026-05-26 19:53:43,807 [friday.groupme] INFO: Found approved GroupMe group: 'Doubles' (ID: 114025944)
+2026-05-26 19:53:43,807 [friday.groupme] INFO: Found approved GroupMe group: 'PHS SGA 2026-2027' (ID: 110357299)
+2026-05-26 19:53:43,807 [friday.groupme] INFO: Found approved GroupMe group: 'Executive SGA Officers 26-27' (ID: 114610395)
+2026-05-26 19:53:43,807 [friday.groupme] INFO: Found approved GroupMe group: 'FBLA Officer - 2026/2027' (ID: 114368134)
+2026-05-26 19:53:43,807 [friday.groupme] INFO: Found approved GroupMe group: 'SGA Officers 2026-2027' (ID: 114419976)
+2026-05-26 19:53:43,807 [friday.groupme] INFO: Found approved GroupMe group: 'Pensacola High School FCA' (ID: 108956712)
+2026-05-26 19:53:43,807 [friday.groupme] INFO: Found approved GroupMe group: 'PHS Tennis 2026' (ID: 99023793)
+2026-05-26 19:53:43,807 [friday.groupme] INFO: Found approved GroupMe group: 'Varsity BOYS 2026' (ID: 112816608)
+2026-05-26 19:53:43,808 [friday.groupme] INFO: Found approved GroupMe group: 'Los Muchachos Part 2' (ID: 106754677)
+2026-05-26 19:53:43,808 [friday.groupme] INFO: Found approved GroupMe group: 'SLU 301' (ID: 102074118)
+2026-05-26 19:53:44,431 [friday.groupme] INFO: GroupMe 'doubles': 1 new message(s)
+2026-05-26 19:53:46,168 [friday] INFO: ── Poll cycle complete ──
+2026-05-26 19:53:46,169 [friday] INFO: Friday is running. Press Ctrl+C to stop.
+2026-05-26 19:53:54,000 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 19:53:59,880 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 19:53:59,883 [friday.core] INFO: Processing scheduling message from user: 'Add tennis practice thursday 8am
+[Resolved dates: "thursday"'
+2026-05-26 19:54:16,699 [friday.telegram] INFO: Telegram sent: Friday: ACTION: CREATE_EVENT
+DRAFT: The event with groupMe_last_id_114610395 (Pe
+2026-05-26 19:54:27,084 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 19:54:37,321 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 19:54:47,456 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 19:54:57,696 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 19:55:07,828 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 19:55:17,973 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 19:55:28,212 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 19:55:38,344 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
