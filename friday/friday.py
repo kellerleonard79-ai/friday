@@ -1,21 +1,21 @@
 """
 friday.py
 Project Friday — entry point.
+
+PTB Application owns the main event loop.
+All scheduling goes through job_queue — no secondary threads, no schedule library.
 """
 
-import json
+import datetime
 import logging
 import os
+import signal
 import sys
-import time
-import threading
-from datetime import datetime
 
 import yaml
-import schedule
+from telegram.ext import Application, MessageHandler, CallbackQueryHandler, filters
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-STATE_FILE = os.path.join(_HERE, "state.json")
 
 os.makedirs(os.path.join(_HERE, "logs"), exist_ok=True)
 
@@ -30,7 +30,9 @@ logging.basicConfig(
 logger = logging.getLogger("friday")
 
 from agent.core import FridayAgent
-from channels.telegram import TelegramChannel
+from channels.telegram import TelegramHandler
+from memory.db import Database
+import memory.state as state
 
 
 def load_config() -> dict:
@@ -58,55 +60,94 @@ def check_environment(config: dict) -> None:
         sys.exit(1)
 
 
-def write_state(agent: FridayAgent, config: dict, started_at: str) -> None:
-    data = {
-        "status": "running",
-        "pid": os.getpid(),
-        "provider": config.get("provider", "ollama"),
-        "model": agent.model_name,
-        "started_at": started_at,
-        "last_poll_at": datetime.now().isoformat(),
-        **agent._stats,
-    }
-    tmp = STATE_FILE + ".tmp"
-    try:
-        with open(tmp, "w") as f:
-            json.dump(data, f, indent=2)
-        os.replace(tmp, STATE_FILE)
-    except Exception as e:
-        logger.warning(f"Could not write state.json: {e}")
-
-
 def main() -> None:
     logger.info("=" * 50)
     logger.info("  Project Friday — Starting up")
-    logger.info(f"  {datetime.now().strftime('%A, %B %d %Y %H:%M')}")
+    logger.info(f"  {datetime.datetime.now().strftime('%A, %B %d %Y %H:%M')}")
     logger.info("=" * 50)
 
     config = load_config()
     check_environment(config)
 
-    telegram = TelegramChannel(config=config.get("telegram", {}))
-    agent = FridayAgent(config=config, telegram=telegram)
+    memory_cfg  = config.get("memory", {})
+    db_path     = os.path.join(_HERE, memory_cfg.get("db_path", "memory/friday_memory.db"))
+    db          = Database(db_path)
+    conn        = db.connection()
 
-    started_at = datetime.now().isoformat()
-    telegram.start_polling(agent.on_message)
-    write_state(agent, config, started_at)
+    agent   = FridayAgent(config)
+    tg_cfg  = config.get("telegram", {})
+    handler = TelegramHandler(tg_cfg, agent, conn)
 
-    schedule.every(5).minutes.do(write_state, agent=agent, config=config, started_at=started_at)
-    scheduler = threading.Thread(target=lambda: [schedule.run_pending() or time.sleep(30) for _ in iter(int, 1)], daemon=True)
-    scheduler.start()
+    bot_token  = handler.bot_token
+    chat_id    = handler.chat_id
+    agent_cfg  = config.get("agent", {})
+    bt_str     = agent_cfg.get("briefing_time", "21:45")
+    bh, bm     = (int(x) for x in bt_str.split(":"))
 
-    telegram.send(f"⚡ Friday online — {config.get('provider', 'ollama')} / {agent.model_name}")
+    # ── Post-init: startup message + initial state ────────────────────────────
 
+    async def post_init(app: Application) -> None:
+        state.set(conn, "status",     "running")
+        state.set(conn, "started_at", datetime.datetime.now().isoformat())
+        state.set(conn, "provider",   config.get("provider", "ollama"))
+        state.set(conn, "model",      agent.model_name)
+        await app.bot.send_message(
+            chat_id=chat_id,
+            text=f"⚡ Friday online — {config.get('provider', 'ollama')} / {agent.model_name}",
+        )
+        logger.info("Startup complete.")
+
+    # ── Post-stop: offline message ────────────────────────────────────────────
+
+    async def post_stop(app: Application) -> None:
+        state.set(conn, "status", "stopped")
+        try:
+            await app.bot.send_message(chat_id=chat_id, text="Friday going offline. 🔴")
+        except Exception:
+            pass
+
+    # ── Evening briefing job ──────────────────────────────────────────────────
+
+    async def briefing_job(context) -> None:
+        today = datetime.datetime.now().strftime("%A, %B %d")
+        import asyncio
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None, agent._think,
+            f"Compose a brief evening briefing for {today}. "
+            f"Keep it under 5 sentences. Plain prose only."
+        )
+        if response:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"📅 Evening Briefing — {today}\n\n{response}",
+            )
+
+    # ── Build and run application ─────────────────────────────────────────────
+
+    app = (
+        Application.builder()
+        .token(bot_token)
+        .post_init(post_init)
+        .post_stop(post_stop)
+        .build()
+    )
+
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handler.on_message))
+    app.add_handler(CallbackQueryHandler(handler.on_callback))
+
+    app.job_queue.run_daily(
+        briefing_job,
+        time=datetime.time(bh, bm, tzinfo=datetime.timezone.utc),
+    )
+
+    logger.info(f"Evening briefing scheduled at {bt_str} UTC")
     logger.info("Running. Ctrl+C to stop.")
-    try:
-        while True:
-            time.sleep(60)
-    except KeyboardInterrupt:
-        logger.info("Shutting down.")
-        telegram.send("Friday going offline. 🔴")
-        telegram.stop_polling()
+
+    app.run_polling(
+        drop_pending_updates=False,
+        stop_signals=(signal.SIGINT, signal.SIGTERM),
+    )
 
 
 if __name__ == "__main__":

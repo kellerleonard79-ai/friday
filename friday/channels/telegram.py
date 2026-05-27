@@ -1,49 +1,38 @@
 """
 channels/telegram.py
-Telegram Bot channel for Project Friday — replaces iMessage.
+Telegram interface for Friday.
 
-Sends messages and permission gate cards via the Telegram Bot API.
-Receives button callbacks (Confirm/Edit/Cancel) and text messages via
-python-telegram-bot polling, running in a dedicated background thread.
-
-Bridge pattern: async Telegram handlers write results into a queue.Queue;
-the synchronous permission gate reads from it via queue.Queue.get(timeout=...).
+Inbound: async PTB handlers — semaphore at the top of on_message serializes all processing.
+Outbound: sync requests.post — fast fire-and-forget, safe to call from any context.
 """
 
 import asyncio
 import logging
 import os
-import queue
-import threading
-import requests
+import sqlite3
 
+import requests
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ForceReply, Update
-from telegram.ext import Application, CallbackQueryHandler, MessageHandler, filters
+from telegram.ext import ContextTypes
+
+import memory.state as state
 
 logger = logging.getLogger("friday.telegram")
 
 _API_BASE = "https://api.telegram.org/bot{token}/{method}"
+_semaphore = asyncio.Semaphore(1)
 
 
-class TelegramChannel:
-    def __init__(self, config: dict):
+class TelegramHandler:
+    def __init__(self, config: dict, agent, conn: sqlite3.Connection):
         self.bot_token = config.get("bot_token") or os.environ.get("TELEGRAM_BOT_TOKEN", "")
         self.chat_id   = str(config.get("chat_id") or os.environ.get("TELEGRAM_CHAT_ID", ""))
+        self.agent     = agent
+        self.conn      = conn
 
-        self._reply_queue: queue.Queue = queue.Queue()
-        self._awaiting_edit = False
-
-        self._app    = None
-        self._loop   = None
-        self._thread = None
-        self._on_text_cb = None  # callable(text: str) set by start_polling()
-
-    # ── Sync send via direct HTTP ─────────────────────────────────────────────
-    # Using requests.post directly avoids the async/sync boundary for outbound
-    # messages. The async Application is only needed for inbound handling.
+    # ── Outbound (sync) ───────────────────────────────────────────────────────
 
     def send(self, text: str) -> bool:
-        """Send a plain-text message to the user."""
         url = _API_BASE.format(token=self.bot_token, method="sendMessage")
         try:
             r = requests.post(
@@ -52,15 +41,15 @@ class TelegramChannel:
                 timeout=10,
             )
             if r.status_code == 200:
-                logger.info(f"Telegram sent: {text[:80]}")
+                logger.info(f"Sent: {text[:80]}")
                 return True
-            logger.error(f"Telegram send failed {r.status_code}: {r.text[:120]}")
+            logger.error(f"Send failed {r.status_code}: {r.text[:120]}")
         except Exception as e:
-            logger.error(f"Telegram send error: {e}")
+            logger.error(f"Send error: {e}")
         return False
 
     def send_permission_request(self, draft: str, pending_key: str) -> bool:
-        """Send a permission gate card with Confirm / Edit / Cancel inline buttons."""
+        """Approval gate card — wired up in Phase 4."""
         keyboard = InlineKeyboardMarkup([[
             InlineKeyboardButton("✅ Confirm", callback_data=f"confirm:{pending_key}"),
             InlineKeyboardButton("✏️ Edit",    callback_data=f"edit:{pending_key}"),
@@ -68,92 +57,40 @@ class TelegramChannel:
         ]])
         url = _API_BASE.format(token=self.bot_token, method="sendMessage")
         try:
-            r = requests.post(
-                url,
-                json={
-                    "chat_id": self.chat_id,
-                    "text": f"📋 Friday — Proposed Action\n\n{draft}",
-                    "reply_markup": keyboard.to_dict(),
-                },
-                timeout=10,
-            )
-            if r.status_code == 200:
-                logger.info(f"Permission request sent for key: {pending_key}")
-                return True
-            logger.error(f"Permission request failed {r.status_code}: {r.text[:120]}")
+            r = requests.post(url, json={
+                "chat_id": self.chat_id,
+                "text": f"📋 Friday\n\n{draft}",
+                "reply_markup": keyboard.to_dict(),
+            }, timeout=10)
+            return r.status_code == 200
         except Exception as e:
             logger.error(f"send_permission_request error: {e}")
-        return False
+            return False
 
-    def get_reply(self, timeout: int = 300) -> dict:
-        """
-        Block until a button callback or edit-instruction text arrives.
-        Returns {"action": "confirm"|"cancel"|"edit", "text": "..."}.
-        Raises queue.Empty if timeout expires.
-        """
-        return self._reply_queue.get(timeout=timeout)
+    # ── Inbound (async) ───────────────────────────────────────────────────────
 
-    # ── Async polling — dedicated thread + event loop ─────────────────────────
+    async def on_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Entry point for all text messages. Semaphore serializes processing."""
+        async with _semaphore:
+            text = update.message.text.strip()
+            if not text:
+                return
 
-    def start_polling(self, on_text_message):
-        """
-        Start the Telegram Application in a background daemon thread.
-        on_text_message(text: str) is called for any non-command text message
-        that isn't part of an active Edit flow.
-        """
-        self._on_text_cb = on_text_message
-        self._thread = threading.Thread(
-            target=self._run_polling,
-            daemon=True,
-            name="telegram-poll",
-        )
-        self._thread.start()
-        logger.info("Telegram polling started")
+            from datetime import datetime
+            state.set(self.conn, "last_message_at", datetime.now().isoformat())
+            state.set(self.conn, "last_message_preview", text[:80])
+            logger.info(f"Message: {text[:80]}")
 
-    def stop_polling(self):
-        """Signal the polling loop to stop gracefully."""
-        if self._app and self._loop and self._loop.is_running():
-            asyncio.run_coroutine_threadsafe(self._app.stop(), self._loop)
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(None, self.agent._think, text)
+            if response:
+                await update.message.reply_text(response)
 
-    def _run_polling(self):
-        """Runs in the dedicated thread. Owns its own event loop."""
-        self._loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self._loop)
-
-        self._app = Application.builder().token(self.bot_token).build()
-        self._app.add_handler(CallbackQueryHandler(self._on_callback))
-        self._app.add_handler(
-            MessageHandler(filters.TEXT & ~filters.COMMAND, self._on_message)
-        )
-        self._app.run_polling(stop_signals=None)  # blocks until stop_polling()
-
-    async def _on_callback(self, update: Update, context):
-        """Handle Confirm / Edit / Cancel button taps."""
+    async def on_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle inline button taps. Stale callbacks are silently discarded."""
         query = update.callback_query
         try:
             await query.answer()
         except Exception:
-            return  # stale/expired callback — ignore silently
-
-        action, _, key = query.data.partition(":")
-
-        if action == "edit":
-            self._awaiting_edit = True
-            await context.bot.send_message(
-                chat_id=self.chat_id,
-                text="What should I change?",
-                reply_markup=ForceReply(selective=True),
-            )
-        else:
-            self._reply_queue.put({"action": action, "key": key})
-
-    async def _on_message(self, update: Update, context):
-        """Handle incoming text messages."""
-        text = update.message.text.strip()
-
-        if self._awaiting_edit:
-            self._awaiting_edit = False
-            self._reply_queue.put({"action": "edit", "text": text})
-        elif self._on_text_cb:
-            # Deliver to the agent's direct-command / conversational handler
-            self._on_text_cb(text)
+            return
+        # Phase 4: route confirm/edit/cancel here

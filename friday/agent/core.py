@@ -1,6 +1,6 @@
 """
 agent/core.py
-Friday's brain — LLM call and Telegram message handler.
+LLM calls only. No routing, no state, no Telegram references.
 """
 
 import logging
@@ -23,19 +23,9 @@ def _load_persona() -> str:
 
 
 class FridayAgent:
-    def __init__(self, config: dict, telegram):
-        self.config = config
-        self.telegram = telegram
-        self.persona = _load_persona()
-
+    def __init__(self, config: dict):
+        self.persona  = _load_persona()
         self.provider = config.get("provider", "ollama")
-        self._stats = {
-            "think_calls": 0,
-            "tokens_in": 0,
-            "tokens_out": 0,
-            "last_message_at": None,
-            "last_message_preview": None,
-        }
 
         if self.provider == "gemini":
             gemini_cfg = config.get("gemini", {})
@@ -52,12 +42,10 @@ class FridayAgent:
             self.max_tokens = ollama_cfg.get("max_tokens", 1000)
             self.ollama_url = ollama_cfg.get("base_url", "http://localhost:11434")
 
-        logger.info(f"Agent ready — provider={self.provider} model={self.model_name}")
-
-    # ── LLM call ─────────────────────────────────────────────────────────────
+        logger.info(f"Agent ready — {self.provider} / {self.model_name}")
 
     def _think(self, prompt: str) -> str:
-        self._stats["think_calls"] += 1
+        """Synchronous LLM call. Always run via run_in_executor inside async handlers."""
         try:
             if self.provider == "gemini":
                 resp = self.gemini_client.models.generate_content(
@@ -68,13 +56,7 @@ class FridayAgent:
                         max_output_tokens=self.max_tokens,
                     ),
                 )
-                text = resp.text or ""
-                try:
-                    self._stats["tokens_in"]  += resp.usage_metadata.prompt_token_count or 0
-                    self._stats["tokens_out"] += resp.usage_metadata.candidates_token_count or 0
-                except Exception:
-                    pass
-                return text.strip()
+                return (resp.text or "").strip()
 
             else:  # ollama
                 r = requests.post(
@@ -95,19 +77,3 @@ class FridayAgent:
         except Exception as e:
             logger.error(f"LLM error: {e}")
             return ""
-
-    # ── Telegram handler ──────────────────────────────────────────────────────
-
-    def on_message(self, text: str) -> None:
-        from datetime import datetime
-        text = text.strip()
-        if not text:
-            return
-
-        self._stats["last_message_at"] = datetime.now().isoformat()
-        self._stats["last_message_preview"] = text[:80]
-        logger.info(f"Message: {text[:80]}")
-
-        response = self._think(text)
-        if response:
-            self.telegram.send(response)
