@@ -1,10 +1,10 @@
 {
   "status": "running",
-  "pid": 14299,
+  "pid": 16519,
   "provider": "ollama",
   "model": "llama3.2:1b",
-  "started_at": "2026-05-26T18:07:31.299049",
-  "last_poll_at": "2026-05-26T18:07:34.131321",
+  "started_at": "2026-05-26T19:48:26.204122",
+  "last_poll_at": "2026-05-26T19:48:30.806061",
   "think_calls_total": 0,
   "tokens_in_total": 0,
   "tokens_out_total": 0,

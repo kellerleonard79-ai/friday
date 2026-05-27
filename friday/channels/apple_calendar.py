@@ -5,6 +5,7 @@ Reads, creates, edits, and deletes events using macOS AppleScript.
 No OAuth required — works with iCloud and any locally synced calendar.
 """
 
+import re
 import subprocess
 import logging
 from datetime import datetime, timedelta
@@ -20,7 +21,7 @@ class AppleCalendarChannel:
     # ── AppleScript runner ────────────────────────────────────────────────────
 
     def _run_applescript(self, script: str) -> str:
-        """Run an AppleScript and return stdout."""
+        """Run an AppleScript and return stdout, or empty string on error."""
         try:
             result = subprocess.run(
                 ["osascript", "-e", script],
@@ -36,6 +37,97 @@ class AppleCalendarChannel:
         except Exception as e:
             logger.error(f"Failed to run AppleScript: {e}")
             return ""
+
+    # ── Date/time parser ─────────────────────────────────────────────────────
+
+    def _parse_event_datetime(self, date_str: str, time_str: str = "") -> datetime | None:
+        """
+        Parse date_str + optional time_str into a datetime.
+        Handles ISO dates (2026-05-29), natural language (May 29 2026),
+        and relative terms (today, tomorrow, Thursday).
+        Returns None if the date cannot be parsed.
+        """
+        date_str = (date_str or "").strip()
+        time_str = (time_str or "").strip()
+
+        dt = None
+
+        # ISO date: "2026-05-29"
+        try:
+            dt = datetime.strptime(date_str, "%Y-%m-%d")
+        except ValueError:
+            pass
+
+        # Natural language with year: "May 29 2026", "May 29, 2026"
+        if dt is None:
+            for fmt in ("%B %d %Y", "%B %d, %Y", "%b %d %Y", "%b %d, %Y"):
+                try:
+                    dt = datetime.strptime(date_str, fmt)
+                    break
+                except ValueError:
+                    pass
+
+        # Natural language without year: "May 29", "May 29th" — assume current/next year
+        if dt is None:
+            clean = re.sub(r'(\d+)(st|nd|rd|th)', r'\1', date_str, flags=re.I)
+            for fmt in ("%B %d", "%b %d"):
+                try:
+                    parsed = datetime.strptime(clean, fmt)
+                    year = datetime.now().year
+                    dt = parsed.replace(year=year)
+                    if dt.date() < datetime.now().date():
+                        dt = dt.replace(year=year + 1)
+                    break
+                except ValueError:
+                    pass
+
+        # Relative terms
+        if dt is None:
+            today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            lower = date_str.lower()
+            if lower == "today":
+                dt = today
+            elif lower == "tomorrow":
+                dt = today + timedelta(days=1)
+            else:
+                days_map = {
+                    "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
+                    "friday": 4, "saturday": 5, "sunday": 6,
+                }
+                for name, num in days_map.items():
+                    if name in lower:
+                        ahead = (num - today.weekday()) % 7 or 7
+                        dt = today + timedelta(days=ahead)
+                        break
+
+        if dt is None:
+            logger.error(f"Cannot parse date: '{date_str}'")
+            return None
+
+        # Parse time
+        if time_str:
+            # Normalize: "8am" → "8 AM", "8:30am" → "8:30 AM"
+            normalized = re.sub(r'([ap])m', r' \1m', time_str, flags=re.I).upper().strip()
+            for fmt in ("%I:%M %p", "%I %p", "%H:%M"):
+                try:
+                    t = datetime.strptime(normalized, fmt)
+                    dt = dt.replace(hour=t.hour, minute=t.minute, second=0, microsecond=0)
+                    return dt
+                except ValueError:
+                    pass
+            logger.warning(f"Cannot parse time '{time_str}' — creating all-day event")
+
+        return dt
+
+    def _as_script(self, dt: datetime) -> str:
+        """Return AppleScript lines that set a variable 'd' to the given datetime."""
+        seconds = dt.hour * 3600 + dt.minute * 60
+        return (
+            f"set year of d to {dt.year}\n"
+            f"    set month of d to {dt.month}\n"
+            f"    set day of d to {dt.day}\n"
+            f"    set time of d to {seconds}"
+        )
 
     # ── Read ──────────────────────────────────────────────────────────────────
 
@@ -103,7 +195,6 @@ return output
     def find_events(self, query: str, days_ahead: int = 14) -> list:
         """
         Search for events matching a keyword within the next days_ahead days.
-        Used for conversational queries like "what's my tennis match this week?"
         Returns a filtered list of event dicts.
         """
         all_events = self.get_events(days_ahead=days_ahead)
@@ -134,8 +225,8 @@ return output
         """
         Create a new event in Apple Calendar.
 
-        date_str: natural language or formatted date e.g. "May 9, 2026", "tomorrow"
-        time_str: e.g. "8:00 AM", "14:30" — leave empty for all-day event
+        date_str: ISO "2026-05-29", natural "May 29 2026", or relative "Thursday"
+        time_str: "8:00 AM", "14:30", "8am" — leave empty for all-day event
         duration_minutes: length in minutes (default 60)
         calendar_name: specific calendar to add to, or empty for first writable calendar
         """
@@ -143,9 +234,13 @@ return output
             logger.warning("Apple Calendar not enabled — cannot create event")
             return False
 
-        safe_title = title.replace('"', '\\"')
-        safe_date = date_str.replace('"', '\\"')
-        safe_time = time_str.replace('"', '\\"')
+        dt = self._parse_event_datetime(date_str, time_str)
+        if dt is None:
+            logger.error(f"create_event: unparseable date '{date_str}' time '{time_str}'")
+            return False
+
+        end_dt = dt + timedelta(minutes=duration_minutes)
+        safe_title = title.replace("\\", "\\\\").replace('"', '\\"')
 
         if calendar_name:
             safe_cal = calendar_name.replace('"', '\\"')
@@ -153,38 +248,31 @@ return output
         else:
             cal_clause = "set targetCal to first calendar whose writable is true"
 
-        if time_str:
-            script = f'''
-set eventDate to date "{safe_date} at {safe_time}"
-set eventEnd to eventDate + ({duration_minutes} * minutes)
+        script = f'''
 tell application "Calendar"
     {cal_clause}
+    set d to current date
+    {self._as_script(dt)}
+    set startDate to d
+    set d to current date
+    set year of d to {end_dt.year}
+    set month of d to {end_dt.month}
+    set day of d to {end_dt.day}
+    set time of d to {end_dt.hour * 3600 + end_dt.minute * 60}
+    set endDate to d
     tell targetCal
-        make new event with properties {{summary:"{safe_title}", start date:eventDate, end date:eventEnd}}
-    end tell
-    reload calendars
-end tell
-return "success"
-'''
-        else:
-            script = f'''
-set eventDate to date "{safe_date}"
-tell application "Calendar"
-    {cal_clause}
-    tell targetCal
-        make new event with properties {{summary:"{safe_title}", start date:eventDate, end date:eventDate, allday event:true}}
+        make new event with properties {{summary:"{safe_title}", start date:startDate, end date:endDate}}
     end tell
     reload calendars
 end tell
 return "success"
 '''
         result = self._run_applescript(script)
-        if "success" in result.lower() or result == "":
-            logger.info(f"Calendar event created: '{title}' on {date_str} {time_str}")
+        if "success" in result.lower():
+            logger.info(f"Calendar event created: '{title}' on {dt.isoformat()}")
             return True
-        else:
-            logger.error(f"Failed to create calendar event: {result}")
-            return False
+        logger.error(f"Failed to create calendar event: result='{result}'")
+        return False
 
     # ── Edit ─────────────────────────────────────────────────────────────────
 
@@ -194,47 +282,40 @@ return "success"
                    days_ahead: int = 30) -> bool:
         """
         Find an event by title keyword and edit its properties.
-        Only fields with non-empty values are updated.
-
-        title_search: keyword to find the event (case-insensitive partial match)
-        new_title: replacement title, or "" to keep existing
-        new_date_str: new date string, or "" to keep existing
-        new_time_str: new time string, or "" to keep existing
-        new_duration_minutes: new duration, or 0 to keep existing
-        new_location: new location, or "" to keep existing
+        Only fields with non-empty/non-zero values are updated.
         """
         if not self.enabled:
             logger.warning("Apple Calendar not enabled — cannot edit event")
             return False
 
-        safe_search = title_search.replace('"', '\\"').lower()
-
-        # Build property update clauses
         update_clauses = []
+
         if new_title:
             safe_new_title = new_title.replace('"', '\\"')
             update_clauses.append(f'set summary of targetEvent to "{safe_new_title}"')
-        if new_date_str:
-            safe_new_date = new_date_str.replace('"', '\\"')
-            if new_time_str:
-                safe_new_time = new_time_str.replace('"', '\\"')
+
+        if new_date_str or new_time_str:
+            new_dt = self._parse_event_datetime(new_date_str or "today", new_time_str)
+            if new_dt:
+                dur = new_duration_minutes if new_duration_minutes > 0 else 60
+                end_dt = new_dt + timedelta(minutes=dur)
                 update_clauses.append(
-                    f'set newStart to date "{safe_new_date} at {safe_new_time}"\n'
-                    f'        set start date of targetEvent to newStart'
+                    f"set d to current date\n"
+                    f"        set year of d to {new_dt.year}\n"
+                    f"        set month of d to {new_dt.month}\n"
+                    f"        set day of d to {new_dt.day}\n"
+                    f"        set time of d to {new_dt.hour * 3600 + new_dt.minute * 60}\n"
+                    f"        set start date of targetEvent to d\n"
+                    f"        set d to current date\n"
+                    f"        set year of d to {end_dt.year}\n"
+                    f"        set month of d to {end_dt.month}\n"
+                    f"        set day of d to {end_dt.day}\n"
+                    f"        set time of d to {end_dt.hour * 3600 + end_dt.minute * 60}\n"
+                    f"        set end date of targetEvent to d"
                 )
-                if new_duration_minutes > 0:
-                    update_clauses.append(
-                        f'set end date of targetEvent to newStart + ({new_duration_minutes} * minutes)'
-                    )
-                else:
-                    update_clauses.append(
-                        f'set end date of targetEvent to newStart + (60 * minutes)'
-                    )
             else:
-                update_clauses.append(
-                    f'set newStart to date "{safe_new_date}"\n'
-                    f'        set start date of targetEvent to newStart'
-                )
+                logger.warning(f"edit_event: could not parse new date '{new_date_str}' '{new_time_str}'")
+
         if new_location:
             safe_loc = new_location.replace('"', '\\"')
             update_clauses.append(f'set location of targetEvent to "{safe_loc}"')
@@ -243,6 +324,7 @@ return "success"
             logger.warning("edit_event called with no changes specified")
             return False
 
+        safe_search = title_search.replace('"', '\\"').lower()
         update_block = "\n        ".join(update_clauses)
 
         script = f'''
@@ -255,8 +337,7 @@ tell application "Calendar"
     repeat with cal in calendars
         set theEvents to (every event of cal whose start date >= startDate and start date <= endDate)
         repeat with ev in theEvents
-            set evTitle to summary of ev
-            if (evTitle as string) contains searchTerm then
+            if (summary of ev as string) contains searchTerm then
                 set targetEvent to ev
                 {update_block}
                 set foundIt to true
@@ -281,9 +362,8 @@ end if
         elif "not_found" in result.lower():
             logger.warning(f"Calendar edit: no event found matching '{title_search}'")
             return False
-        else:
-            logger.error(f"Calendar edit failed: {result}")
-            return False
+        logger.error(f"Calendar edit failed: result='{result}'")
+        return False
 
     # ── Delete ────────────────────────────────────────────────────────────────
 
@@ -291,9 +371,6 @@ end if
         """
         Find and delete an event by title keyword.
         Deletes the first matching upcoming event.
-
-        title_search: keyword to match against event title (case-insensitive)
-        days_ahead: how far ahead to search (default 30 days)
         """
         if not self.enabled:
             logger.warning("Apple Calendar not enabled — cannot delete event")
@@ -311,8 +388,7 @@ tell application "Calendar"
     repeat with cal in calendars
         set theEvents to (every event of cal whose start date >= startDate and start date <= endDate)
         repeat with ev in theEvents
-            set evTitle to summary of ev
-            if (evTitle as string) contains searchTerm then
+            if (summary of ev as string) contains searchTerm then
                 delete ev
                 set foundIt to true
                 exit repeat
@@ -336,6 +412,5 @@ end if
         elif "not_found" in result.lower():
             logger.warning(f"Calendar delete: no event found matching '{title_search}'")
             return False
-        else:
-            logger.error(f"Calendar delete failed: {result}")
-            return False
+        logger.error(f"Calendar delete failed: result='{result}'")
+        return False

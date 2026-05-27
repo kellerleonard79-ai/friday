@@ -87,11 +87,15 @@ class FridayAgent:
         if context:
             prefix_parts.append(f"## Current Context\n{context}")
 
+        _OPERATIONAL_PREFIXES = (
+            "pending_groupme_", "pending_action_", "groupme_last_id_",
+            "groupme_context_",
+        )
         long_term = self.memory.recall_all()
         if long_term:
             facts = []
             for k, v in long_term.items():
-                if not k.startswith("pending_groupme_") and not k.startswith("pending_action_"):
+                if not any(k.startswith(p) for p in _OPERATIONAL_PREFIXES):
                     facts.append(f"- {k}: {v}")
             if facts:
                 prefix_parts.append(f"## Remembered Facts\n" + "\n".join(facts))
@@ -245,13 +249,13 @@ Answer the question directly and concisely. If no relevant events exist, say so 
         """Process a direct scheduling command from the user via Telegram."""
         prompt = f"""The user sent you a direct scheduling command: "{text}"
 
-Parse this command and respond in this exact format:
+Parse this command and respond in this EXACT format. Do not add any other text.
 
 ACTION: [CREATE_EVENT / EDIT_EVENT / DELETE_EVENT / NO_ACTION]
-DRAFT: [Short friendly confirmation for the user — present the parsed details clearly and ask for confirmation]
-TITLE: [Event title for CREATE_EVENT, or search term for EDIT_EVENT/DELETE_EVENT, else blank]
+DRAFT: [Ask the user to confirm — e.g. "Add Tennis on Thursday May 29 at 8:00 AM — confirm?". Never use past tense. Never reference memory keys.]
+TITLE: [Event title only — e.g. "Tennis". REQUIRED for CREATE_EVENT.]
 NEW_TITLE: [Replacement title for EDIT_EVENT only, else blank]
-DATE: [Date e.g. "May 9 2026", else blank]
+DATE: [Full date e.g. "May 29 2026". REQUIRED for CREATE_EVENT. Never leave blank if a date was mentioned.]
 TIME: [Time e.g. "8:00 AM", else blank]
 NEW_DATE: [New date for EDIT_EVENT only, else blank]
 NEW_TIME: [New time for EDIT_EVENT only, else blank]
@@ -411,7 +415,13 @@ LOCATION: [Location if mentioned, else blank]"""
             draft = (f"New message in {msg['group_name']} from "
                      f"{msg['sender_name']}: {msg['text'][:100]}")
 
-        if action == "CREATE_EVENT" and (title or date):
+        if action == "CREATE_EVENT":
+            if not title and not date:
+                logger.warning("CREATE_EVENT response missing both TITLE and DATE — asking user to clarify")
+                return "groupme_notification", (
+                    "I understood you want to add an event, but I couldn't parse the title or date. "
+                    "Try: 'Add [event name] on [date] at [time]'"
+                ), {}
             return "create_event", draft, {
                 "title": title or msg["text"][:50],
                 "date": date,
