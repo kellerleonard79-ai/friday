@@ -1896,3 +1896,44 @@ telegram.error.BadRequest: Query is too old and response timeout expired or quer
 2026-05-26 21:13:20,525 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
 2026-05-26 21:13:30,760 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
 2026-05-26 21:13:40,999 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:13:51,142 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:13:51,899 [friday] INFO: Shutting down.
+2026-05-26 21:13:52,466 [friday.telegram] INFO: Telegram sent: Friday is going offline. 🔴
+2026-05-26 21:13:52,473 [telegram.ext.Application] INFO: Application is stopping. This might take a moment.
+2026-05-26 21:14:05,341 [friday] INFO: ==================================================
+2026-05-26 21:14:05,342 [friday] INFO:   Project Friday — Starting up
+2026-05-26 21:14:05,342 [friday] INFO:   Tuesday, May 26 2026 21:14
+2026-05-26 21:14:05,342 [friday] INFO: ==================================================
+2026-05-26 21:14:05,346 [friday.memory] INFO: Memory initialised: /Users/keller/Desktop/friday/friday/memory/friday_memory.db
+2026-05-26 21:14:05,346 [friday.core] INFO: Agent ready — provider=ollama model=llama3.2:1b
+2026-05-26 21:14:05,346 [friday.telegram] INFO: Telegram polling started
+2026-05-26 21:14:05,347 [friday] INFO: Evening briefing scheduled at 21:45
+2026-05-26 21:14:05,827 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getMe "HTTP/1.1 200 OK"
+2026-05-26 21:14:05,900 [friday.telegram] INFO: Telegram sent: ⚡ Friday is online.
+Provider: ollama / llama3.2:1b
+Briefing: 21:45
+2026-05-26 21:14:05,902 [friday] INFO: Friday is running. Press Ctrl+C to stop.
+2026-05-26 21:14:05,945 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/deleteWebhook "HTTP/1.1 200 OK"
+2026-05-26 21:14:05,947 [telegram.ext.Application] INFO: Application started
+2026-05-26 21:14:11,823 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:14:11,828 [friday.core] INFO: Message: hellop
+2026-05-26 21:14:16,293 [friday.telegram] INFO: Telegram sent: DATE: May 29 2026
+TIME: 8:00 AM
+NO_ACTION
+NEW_TITLE: Tennis Practice (Time - 8:0
+2026-05-26 21:14:26,477 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:14:36,717 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:14:46,983 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:14:57,198 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:15:07,431 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:15:17,580 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:15:27,819 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:15:38,049 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:15:48,185 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:15:58,426 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:16:08,672 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:16:18,832 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:16:29,076 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:16:39,204 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:16:49,416 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:16:59,559 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
