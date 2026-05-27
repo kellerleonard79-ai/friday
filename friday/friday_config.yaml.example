@@ -1,0 +1,40 @@
+agent:
+  name: Friday
+  briefing_time: '21:45'
+  timezone: America/Chicago
+
+telegram:
+  bot_token: ''       # from @BotFather
+  chat_id: ''         # your personal chat ID
+
+memory:
+  db_path: memory/friday_memory.db
+  short_term_turns: 20
+
+provider: ollama      # ollama | gemini
+
+ollama:
+  model: llama3.2:1b
+  base_url: http://localhost:11434
+  max_tokens: 1000
+
+gemini:
+  model: models/gemini-2.5-flash-lite
+  max_tokens: 1000
+  api_key: ''         # GEMINI_API_KEY env var also works
+
+canvas:
+  ical_url: ''
+  api_token: ''
+
+gmail:
+  credentials_path: gmail_credentials.json
+  token_path: gmail_token.json
+
+groupme:
+  api_token: ''
+  group_id: ''
+
+weather:
+  api_key: ''
+  location: ''

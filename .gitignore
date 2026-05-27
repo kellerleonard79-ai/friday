@@ -5,3 +5,5 @@
 *.db
 *.log
 state.json
+
+friday/friday_config.yaml
