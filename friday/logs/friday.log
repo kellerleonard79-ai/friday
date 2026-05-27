@@ -1736,3 +1736,163 @@ Briefing: 21:45
 2026-05-26 21:07:38,139 [friday.permissions] INFO: Permission requested: no_action
 2026-05-26 21:08:33,887 [friday] INFO: Shutting down.
 2026-05-26 21:08:44,469 [friday.telegram] INFO: Telegram sent: Friday is going offline. 🔴
+2026-05-26 21:10:16,623 [friday] INFO: ==================================================
+2026-05-26 21:10:16,623 [friday] INFO:   Project Friday — Starting up
+2026-05-26 21:10:16,623 [friday] INFO:   Tuesday, May 26 2026 21:10
+2026-05-26 21:10:16,623 [friday] INFO: ==================================================
+2026-05-26 21:10:16,627 [friday.memory] INFO: Memory initialised: /Users/keller/Desktop/friday/friday/memory/friday_memory.db
+2026-05-26 21:10:16,627 [friday.core] INFO: Agent ready — provider=ollama model=llama3.2:1b
+2026-05-26 21:10:16,628 [friday.telegram] INFO: Telegram polling started
+2026-05-26 21:10:16,628 [friday] INFO: Evening briefing scheduled at 21:45
+2026-05-26 21:10:17,092 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getMe "HTTP/1.1 200 OK"
+2026-05-26 21:10:17,205 [friday.telegram] INFO: Telegram sent: ⚡ Friday is online.
+Provider: ollama / llama3.2:1b
+Briefing: 21:45
+2026-05-26 21:10:17,208 [friday] INFO: Friday is running. Press Ctrl+C to stop.
+2026-05-26 21:10:17,209 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/deleteWebhook "HTTP/1.1 200 OK"
+2026-05-26 21:10:17,211 [telegram.ext.Application] INFO: Application started
+2026-05-26 21:10:17,587 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:10:17,595 [telegram.ext.Application] ERROR: No error handlers are registered, logging exception.
+Traceback (most recent call last):
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/ext/_application.py", line 1315, in process_update
+    await coroutine
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/ext/_handlers/basehandler.py", line 159, in handle_update
+    return await self.callback(update, context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/keller/Desktop/friday/friday/channels/telegram.py", line 157, in _on_message
+    self._on_text_cb(text)
+    ~~~~~~~~~~~~~~~~^^^^^^
+  File "/Users/keller/Desktop/friday/friday/agent/core.py", line 155, in on_message
+    starts_with_verb = any(lower.startswith(v) for v in _COMMAND_VERBS)
+                                                        ^^^^^^^^^^^^^^
+NameError: name '_COMMAND_VERBS' is not defined
+2026-05-26 21:10:17,836 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/answerCallbackQuery "HTTP/1.1 400 Bad Request"
+2026-05-26 21:10:17,837 [telegram.ext.Application] ERROR: No error handlers are registered, logging exception.
+Traceback (most recent call last):
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/ext/_application.py", line 1315, in process_update
+    await coroutine
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/ext/_handlers/basehandler.py", line 159, in handle_update
+    return await self.callback(update, context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/keller/Desktop/friday/friday/channels/telegram.py", line 134, in _on_callback
+    await query.answer()
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/_callbackquery.py", line 190, in answer
+    return await self.get_bot().answer_callback_query(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<10 lines>...
+    )
+    ^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/ext/_extbot.py", line 970, in answer_callback_query
+    return await super().answer_callback_query(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<10 lines>...
+    )
+    ^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/_bot.py", line 4445, in answer_callback_query
+    return await self._post(
+           ^^^^^^^^^^^^^^^^^
+    ...<7 lines>...
+    )
+    ^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/_bot.py", line 704, in _post
+    return await self._do_post(
+           ^^^^^^^^^^^^^^^^^^^^
+    ...<6 lines>...
+    )
+    ^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/ext/_extbot.py", line 370, in _do_post
+    return await super()._do_post(
+           ^^^^^^^^^^^^^^^^^^^^^^^
+    ...<6 lines>...
+    )
+    ^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/_bot.py", line 733, in _do_post
+    result = await request.post(
+             ^^^^^^^^^^^^^^^^^^^
+    ...<6 lines>...
+    )
+    ^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/request/_baserequest.py", line 198, in post
+    result = await self._request_wrapper(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<7 lines>...
+    )
+    ^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/request/_baserequest.py", line 375, in _request_wrapper
+    raise exception
+telegram.error.BadRequest: Query is too old and response timeout expired or query id is invalid
+2026-05-26 21:10:18,084 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/answerCallbackQuery "HTTP/1.1 400 Bad Request"
+2026-05-26 21:10:18,085 [telegram.ext.Application] ERROR: No error handlers are registered, logging exception.
+Traceback (most recent call last):
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/ext/_application.py", line 1315, in process_update
+    await coroutine
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/ext/_handlers/basehandler.py", line 159, in handle_update
+    return await self.callback(update, context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/keller/Desktop/friday/friday/channels/telegram.py", line 134, in _on_callback
+    await query.answer()
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/_callbackquery.py", line 190, in answer
+    return await self.get_bot().answer_callback_query(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<10 lines>...
+    )
+    ^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/ext/_extbot.py", line 970, in answer_callback_query
+    return await super().answer_callback_query(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<10 lines>...
+    )
+    ^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/_bot.py", line 4445, in answer_callback_query
+    return await self._post(
+           ^^^^^^^^^^^^^^^^^
+    ...<7 lines>...
+    )
+    ^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/_bot.py", line 704, in _post
+    return await self._do_post(
+           ^^^^^^^^^^^^^^^^^^^^
+    ...<6 lines>...
+    )
+    ^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/ext/_extbot.py", line 370, in _do_post
+    return await super()._do_post(
+           ^^^^^^^^^^^^^^^^^^^^^^^
+    ...<6 lines>...
+    )
+    ^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/_bot.py", line 733, in _do_post
+    result = await request.post(
+             ^^^^^^^^^^^^^^^^^^^
+    ...<6 lines>...
+    )
+    ^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/request/_baserequest.py", line 198, in post
+    result = await self._request_wrapper(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<7 lines>...
+    )
+    ^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/request/_baserequest.py", line 375, in _request_wrapper
+    raise exception
+telegram.error.BadRequest: Query is too old and response timeout expired or query id is invalid
+2026-05-26 21:10:27,775 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:10:38,009 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:10:48,250 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:10:58,394 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:11:08,545 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:11:18,688 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:11:28,833 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:11:38,980 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:11:49,115 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:11:59,250 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:12:09,558 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:12:19,693 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:12:29,829 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:12:39,986 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:12:50,114 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:13:00,244 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:13:10,388 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:13:20,525 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:13:30,760 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:13:40,999 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"

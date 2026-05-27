@@ -131,7 +131,10 @@ class TelegramChannel:
     async def _on_callback(self, update: Update, context):
         """Handle Confirm / Edit / Cancel button taps."""
         query = update.callback_query
-        await query.answer()
+        try:
+            await query.answer()
+        except Exception:
+            return  # stale/expired callback — ignore silently
 
         action, _, key = query.data.partition(":")
 

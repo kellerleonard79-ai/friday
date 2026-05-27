@@ -17,10 +17,6 @@ from agent.memory import Memory
 
 logger = logging.getLogger("friday.core")
 
-_QUERY_KEYWORDS = (
-    "what", "when", "do i have", "show", "list",
-    "what's on", "what do i have", "what time", "any events",
-)
 _OPERATIONAL_PREFIXES = ("pending_",)
 
 
@@ -146,106 +142,15 @@ class FridayAgent:
         if not text:
             return
 
-        lower = text.lower()
         self._stats["last_message_at"] = datetime.now().isoformat()
         self._stats["last_message_preview"] = text[:80]
+        logger.info(f"Message: {text[:80]}")
 
         self.memory.add_turn("user", text)
-
-        starts_with_verb = any(lower.startswith(v) for v in _COMMAND_VERBS)
-        contains_verb = any(f" {v} " in lower for v in _COMMAND_VERBS)
-        is_question = any(lower.startswith(kw) or kw in lower for kw in _QUERY_KEYWORDS)
-
-        if starts_with_verb or (contains_verb and not is_question):
-            logger.info(f"Command: {text[:60]}")
-            self._handle_command(text)
-        elif is_question:
-            logger.info(f"Query: {text[:60]}")
-            self._handle_query(text)
-        else:
-            logger.info(f"General: {text[:60]}")
-            response = self._think(text)
-            if response:
-                self.memory.add_turn("assistant", response)
-                self.telegram.send(response)
-
-    def _handle_command(self, text: str) -> None:
-        prompt = f"""The user sent a scheduling command: "{text}"
-
-Respond in this EXACT format — no other text:
-
-ACTION: [CREATE_EVENT | EDIT_EVENT | DELETE_EVENT | NO_ACTION]
-DRAFT: [Ask the user to confirm. Example: "Add Tennis on Thursday May 29 at 8:00 AM — confirm?" — always a question, never past tense]
-TITLE: [Event title only, e.g. "Tennis". Required for CREATE_EVENT.]
-DATE: [Full date e.g. "May 29 2026". Required for CREATE_EVENT.]
-TIME: [Time e.g. "8:00 AM", else blank]
-DURATION: [Minutes, default 60]"""
-
-        response = self._think(prompt, context="Direct command")
-        if not response or "NO_ACTION" in response:
-            self.telegram.send(
-                "I couldn't parse that command. Try: 'Add [event] on [date] at [time]'"
-            )
-            return
-
-        action_type, draft, action_data = self._parse_command_response(response, text)
-
-        if not draft:
-            self.telegram.send(
-                "I understood you want to make a change but couldn't parse the details. "
-                "Try: 'Add [event] on [date] at [time]'"
-            )
-            return
-
-        if self.permissions:
-            self.permissions.request(
-                action_type=action_type,
-                draft=draft,
-                context=f"Command: {text}",
-                action_data=action_data,
-            )
-        else:
-            self.telegram.send(draft)
-
-    def _handle_query(self, text: str) -> None:
-        response = self._think(text, context="Calendar/scheduling query from user")
+        response = self._think(text)
         if response:
             self.memory.add_turn("assistant", response)
             self.telegram.send(response)
-
-    def _parse_command_response(self, response: str, original_text: str) -> tuple:
-        fields = {}
-        for line in response.strip().splitlines():
-            if ":" in line:
-                key, _, val = line.partition(":")
-                fields[key.strip().upper()] = val.strip()
-
-        action = fields.get("ACTION", "").upper()
-        draft  = fields.get("DRAFT", "").strip()
-        title  = fields.get("TITLE", "").strip()
-        date   = fields.get("DATE", "").strip()
-        time_  = fields.get("TIME", "").strip()
-        dur_raw = fields.get("DURATION", "60")
-        duration = int(dur_raw) if dur_raw.isdigit() else 60
-
-        if not draft:
-            draft = response.strip()[:200]
-
-        if action == "CREATE_EVENT":
-            if not title and not date:
-                logger.warning("CREATE_EVENT with no TITLE or DATE")
-                return "no_action", "", {}
-            return "create_event", draft, {
-                "title": title or original_text[:50],
-                "date": date,
-                "time": time_,
-                "duration_minutes": duration,
-            }
-
-        if action in ("EDIT_EVENT", "DELETE_EVENT") and title:
-            return action.lower(), draft, {"title_search": title}
-
-        return "no_action", draft, {}
 
     # ── Evening briefing ──────────────────────────────────────────────────────
 
