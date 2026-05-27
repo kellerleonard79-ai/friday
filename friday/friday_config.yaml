@@ -4,8 +4,8 @@ agent:
   briefing_time: '21:45'
   timezone: America/Chicago
 telegram:
-  bot_token: ''
-  chat_id: ''
+  bot_token: '8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8'
+  chat_id: '8903568652'
 groupme:
   enabled: true
   api_token: 6e24cba02c9d013f6299061b572edee0

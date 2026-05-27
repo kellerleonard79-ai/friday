@@ -1432,3 +1432,9 @@ DRAFT: The user wants to add a ...
 DRAFT: The user wants to add a ...
 2026-05-26 18:10:20,707 [friday] INFO: Friday shutting down.
 2026-05-26 18:10:21,163 [friday.imessage] INFO: iMessage sent: Friday is going offline. 🔴...
+2026-05-26 18:24:33,712 [friday] INFO: ==================================================
+2026-05-26 18:24:33,712 [friday] INFO:   Project Friday — Phase 2 Starting up
+2026-05-26 18:24:33,713 [friday] INFO:   Tuesday, May 26 2026 18:24
+2026-05-26 18:24:33,713 [friday] INFO: ==================================================
+2026-05-26 18:24:33,723 [friday] ERROR: ⚠ Config error: Telegram bot_token is not set (friday_config.yaml or TELEGRAM_BOT_TOKEN).
+2026-05-26 18:24:33,723 [friday] ERROR: ⚠ Config error: Telegram chat_id is not set (friday_config.yaml or TELEGRAM_CHAT_ID).
