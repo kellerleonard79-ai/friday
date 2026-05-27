@@ -4,8 +4,8 @@ agent:
   timezone: America/Chicago
 
 telegram:
-  bot_token: '8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8'
-  chat_id: '8903568652'
+  bot_token: ''
+  chat_id: ''
 
 memory:
   db_path: memory/friday_memory.db
