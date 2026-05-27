@@ -1652,3 +1652,87 @@ DRAFT: The event with groupMe_last_id_114610395 (Pe
 2026-05-26 19:55:17,973 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
 2026-05-26 19:55:28,212 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
 2026-05-26 19:55:38,344 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 19:55:48,471 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 19:55:52,320 [friday] INFO: Friday shutting down.
+2026-05-26 19:55:52,922 [friday.telegram] INFO: Telegram sent: Friday is going offline. 🔴
+2026-05-26 19:56:08,088 [friday] INFO: ==================================================
+2026-05-26 19:56:08,088 [friday] INFO:   Project Friday — Phase 2 Starting up
+2026-05-26 19:56:08,088 [friday] INFO:   Tuesday, May 26 2026 19:56
+2026-05-26 19:56:08,088 [friday] INFO: ==================================================
+2026-05-26 19:56:08,093 [friday.core] INFO: LLM provider: ollama | model: llama3.2:1b
+2026-05-26 19:56:08,094 [friday.telegram] INFO: Telegram polling started
+2026-05-26 19:56:08,094 [friday] INFO: ⚡ Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Students, FBLA Officer - 2026/2027, Los Muchachos Part 2, NLC 2026, PHS SGA 2026-2027, Executive SGA Officers 26-27, SGA Officers 2026-2027, Pensacola High School FCA, PHS Tennis 2026, Varsity BOYS 2026, SLU 301
+✓ Apple Calendar
+Telegram: ✓
+Permission gate: ✓
+Briefing: 21:45
+2026-05-26 19:56:08,581 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getMe "HTTP/1.1 200 OK"
+2026-05-26 19:56:08,611 [friday.telegram] INFO: Telegram sent: ⚡ Friday is online. 🟢 [Phase 2]
+GroupMe: Doubles, First Students, FBLA Officer -
+2026-05-26 19:56:08,617 [friday] INFO: Evening briefing scheduled at 21:45
+2026-05-26 19:56:08,617 [friday] INFO: ── Poll cycle starting ──
+2026-05-26 19:56:08,703 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/deleteWebhook "HTTP/1.1 200 OK"
+2026-05-26 19:56:08,705 [telegram.ext.Application] INFO: Application started
+2026-05-26 19:56:08,938 [friday.groupme] INFO: Found approved GroupMe group: 'NLC 2026' (ID: 113861947)
+2026-05-26 19:56:08,939 [friday.groupme] INFO: Found approved GroupMe group: 'First Students' (ID: 63856932)
+2026-05-26 19:56:08,939 [friday.groupme] INFO: Found approved GroupMe group: 'Doubles' (ID: 114025944)
+2026-05-26 19:56:08,939 [friday.groupme] INFO: Found approved GroupMe group: 'PHS SGA 2026-2027' (ID: 110357299)
+2026-05-26 19:56:08,939 [friday.groupme] INFO: Found approved GroupMe group: 'Executive SGA Officers 26-27' (ID: 114610395)
+2026-05-26 19:56:08,939 [friday.groupme] INFO: Found approved GroupMe group: 'FBLA Officer - 2026/2027' (ID: 114368134)
+2026-05-26 19:56:08,939 [friday.groupme] INFO: Found approved GroupMe group: 'SGA Officers 2026-2027' (ID: 114419976)
+2026-05-26 19:56:08,939 [friday.groupme] INFO: Found approved GroupMe group: 'Pensacola High School FCA' (ID: 108956712)
+2026-05-26 19:56:08,939 [friday.groupme] INFO: Found approved GroupMe group: 'PHS Tennis 2026' (ID: 99023793)
+2026-05-26 19:56:08,939 [friday.groupme] INFO: Found approved GroupMe group: 'Varsity BOYS 2026' (ID: 112816608)
+2026-05-26 19:56:08,939 [friday.groupme] INFO: Found approved GroupMe group: 'Los Muchachos Part 2' (ID: 106754677)
+2026-05-26 19:56:08,939 [friday.groupme] INFO: Found approved GroupMe group: 'SLU 301' (ID: 102074118)
+2026-05-26 19:56:09,536 [friday.groupme] INFO: GroupMe 'doubles': 1 new message(s)
+2026-05-26 19:56:11,382 [friday.core] INFO: GroupMe passed filter (Scheduling signal detected in GroupMe message): 'Bring your shiesty…'
+2026-05-26 19:56:18,136 [friday.core] WARNING: CREATE_EVENT response missing both TITLE and DATE — asking user to clarify
+2026-05-26 19:56:18,677 [friday.telegram] INFO: Permission request sent for key: pending_action_20260526_195618
+2026-05-26 19:56:18,684 [friday.permissions] INFO: Permission requested for: groupme_notification
+2026-05-26 19:56:19,102 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 19:56:29,347 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 19:56:33,568 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 19:56:33,572 [friday.core] INFO: Direct command from user: 'Add tennis practice thursday 8am
+[Resolved dates: "thursday"'
+2026-05-26 19:56:37,219 [friday.core] WARNING: CREATE_EVENT response missing both TITLE and DATE — asking user to clarify
+2026-05-26 19:56:37,819 [friday.telegram] INFO: Permission request sent for key: pending_action_20260526_195637
+2026-05-26 19:56:37,822 [friday.permissions] INFO: Permission requested for: groupme_notification
+2026-05-26 20:01:18,688 [friday.permissions] INFO: Permission timed out for: groupme_notification
+2026-05-26 20:01:19,276 [friday.telegram] INFO: Telegram sent: ⏰ Friday — no reply received, action cancelled.
+2026-05-26 20:01:19,279 [friday.core] INFO: Action not approved: timeout
+2026-05-26 20:01:19,281 [friday] INFO: ── Poll cycle complete ──
+2026-05-26 20:01:19,282 [friday] INFO: ── Poll cycle starting ──
+2026-05-26 20:01:19,283 [friday] INFO: Friday is running. Press Ctrl+C to stop.
+2026-05-26 20:01:19,978 [friday.groupme] INFO: GroupMe 'doubles': 1 new message(s)
+2026-05-26 20:01:22,019 [friday] INFO: ── Poll cycle complete ──
+2026-05-26 20:01:37,822 [friday.permissions] INFO: Permission timed out for: groupme_notification
+2026-05-26 20:01:38,387 [friday.telegram] INFO: Telegram sent: ⏰ Friday — no reply received, action cancelled.
+2026-05-26 20:01:38,740 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 20:01:38,744 [friday.core] INFO: Direct command from user: 'Add tennis practice on May 28 at 8:00 am
+[Resolved dates: "8'
+2026-05-26 20:01:45,433 [friday.core] WARNING: CREATE_EVENT response missing both TITLE and DATE — asking user to clarify
+2026-05-26 20:01:56,058 [friday.telegram] INFO: Permission request sent for key: pending_action_20260526_200145
+2026-05-26 20:01:56,060 [friday.permissions] INFO: Permission requested for: groupme_notification
+2026-05-26 21:07:31,381 [friday] INFO: ==================================================
+2026-05-26 21:07:31,382 [friday] INFO:   Project Friday — Starting up
+2026-05-26 21:07:31,382 [friday] INFO:   Tuesday, May 26 2026 21:07
+2026-05-26 21:07:31,382 [friday] INFO: ==================================================
+2026-05-26 21:07:31,387 [friday.memory] INFO: Memory initialised: /Users/keller/Desktop/friday/friday/memory/friday_memory.db
+2026-05-26 21:07:31,387 [friday.core] INFO: Agent ready — provider=ollama model=llama3.2:1b
+2026-05-26 21:07:31,387 [friday.telegram] INFO: Telegram polling started
+2026-05-26 21:07:31,388 [friday] INFO: Evening briefing scheduled at 21:45
+2026-05-26 21:07:31,863 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getMe "HTTP/1.1 200 OK"
+2026-05-26 21:07:31,945 [friday.telegram] INFO: Telegram sent: ⚡ Friday is online.
+Provider: ollama / llama3.2:1b
+Briefing: 21:45
+2026-05-26 21:07:31,947 [friday] INFO: Friday is running. Press Ctrl+C to stop.
+2026-05-26 21:07:31,978 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/deleteWebhook "HTTP/1.1 200 OK"
+2026-05-26 21:07:31,980 [telegram.ext.Application] INFO: Application started
+2026-05-26 21:07:32,337 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8/getUpdates "HTTP/1.1 200 OK"
+2026-05-26 21:07:32,342 [friday.core] INFO: Command: Add tennis practice on May 28 at 8:00 am
+2026-05-26 21:07:38,136 [friday.telegram] INFO: Permission request sent for key: pending_20260526_210737
+2026-05-26 21:07:38,139 [friday.permissions] INFO: Permission requested: no_action
+2026-05-26 21:08:33,887 [friday] INFO: Shutting down.
+2026-05-26 21:08:44,469 [friday.telegram] INFO: Telegram sent: Friday is going offline. 🔴

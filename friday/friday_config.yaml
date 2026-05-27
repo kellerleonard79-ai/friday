@@ -1,61 +1,24 @@
 agent:
   name: Friday
-  poll_interval_seconds: 300
   briefing_time: '21:45'
   timezone: America/Chicago
+
 telegram:
   bot_token: '8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1sgB09d8'
   chat_id: '8903568652'
-groupme:
-  enabled: true
-  api_token: 6e24cba02c9d013f6299061b572edee0
-  approved_groups:
-  - Doubles
-  - First Students
-  - FBLA Officer - 2026/2027
-  - Los Muchachos Part 2
-  - NLC 2026
-  - PHS SGA 2026-2027
-  - Executive SGA Officers 26-27
-  - SGA Officers 2026-2027
-  - Pensacola High School FCA
-  - PHS Tennis 2026
-  - Varsity BOYS 2026
-  - SLU 301
-  poll_interval_seconds: 300
-gmail:
-  enabled: false
-  approved_labels:
-  - School
-  - SGA
-  approved_domains: []
-imessage:
-  enabled: true
-  approved_contacts: []
-calendars:
-  google:
-    enabled: false
-    credentials_path: ~/.friday/google_credentials.json
-  apple:
-    enabled: true
+
 memory:
   db_path: memory/friday_memory.db
   short_term_turns: 20
+
 provider: ollama
-gemini:
-  model: models/gemini-2.5-flash-lite
-  max_tokens: 1000
-  api_key: ''
+
 ollama:
   model: llama3.2:1b
   base_url: http://localhost:11434
   max_tokens: 1000
-skills:
-  stock_check:
-    enabled: false
-    watch_tickers:
-    - WDC
-  screen_watch:
-    enabled: false
-  weather:
-    enabled: false
+
+gemini:
+  model: models/gemini-2.5-flash-lite
+  max_tokens: 1000
+  api_key: ''
