@@ -7,7 +7,7 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/ABSOLUTE/PATH/TO/VENV/bin/python3</string>
+        <string>/Library/Frameworks/Python.framework/Versions/3.14/bin/python3</string>
         <string>/Users/keller/Desktop/friday/friday/friday.py</string>
     </array>
 
