@@ -910,3 +910,9 @@ telegram.error.InvalidToken: The token `8779588952:AAFV-2N19UGSCSQC1ooF4UsbZkq1s
 2026-05-28 11:35:29,130 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
 2026-05-28 11:35:39,299 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
 2026-05-28 11:35:49,416 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-28 11:35:59,533 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-28 11:36:06,290 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-28 11:36:06,291 [telegram.ext.Application] INFO: Application is stopping. This might take a moment.
+2026-05-28 11:36:06,291 [apscheduler.scheduler] INFO: Scheduler has been shut down
+2026-05-28 11:36:06,302 [telegram.ext.Application] INFO: Application.stop() complete
+2026-05-28 11:36:06,866 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/sendMessage "HTTP/1.1 200 OK"
