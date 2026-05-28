@@ -58,12 +58,18 @@ def fetch(cfg: dict) -> str:
         except Exception:
             pass
 
-        return (
-            f"[{source} via OpenWeatherMap] "
-            f"{temp:.0f}°F (feels like {feels:.0f}°F), {desc}. "
-            f"{precip}"
-            f"Humidity {humidity}%. Wind {wind:.0f} mph.{pop_str}"
-        )
+        lines = [
+            f"Weather source: OpenWeatherMap ({source})",
+            f"Temperature: {temp:.0f}°F (feels like {feels:.0f}°F)",
+            f"Conditions: {desc}",
+            f"Humidity: {humidity}%",
+            f"Wind: {wind:.0f} mph",
+        ]
+        if precip_parts:
+            lines.append(f"Current precipitation: {', '.join(precip_parts)}")
+        if pop_str:
+            lines.append(f"Chance of rain next 12 hrs: {max_pop * 100:.0f}%")
+        return "\n".join(lines)
     except Exception as e:
         logger.warning(f"Weather fetch failed: {e}")
         return ""

@@ -26,6 +26,7 @@ _semaphore = asyncio.Semaphore(1)
 _WEATHER_KEYWORDS = frozenset({
     "weather", "temperature", "forecast", "rain", "snow",
     "sunny", "cloudy", "humid", "wind", "cold", "hot", "warm", "outside",
+    "precipitation", "drizzle", "storm", "umbrella", "raining", "snowing",
 })
 
 
@@ -89,15 +90,14 @@ class TelegramHandler:
             state.set(self.conn, "last_message_preview", text[:80])
             logger.info(f"Message: {text[:80]}")
 
-            prompt = text
             if any(w in text.lower() for w in _WEATHER_KEYWORDS):
                 wx = weather.fetch(self._weather_cfg)
                 if wx:
-                    location = self._weather_cfg.get("location", "")
-                    prompt = f"[Current weather in {location}: {wx}]\n\n{text}"
+                    await update.message.reply_text(wx)
+                    return
 
             loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(None, self.agent._think, prompt)
+            response = await loop.run_in_executor(None, self.agent._think, text)
             if response:
                 await update.message.reply_text(response)
 
