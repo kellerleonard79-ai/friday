@@ -91,7 +91,7 @@ class TelegramHandler:
             logger.info(f"Message: {text[:80]}")
 
             if any(w in text.lower() for w in _WEATHER_KEYWORDS):
-                wx = weather.fetch(self._weather_cfg)
+                wx = weather.respond(self._weather_cfg, text)
                 if wx:
                     await update.message.reply_text(wx)
                     return
