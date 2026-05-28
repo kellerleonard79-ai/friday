@@ -16,19 +16,27 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ForceReply, Upd
 from telegram.ext import ContextTypes
 
 import memory.state as state
+from connectors import weather
 
 logger = logging.getLogger("friday.telegram")
 
 _API_BASE = "https://api.telegram.org/bot{token}/{method}"
 _semaphore = asyncio.Semaphore(1)
 
+_WEATHER_KEYWORDS = frozenset({
+    "weather", "temperature", "forecast", "rain", "snow",
+    "sunny", "cloudy", "humid", "wind", "cold", "hot", "warm", "outside",
+})
+
 
 class TelegramHandler:
     def __init__(self, config: dict, agent, conn: sqlite3.Connection):
-        self.bot_token = config.get("bot_token") or os.environ.get("TELEGRAM_BOT_TOKEN", "")
-        self.chat_id   = str(config.get("chat_id") or os.environ.get("TELEGRAM_CHAT_ID", ""))
-        self.agent     = agent
-        self.conn      = conn
+        tg = config.get("telegram", config)  # accept full config or telegram sub-dict
+        self.bot_token    = tg.get("bot_token") or os.environ.get("TELEGRAM_BOT_TOKEN", "")
+        self.chat_id      = str(tg.get("chat_id") or os.environ.get("TELEGRAM_CHAT_ID", ""))
+        self.agent        = agent
+        self.conn         = conn
+        self._weather_cfg = config.get("weather", {})
 
     # ── Outbound (sync) ───────────────────────────────────────────────────────
 
@@ -81,8 +89,15 @@ class TelegramHandler:
             state.set(self.conn, "last_message_preview", text[:80])
             logger.info(f"Message: {text[:80]}")
 
+            prompt = text
+            if any(w in text.lower() for w in _WEATHER_KEYWORDS):
+                wx = weather.fetch(self._weather_cfg)
+                if wx:
+                    location = self._weather_cfg.get("location", "")
+                    prompt = f"[Current weather in {location}: {wx}]\n\n{text}"
+
             loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(None, self.agent._think, text)
+            response = await loop.run_in_executor(None, self.agent._think, prompt)
             if response:
                 await update.message.reply_text(response)
 

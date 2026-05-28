@@ -6,6 +6,7 @@ PTB Application owns the main event loop.
 All scheduling goes through job_queue — no secondary threads, no schedule library.
 """
 
+import asyncio
 import datetime
 import logging
 import os
@@ -33,6 +34,7 @@ from agent.core import FridayAgent
 from channels.telegram import TelegramHandler
 from memory.db import Database
 import memory.state as state
+from connectors import weather as weather_connector
 
 
 def load_config() -> dict:
@@ -75,8 +77,7 @@ def main() -> None:
     conn        = db.connection()
 
     agent   = FridayAgent(config)
-    tg_cfg  = config.get("telegram", {})
-    handler = TelegramHandler(tg_cfg, agent, conn)
+    handler = TelegramHandler(config, agent, conn)
 
     bot_token  = handler.bot_token
     chat_id    = handler.chat_id
@@ -110,11 +111,14 @@ def main() -> None:
 
     async def briefing_job(context) -> None:
         today = datetime.datetime.now().strftime("%A, %B %d")
-        import asyncio
+        weather_ctx = ""
+        wx = weather_connector.fetch(config.get("weather", {}))
+        if wx:
+            weather_ctx = f" Current weather: {wx}."
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(
             None, agent._think,
-            f"Compose a brief evening briefing for {today}. "
+            f"Compose a brief evening briefing for {today}.{weather_ctx} "
             f"Keep it under 5 sentences. Plain prose only."
         )
         if response:
