@@ -25,7 +25,6 @@ logging.basicConfig(
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     handlers=[
         logging.FileHandler(os.path.join(_HERE, "logs", "friday.log")),
-        logging.StreamHandler(sys.stdout),
     ],
 )
 logger = logging.getLogger("friday")
