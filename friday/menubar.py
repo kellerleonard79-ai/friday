@@ -53,13 +53,16 @@ class FridayMenuBar(rumps.App):
         self._ollama   = rumps.MenuItem("Ollama",  callback=self.set_ollama)
         self._gemini   = rumps.MenuItem("Gemini",  callback=self.set_gemini)
         self._provider.update([self._ollama, self._gemini])
-        self._dashboard = rumps.MenuItem("Open Dashboard", callback=self.open_dashboard)
-        self._quit      = rumps.MenuItem("Quit Friday Bar", callback=rumps.quit_application)
+        self._restart_btn = rumps.MenuItem("Restart Friday", callback=self.restart_friday)
+        self._dashboard   = rumps.MenuItem("Open Dashboard", callback=self.open_dashboard)
+        self._quit        = rumps.MenuItem("Quit Friday Bar", callback=rumps.quit_application)
 
         self.menu = [
             self._brief,
             None,
             self._provider,
+            None,
+            self._restart_btn,
             None,
             self._dashboard,
             None,
@@ -115,6 +118,9 @@ class FridayMenuBar(rumps.App):
             return
         _save_provider("gemini")
         self._update_provider_checks()
+        self._restart()
+
+    def restart_friday(self, _):
         self._restart()
 
     def open_dashboard(self, _):

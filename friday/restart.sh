@@ -24,7 +24,12 @@ fi
 
 echo "Stopping any running Friday process..."
 pkill -f "friday.py" 2>/dev/null || true
-sleep 2
+# Wait for the process to fully exit (up to 10s) rather than sleeping a fixed amount
+WAIT=0
+while pgrep -f "friday.py" > /dev/null 2>&1 && [ $WAIT -lt 20 ]; do
+    sleep 0.5
+    WAIT=$((WAIT + 1))
+done
 
 echo "Starting Friday watchdog..."
 (
