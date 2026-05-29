@@ -20,3 +20,14 @@ def set(conn: sqlite3.Connection, key: str, value: str) -> None:
         (key, str(value), datetime.now().isoformat()),
     )
     conn.commit()
+
+
+def set_many(conn: sqlite3.Connection, pairs: dict) -> None:
+    """Write multiple keys in a single transaction."""
+    now = datetime.now().isoformat()
+    for key, value in pairs.items():
+        conn.execute(
+            "INSERT OR REPLACE INTO system_state (key, value, updated_at) VALUES (?, ?, ?)",
+            (key, str(value), now),
+        )
+    conn.commit()

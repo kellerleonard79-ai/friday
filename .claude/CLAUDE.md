@@ -337,3 +337,62 @@ Friday's persona must convey:
 - Canvas announcements: err on the side of caution — surface anything potentially actionable
 - GroupMe: high priority groups treated with same urgency as direct messages
  
+ ## Google Calendar Sync
+
+### Overview
+Friday polls three Google Calendar iCal subscription URLs and mirrors new events into the
+corresponding Apple Calendar. Sync is **one-directional: Google → Apple only**. There is no
+reverse sync. The secret iCal URLs require no OAuth, no API key, and no school account
+authentication — just the URL.
+
+### Calendar Mapping
+| Google Calendar         | Apple Calendar          |
+|-------------------------|-------------------------|
+| PHS SGA                 | PHS SGA                 |
+| FBLA Officer Calendar   | FBLA Officer Calendar   |
+| Keller Leonard          | Keller Leonard          |
+
+Apple Calendars must be created manually by the user before Friday attempts to write to them.
+Friday never creates Apple Calendars — it only writes events into existing ones.
+
+### Implementation
+- **Connector:** `connectors/gcal_sync.py`
+- **Action:** `actions/calendar.py` (reuses existing Apple Calendar write logic)
+- **Deduplication:** `synced_events` table in SQLite tracks every Google event ID that has
+  already been written to Apple Calendar. Friday never writes the same event twice.
+- **Poll frequency:** Every 15 minutes via PTB `job_queue`, alongside `poll_connectors()`
+- **No approval gate:** Google Calendar sync writes to Apple Calendar automatically without
+  user confirmation. These are events the user already created themselves on Google.
+
+### SQLite Addition
+```sql
+-- Deduplication table for Google → Apple calendar sync
+CREATE TABLE synced_events (
+    google_event_id  TEXT PRIMARY KEY,
+    calendar_name    TEXT,       -- 'PHS SGA', 'FBLA Officer Calendar', 'Keller Leonard'
+    apple_event_id   TEXT,
+    synced_at        TEXT
+);
+```
+
+### Config Addition
+```yaml
+gcal_sync:
+  calendars:
+    - name: PHS SGA
+      ical_url: ''
+    - name: FBLA Officer Calendar
+      ical_url: ''
+    - name: Keller Leonard
+      ical_url: ''
+```
+
+### Rules
+- Secret iCal URLs are treated as secrets — stored in `friday_config.yaml`, never hardcoded.
+- If an iCal URL returns an error, log it and skip that calendar silently. Never crash.
+- Event deduplication is based on the iCal `UID` field, which Google Calendar always provides.
+- Friday does not delete Apple Calendar events if they are removed from Google Calendar.
+  Deletion sync is out of scope.
+- Friday does not modify existing Apple Calendar events. If a Google event changes, Friday
+  logs it but does not attempt to update the Apple Calendar entry. Update sync is out of scope
+  for now.

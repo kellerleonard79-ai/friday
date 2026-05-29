@@ -114,7 +114,7 @@ def main() -> None:
 
     async def morning_briefing_job(context) -> None:
         today = datetime.datetime.now().strftime("%A, %B %d")
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         wx = await loop.run_in_executor(
             None, weather_connector.respond, config.get("weather", {}), "weather"
         )
@@ -161,7 +161,7 @@ def main() -> None:
 
     async def poll_connectors_job(context) -> None:
         logger.info("Polling connectors...")
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         canvas_cfg = config.get("canvas", {})
         if canvas_cfg.get("ical_url"):
@@ -202,7 +202,7 @@ def main() -> None:
 
     async def briefing_job(context) -> None:
         today = datetime.datetime.now().strftime("%A, %B %d")
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         wx = await loop.run_in_executor(
             None, weather_connector.respond, config.get("weather", {}), ""
         )

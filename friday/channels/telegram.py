@@ -87,12 +87,15 @@ class TelegramHandler:
             if not text:
                 return
 
-            state.set(self.conn, "last_message_at", datetime.now().isoformat())
-            state.set(self.conn, "last_message_preview", text[:80])
+            state.set_many(self.conn, {
+                "last_message_at":      datetime.now().isoformat(),
+                "last_message_preview": text[:80],
+            })
             logger.info(f"Message: {text[:80]}")
 
             if any(w in text.lower() for w in _WEATHER_KEYWORDS):
-                wx = weather.respond(self._weather_cfg, text)
+                loop = asyncio.get_running_loop()
+                wx = await loop.run_in_executor(None, weather.respond, self._weather_cfg, text)
                 if wx:
                     await update.message.reply_text(wx)
                     return
@@ -103,7 +106,7 @@ class TelegramHandler:
             ).fetchall()
             history = [{"role": r[0], "content": r[1]} for r in reversed(rows)]
 
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             response = await loop.run_in_executor(None, self.agent._think, text, history)
             if response:
                 await update.message.reply_text(response)

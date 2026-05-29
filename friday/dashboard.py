@@ -167,8 +167,7 @@ class Dashboard(tk.Tk):
 
         for key, entry in self._cfg_entries.items():
             val = entry.get().strip()
-            if val:
-                _set(key, val)
+            _set(key, val)
 
         with open(_CFG, "w") as f:
             yaml.dump(cfg, f, default_flow_style=False, allow_unicode=True)
