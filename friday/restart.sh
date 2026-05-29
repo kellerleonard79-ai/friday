@@ -3,18 +3,33 @@ cd "$(dirname "$0")"
 
 echo "Stopping any running Friday process..."
 pkill -f "friday.py" 2>/dev/null || true
+pkill -f "friday_watchdog" 2>/dev/null || true
 sleep 2
 
-echo "Starting Friday via launchd..."
-launchctl kickstart -k "gui/$(id -u)/com.friday.agent" 2>/dev/null || true
-sleep 5
+echo "Starting Friday watchdog..."
+nohup bash -c '
+    cd "$(dirname "$0")"
+    FAILURES=0
+    while true; do
+        START=$(date +%s)
+        /Library/Frameworks/Python.framework/Versions/3.14/bin/python3 friday.py
+        EXIT=$?
+        ELAPSED=$(( $(date +%s) - START ))
+        if [ $ELAPSED -lt 10 ]; then
+            FAILURES=$((FAILURES + 1))
+        else
+            FAILURES=0
+        fi
+        if [ $FAILURES -ge 5 ]; then
+            echo "$(date): Friday crashed 5 times in <10s each. Giving up." >> logs/friday.log
+            exit 1
+        fi
+        echo "$(date): Friday stopped (exit $EXIT, uptime ${ELAPSED}s). Restarting in 5s..." >> logs/friday.log
+        sleep 5
+    done
+' -- "$(pwd)" >> logs/friday.log 2>&1 &
 
-# If launchd didn't start it (throttled or broken state), start directly
-if ! pgrep -f "friday.py" > /dev/null; then
-    echo "launchd unavailable — starting directly..."
-    nohup /Library/Frameworks/Python.framework/Versions/3.14/bin/python3 friday.py >> logs/friday.log 2>&1 &
-    sleep 4
-fi
+sleep 6
 
 if pgrep -f "friday.py" > /dev/null; then
     echo "Friday is running (PID $(pgrep -f 'friday.py'))."

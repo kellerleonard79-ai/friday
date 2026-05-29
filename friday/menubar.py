@@ -99,10 +99,14 @@ class FridayMenuBar(rumps.App):
         except Exception as e:
             rumps.alert("Friday", f"Failed to send: {e}")
 
+    def _restart(self):
+        _restart_sh = os.path.join(_HERE, "restart.sh")
+        subprocess.Popen(["bash", _restart_sh])
+
     def set_ollama(self, _):
         _save_provider("ollama")
         self._update_provider_checks()
-        subprocess.run(["pkill", "-f", "friday.py"])
+        self._restart()
 
     def set_gemini(self, _):
         cfg = _load_config()
@@ -111,7 +115,7 @@ class FridayMenuBar(rumps.App):
             return
         _save_provider("gemini")
         self._update_provider_checks()
-        subprocess.run(["pkill", "-f", "friday.py"])
+        self._restart()
 
     def open_dashboard(self, _):
         subprocess.Popen([_PYTHON, _DASHBOARD])
