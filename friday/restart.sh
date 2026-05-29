@@ -2,6 +2,14 @@
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# Mutex — prevents two concurrent restarts from racing
+LOCKDIR="/tmp/friday_restart.lock"
+if ! mkdir "$LOCKDIR" 2>/dev/null; then
+    echo "Another restart already in progress — skipping."
+    exit 0
+fi
+trap "rmdir '$LOCKDIR' 2>/dev/null" EXIT
+
 PIDFILE="logs/watchdog.pid"
 
 echo "Stopping any running Friday watchdog..."

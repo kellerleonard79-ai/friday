@@ -10,6 +10,7 @@ import asyncio
 import logging
 import os
 import sqlite3
+from datetime import datetime
 
 import requests
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ForceReply, Update
@@ -37,7 +38,8 @@ class TelegramHandler:
         self.chat_id      = str(tg.get("chat_id") or os.environ.get("TELEGRAM_CHAT_ID", ""))
         self.agent        = agent
         self.conn         = conn
-        self._weather_cfg = config.get("weather", {})
+        self._weather_cfg    = config.get("weather", {})
+        self._short_term_turns = config.get("memory", {}).get("short_term_turns", 20)
 
     # ── Outbound (sync) ───────────────────────────────────────────────────────
 
@@ -85,7 +87,6 @@ class TelegramHandler:
             if not text:
                 return
 
-            from datetime import datetime
             state.set(self.conn, "last_message_at", datetime.now().isoformat())
             state.set(self.conn, "last_message_preview", text[:80])
             logger.info(f"Message: {text[:80]}")
@@ -96,10 +97,26 @@ class TelegramHandler:
                     await update.message.reply_text(wx)
                     return
 
+            rows = self.conn.execute(
+                "SELECT role, content FROM conversation_history ORDER BY id DESC LIMIT ?",
+                (self._short_term_turns * 2,)
+            ).fetchall()
+            history = [{"role": r[0], "content": r[1]} for r in reversed(rows)]
+
             loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(None, self.agent._think, text)
+            response = await loop.run_in_executor(None, self.agent._think, text, history)
             if response:
                 await update.message.reply_text(response)
+                now_iso = datetime.now().isoformat()
+                self.conn.execute(
+                    "INSERT INTO conversation_history (role, content, created_at) VALUES (?, ?, ?)",
+                    ("user", text, now_iso),
+                )
+                self.conn.execute(
+                    "INSERT INTO conversation_history (role, content, created_at) VALUES (?, ?, ?)",
+                    ("assistant", response, now_iso),
+                )
+                self.conn.commit()
 
     async def on_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle inline button taps. Stale callbacks are silently discarded."""

@@ -101,7 +101,7 @@ class FridayMenuBar(rumps.App):
 
     def _restart(self):
         _restart_sh = os.path.join(_HERE, "restart.sh")
-        subprocess.Popen(["bash", _restart_sh])
+        subprocess.Popen(["bash", _restart_sh], start_new_session=True)
 
     def set_ollama(self, _):
         _save_provider("ollama")

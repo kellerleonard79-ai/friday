@@ -44,13 +44,18 @@ class FridayAgent:
 
         logger.info(f"Agent ready — {self.provider} / {self.model_name}")
 
-    def _think(self, prompt: str) -> str:
+    def _think(self, prompt: str, history: list | None = None) -> str:
         """Synchronous LLM call. Always run via run_in_executor inside async handlers."""
         try:
             if self.provider == "gemini":
+                contents = []
+                for turn in (history or []):
+                    role = "user" if turn["role"] == "user" else "model"
+                    contents.append({"role": role, "parts": [{"text": turn["content"]}]})
+                contents.append({"role": "user", "parts": [{"text": prompt}]})
                 resp = self.gemini_client.models.generate_content(
                     model=self.model_name,
-                    contents=[{"role": "user", "parts": [{"text": prompt}]}],
+                    contents=contents,
                     config=types.GenerateContentConfig(
                         system_instruction=self.persona,
                         max_output_tokens=self.max_tokens,
@@ -59,14 +64,15 @@ class FridayAgent:
                 return (resp.text or "").strip()
 
             else:  # ollama
+                messages = [{"role": "system", "content": self.persona}]
+                for turn in (history or []):
+                    messages.append({"role": turn["role"], "content": turn["content"]})
+                messages.append({"role": "user", "content": prompt})
                 r = requests.post(
                     f"{self.ollama_url}/api/chat",
                     json={
                         "model": self.model_name,
-                        "messages": [
-                            {"role": "system", "content": self.persona},
-                            {"role": "user",   "content": prompt},
-                        ],
+                        "messages": messages,
                         "stream": False,
                     },
                     timeout=120,

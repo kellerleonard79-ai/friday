@@ -107,23 +107,27 @@ def main() -> None:
             await app.bot.send_message(chat_id=chat_id, text="Friday going offline. 🔴")
         except Exception:
             pass
+        conn.close()
 
     # ── Morning briefing job ─────────────────────────────────────────────────
 
     async def morning_briefing_job(context) -> None:
         today = datetime.datetime.now().strftime("%A, %B %d")
-        weather_ctx = ""
-        wx = weather_connector.respond(config.get("weather", {}), "weather")
-        if wx:
-            weather_ctx = f" {wx}"
         loop = asyncio.get_event_loop()
+        wx = await loop.run_in_executor(
+            None, weather_connector.respond, config.get("weather", {}), "weather"
+        )
+        weather_ctx = f" {wx}" if wx else ""
         response = await loop.run_in_executor(
             None, agent._think,
             f"Compose a brief morning briefing for {today}.{weather_ctx} "
             f"Start with 'Good morning, sir. Here is your day:' and keep it under 4 sentences."
         )
         if response:
-            await context.bot.send_message(chat_id=chat_id, text=f"🌅 {response}")
+            try:
+                await context.bot.send_message(chat_id=chat_id, text=f"🌅 {response}")
+            except Exception as e:
+                logger.error(f"Morning briefing send failed: {e}")
 
     # ── Poll connectors job ───────────────────────────────────────────────────
 
@@ -143,8 +147,11 @@ def main() -> None:
             text = f"🚨 Urgent — {source}\n{title}"
             if body:
                 text += f"\n{body[:300]}"
-            await context.bot.send_message(chat_id=chat_id, text=text)
-            conn.execute("UPDATE events SET notified=1 WHERE id=?", (event_id,))
+            try:
+                await context.bot.send_message(chat_id=chat_id, text=text)
+                conn.execute("UPDATE events SET notified=1 WHERE id=?", (event_id,))
+            except Exception as e:
+                logger.error(f"Urgent alert send failed: {e}")
         if rows:
             conn.commit()
 
@@ -152,21 +159,24 @@ def main() -> None:
 
     async def briefing_job(context) -> None:
         today = datetime.datetime.now().strftime("%A, %B %d")
-        weather_ctx = ""
-        wx = weather_connector.fetch(config.get("weather", {}))
-        if wx:
-            weather_ctx = f" Current weather: {wx}."
         loop = asyncio.get_event_loop()
+        wx = await loop.run_in_executor(
+            None, weather_connector.respond, config.get("weather", {}), ""
+        )
+        weather_ctx = f" Current weather: {wx}." if wx else ""
         response = await loop.run_in_executor(
             None, agent._think,
             f"Compose a brief evening briefing for {today}.{weather_ctx} "
             f"Keep it under 5 sentences. Plain prose only."
         )
         if response:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=f"📅 Evening Briefing — {today}\n\n{response}",
-            )
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"📅 Evening Briefing — {today}\n\n{response}",
+                )
+            except Exception as e:
+                logger.error(f"Evening briefing send failed: {e}")
 
     # ── Build and run application ─────────────────────────────────────────────
 

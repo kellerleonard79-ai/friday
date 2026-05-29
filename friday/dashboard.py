@@ -8,6 +8,7 @@ Run independently:  python3 dashboard.py
 
 import os
 import sqlite3
+import subprocess
 import tkinter as tk
 from datetime import datetime
 from tkinter import messagebox
@@ -77,7 +78,8 @@ class Dashboard(tk.Tk):
             ("ollama.model",        "Ollama model"),
             ("gemini.model",        "Gemini model"),
             ("gemini.api_key",      "Gemini API key"),
-            ("agent.briefing_time", "Briefing time (HH:MM)"),
+            ("agent.morning_briefing_time", "Morning briefing (HH:MM)"),
+            ("agent.briefing_time",         "Evening briefing (HH:MM)"),
         ]
         for i, (key, label) in enumerate(cfg_fields):
             tk.Label(cfg_frame, text=f"{label}:", bg="#1e1e2e", fg="#a6adc8",
@@ -171,7 +173,9 @@ class Dashboard(tk.Tk):
         with open(_CFG, "w") as f:
             yaml.dump(cfg, f, default_flow_style=False, allow_unicode=True)
 
-        messagebox.showinfo("Saved", "Config saved. Restart Friday to apply changes.")
+        restart_sh = os.path.join(_HERE, "restart.sh")
+        subprocess.Popen(["bash", restart_sh], start_new_session=True)
+        messagebox.showinfo("Saved", "Config saved. Friday is restarting…")
 
 
 if __name__ == "__main__":
