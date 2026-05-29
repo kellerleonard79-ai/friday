@@ -83,6 +83,8 @@ def main() -> None:
     agent_cfg  = config.get("agent", {})
     bt_str     = agent_cfg.get("briefing_time", "21:45")
     bh, bm     = (int(x) for x in bt_str.split(":"))
+    mbt_str    = agent_cfg.get("morning_briefing_time", "08:00")
+    mbh, mbm   = (int(x) for x in mbt_str.split(":"))
 
     # ── Post-init: startup message + initial state ────────────────────────────
 
@@ -105,6 +107,46 @@ def main() -> None:
             await app.bot.send_message(chat_id=chat_id, text="Friday going offline. 🔴")
         except Exception:
             pass
+
+    # ── Morning briefing job ─────────────────────────────────────────────────
+
+    async def morning_briefing_job(context) -> None:
+        today = datetime.datetime.now().strftime("%A, %B %d")
+        weather_ctx = ""
+        wx = weather_connector.respond(config.get("weather", {}), "weather")
+        if wx:
+            weather_ctx = f" {wx}"
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None, agent._think,
+            f"Compose a brief morning briefing for {today}.{weather_ctx} "
+            f"Start with 'Good morning, sir. Here is your day:' and keep it under 4 sentences."
+        )
+        if response:
+            await context.bot.send_message(chat_id=chat_id, text=f"🌅 {response}")
+
+    # ── Poll connectors job ───────────────────────────────────────────────────
+
+    async def poll_connectors_job(context) -> None:
+        logger.info("Polling connectors...")
+        # Canvas and GroupMe connectors will be wired here in Phase 2/4
+
+    # ── Check urgent alerts job ───────────────────────────────────────────────
+
+    async def check_urgent_alerts_job(context) -> None:
+        cur = conn.execute(
+            "SELECT id, source, title, body FROM events WHERE urgency='URGENT' AND notified=0"
+        )
+        rows = cur.fetchall()
+        for row in rows:
+            event_id, source, title, body = row
+            text = f"🚨 Urgent — {source}\n{title}"
+            if body:
+                text += f"\n{body[:300]}"
+            await context.bot.send_message(chat_id=chat_id, text=text)
+            conn.execute("UPDATE events SET notified=1 WHERE id=?", (event_id,))
+        if rows:
+            conn.commit()
 
     # ── Evening briefing job ──────────────────────────────────────────────────
 
@@ -140,10 +182,17 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(handler.on_callback))
 
     app.job_queue.run_daily(
+        morning_briefing_job,
+        time=datetime.time(mbh, mbm, tzinfo=datetime.timezone.utc),
+    )
+    app.job_queue.run_daily(
         briefing_job,
         time=datetime.time(bh, bm, tzinfo=datetime.timezone.utc),
     )
+    app.job_queue.run_repeating(poll_connectors_job,    interval=900, first=60)
+    app.job_queue.run_repeating(check_urgent_alerts_job, interval=60,  first=10)
 
+    logger.info(f"Morning briefing scheduled at {mbt_str} UTC")
     logger.info(f"Evening briefing scheduled at {bt_str} UTC")
     logger.info("Running. Ctrl+C to stop.")
 
