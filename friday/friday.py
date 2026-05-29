@@ -34,6 +34,7 @@ from channels.telegram import TelegramHandler
 from memory.db import Database
 import memory.state as state
 from connectors import weather as weather_connector
+from connectors import canvas as canvas_connector
 
 
 def load_config() -> dict:
@@ -129,11 +130,53 @@ def main() -> None:
             except Exception as e:
                 logger.error(f"Morning briefing send failed: {e}")
 
+    # ── LLM urgency tagging for unprocessed events ───────────────────────────
+
+    async def process_untagged_events(loop) -> None:
+        rows = conn.execute(
+            "SELECT id, title, body, due_at, source FROM events WHERE processed=0"
+        ).fetchall()
+        for event_id, title, body, due_at, source in rows:
+            prompt = (
+                f"Event from {source}:\nTitle: {title}\nDue: {due_at}\n"
+                f"Details: {(body or '')[:500]}\n\n"
+                f"Assign urgency. Reply with exactly one word: URGENT, SOON, or NORMAL.\n"
+                f"URGENT = due within 24h, or exam/quiz/critical deadline.\n"
+                f"SOON = due within 3 days.\n"
+                f"NORMAL = everything else or no due date."
+            )
+            urgency = await loop.run_in_executor(None, agent._think, prompt)
+            urgency = urgency.strip().upper()
+            if urgency not in ("URGENT", "SOON", "NORMAL"):
+                urgency = "NORMAL"
+            conn.execute(
+                "UPDATE events SET urgency=?, processed=1 WHERE id=?",
+                (urgency, event_id),
+            )
+            logger.info(f"Tagged {event_id} as {urgency}")
+        if rows:
+            conn.commit()
+
     # ── Poll connectors job ───────────────────────────────────────────────────
 
     async def poll_connectors_job(context) -> None:
         logger.info("Polling connectors...")
-        # Canvas and GroupMe connectors will be wired here in Phase 2/4
+        loop = asyncio.get_event_loop()
+
+        canvas_cfg = config.get("canvas", {})
+        if canvas_cfg.get("ical_url"):
+            try:
+                count = await loop.run_in_executor(
+                    None, canvas_connector.fetch, canvas_cfg, conn
+                )
+                if count:
+                    logger.info(f"Canvas: {count} new event(s) written.")
+                else:
+                    logger.info("Canvas: no new events.")
+            except Exception as e:
+                logger.error(f"Canvas poll failed: {e}")
+
+        await process_untagged_events(loop)
 
     # ── Check urgent alerts job ───────────────────────────────────────────────
 
