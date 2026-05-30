@@ -74,7 +74,18 @@ class FridayAgent:
                     contents=contents,
                     config=types.GenerateContentConfig(**cfg_kwargs),
                 )
-                return (resp.text or "").strip()
+                text = (resp.text or "").strip()
+                if not text:
+                    finish = None
+                    try:
+                        finish = resp.candidates[0].finish_reason
+                    except Exception:
+                        pass
+                    usage = getattr(resp, "usage_metadata", None)
+                    logger.warning(
+                        f"Gemini returned empty text. finish_reason={finish} usage={usage}"
+                    )
+                return text
 
             else:  # ollama
                 messages = [{"role": "system", "content": self.persona}]

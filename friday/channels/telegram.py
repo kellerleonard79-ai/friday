@@ -93,18 +93,21 @@ class TelegramHandler:
 
             loop = asyncio.get_running_loop()
             response = await loop.run_in_executor(None, self.agent._think, text, history)
-            if response:
-                await update.message.reply_text(response)
-                now_iso = datetime.now().isoformat()
-                self.conn.execute(
-                    "INSERT INTO conversation_history (role, content, created_at) VALUES (?, ?, ?)",
-                    ("user", text, now_iso),
-                )
-                self.conn.execute(
-                    "INSERT INTO conversation_history (role, content, created_at) VALUES (?, ?, ?)",
-                    ("assistant", response, now_iso),
-                )
-                self.conn.commit()
+            if not response:
+                logger.warning("Empty LLM response — sending fallback to user")
+                await update.message.reply_text("Sorry, sir — I drew a blank. Try again?")
+                return
+            await update.message.reply_text(response)
+            now_iso = datetime.now().isoformat()
+            self.conn.execute(
+                "INSERT INTO conversation_history (role, content, created_at) VALUES (?, ?, ?)",
+                ("user", text, now_iso),
+            )
+            self.conn.execute(
+                "INSERT INTO conversation_history (role, content, created_at) VALUES (?, ?, ?)",
+                ("assistant", response, now_iso),
+            )
+            self.conn.commit()
 
     async def on_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle inline button taps. Stale callbacks are silently discarded."""
