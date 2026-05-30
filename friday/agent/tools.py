@@ -11,6 +11,7 @@ Each tool:
 
 import logging
 from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 from connectors import apple_calendar, weather
 
@@ -20,16 +21,31 @@ logger = logging.getLogger("friday.tools")
 def make_tools(conn, config):
     """Return the list of tool callables bound to this Friday instance."""
 
+    tz_name = (config.get("agent") or {}).get("timezone", "America/Chicago")
+    local_tz = ZoneInfo(tz_name)
+
+    def _to_local(iso_utc: str) -> str:
+        """Apple Calendar's JXA emits UTC ISO strings ('...Z'). Convert to the
+        user's local timezone so the LLM doesn't misread them as local."""
+        if not iso_utc:
+            return ""
+        try:
+            dt_utc = datetime.fromisoformat(iso_utc.replace("Z", "+00:00"))
+            return dt_utc.astimezone(local_tz).strftime("%Y-%m-%d %H:%M %Z")
+        except ValueError:
+            return iso_utc
+
     def get_now() -> dict:
         """Return the current local date, time, and day of week. Call this first
         whenever the user mentions relative times like 'today', 'tomorrow',
         'next week', 'in 3 days', 'this weekend'."""
-        now = datetime.now()
+        now = datetime.now(local_tz)
         return {
             "iso":         now.isoformat(timespec="seconds"),
             "date":        now.date().isoformat(),
             "day_of_week": now.strftime("%A"),
-            "human":       now.strftime("%A, %B %-d %Y, %-I:%M %p"),
+            "timezone":    tz_name,
+            "human":       now.strftime("%A, %B %-d %Y, %-I:%M %p %Z"),
         }
 
     def get_schedule(start_date: str, end_date: str) -> dict:
@@ -37,14 +53,24 @@ def make_tools(conn, config):
         [start_date, end_date). Both dates must be ISO YYYY-MM-DD; end_date is
         exclusive. Only whitelisted calendars are included. Use this for any
         schedule, calendar, appointment, or 'what am I doing' question.
-        For a single day pass end_date = start_date + 1."""
+        For a single day pass end_date = start_date + 1.
+
+        Times in returned events are already in the user's local timezone —
+        present them to the user as-is. Do not apply additional offsets."""
         try:
             s = date.fromisoformat(start_date)
             e = date.fromisoformat(end_date)
         except ValueError as err:
             return {"error": f"Invalid date format: {err}", "events": []}
-        events = apple_calendar.events_in_window(config, s, e)
-        return {"count": len(events), "events": events}
+        raw = apple_calendar.events_in_window(config, s, e)
+        events = [{
+            "title":    ev.get("title", ""),
+            "start":    _to_local(ev.get("start_iso", "")),
+            "end":      _to_local(ev.get("end_iso", "")),
+            "location": ev.get("location", ""),
+            "calendar": ev.get("calendar", ""),
+        } for ev in raw]
+        return {"timezone": tz_name, "count": len(events), "events": events}
 
     def get_weather(query: str = "") -> dict:
         """Return a natural-language weather string for the user's configured
