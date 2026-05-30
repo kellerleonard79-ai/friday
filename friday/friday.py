@@ -12,6 +12,7 @@ import logging
 import os
 import signal
 import sys
+from zoneinfo import ZoneInfo
 
 import yaml
 from telegram.ext import Application, MessageHandler, CallbackQueryHandler, filters
@@ -84,10 +85,22 @@ def main() -> None:
     bot_token  = handler.bot_token
     chat_id    = handler.chat_id
     agent_cfg  = config.get("agent", {})
+    tz_name    = agent_cfg.get("timezone", "America/Chicago")
+    local_tz   = ZoneInfo(tz_name)
     bt_str     = agent_cfg.get("briefing_time", "21:45")
     bh, bm     = (int(x) for x in bt_str.split(":"))
     mbt_str    = agent_cfg.get("morning_briefing_time", "08:00")
     mbh, mbm   = (int(x) for x in mbt_str.split(":"))
+
+    # Sanity windows: a briefing fired well outside its expected hour almost
+    # always means a timezone misconfiguration. Refuse to send rather than
+    # ping the user at 2 AM.
+    MORNING_WINDOW = (6, 10)   # [06:00, 10:00) local
+    EVENING_WINDOW = (19, 24)  # [19:00, 24:00) local
+
+    def _within(window: tuple[int, int]) -> bool:
+        now_local = datetime.datetime.now(local_tz)
+        return window[0] <= now_local.hour < window[1]
 
     # ── Post-init: startup message + initial state ────────────────────────────
 
@@ -115,6 +128,14 @@ def main() -> None:
     # ── Morning briefing job ─────────────────────────────────────────────────
 
     async def morning_briefing_job(context) -> None:
+        if not _within(MORNING_WINDOW):
+            now_local = datetime.datetime.now(local_tz)
+            logger.warning(
+                f"Morning briefing fired at {now_local.strftime('%H:%M %Z')} — "
+                f"outside {MORNING_WINDOW[0]:02d}:00–{MORNING_WINDOW[1]:02d}:00 "
+                f"window. Skipping (likely tz misconfig)."
+            )
+            return
         today = datetime.date.today()
         loop = asyncio.get_running_loop()
         today_evts = await loop.run_in_executor(
@@ -208,6 +229,14 @@ def main() -> None:
     # ── Evening briefing job ──────────────────────────────────────────────────
 
     async def briefing_job(context) -> None:
+        if not _within(EVENING_WINDOW):
+            now_local = datetime.datetime.now(local_tz)
+            logger.warning(
+                f"Evening briefing fired at {now_local.strftime('%H:%M %Z')} — "
+                f"outside {EVENING_WINDOW[0]:02d}:00–{EVENING_WINDOW[1]:02d}:00 "
+                f"window. Skipping (likely tz misconfig)."
+            )
+            return
         today = datetime.date.today()
         tomorrow = today + datetime.timedelta(days=1)
         loop = asyncio.get_running_loop()
@@ -254,17 +283,17 @@ def main() -> None:
 
     app.job_queue.run_daily(
         morning_briefing_job,
-        time=datetime.time(mbh, mbm, tzinfo=datetime.timezone.utc),
+        time=datetime.time(mbh, mbm, tzinfo=local_tz),
     )
     app.job_queue.run_daily(
         briefing_job,
-        time=datetime.time(bh, bm, tzinfo=datetime.timezone.utc),
+        time=datetime.time(bh, bm, tzinfo=local_tz),
     )
     app.job_queue.run_repeating(poll_connectors_job,    interval=900, first=60)
     app.job_queue.run_repeating(check_urgent_alerts_job, interval=60,  first=10)
 
-    logger.info(f"Morning briefing scheduled at {mbt_str} UTC")
-    logger.info(f"Evening briefing scheduled at {bt_str} UTC")
+    logger.info(f"Morning briefing scheduled at {mbt_str} {tz_name}")
+    logger.info(f"Evening briefing scheduled at {bt_str} {tz_name}")
     logger.info("Running. Ctrl+C to stop.")
 
     app.run_polling(
