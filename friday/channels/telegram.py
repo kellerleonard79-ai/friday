@@ -85,42 +85,6 @@ class TelegramHandler:
             })
             logger.info(f"Message: {text[:80]}")
 
-            if any(w in text.lower() for w in _WEATHER_KEYWORDS):
-                loop = asyncio.get_running_loop()
-                wx = await loop.run_in_executor(None, weather.respond, self._weather_cfg, text)
-                if wx:
-                    await update.message.reply_text(wx)
-                    return
-
-            if any(k in text.lower() for k in _BRIEFING_KEYWORDS):
-                today = date.today()
-                tomorrow = today + timedelta(days=1)
-                loop = asyncio.get_running_loop()
-                today_evts = await loop.run_in_executor(
-                    None, apple_calendar.events_for_day, self._app_cfg, today
-                )
-                tomorrow_evts = await loop.run_in_executor(
-                    None, apple_calendar.events_for_day, self._app_cfg, tomorrow
-                )
-                upcoming_evts = await loop.run_in_executor(
-                    None, apple_calendar.events_in_window,
-                    self._app_cfg, today, today + timedelta(days=7),
-                )
-                canvas_pending = self.conn.execute(
-                    "SELECT title, due_at, urgency FROM events "
-                    "WHERE source='canvas' AND urgency IN ('URGENT','SOON') AND notified=0 "
-                    "ORDER BY due_at"
-                ).fetchall()
-                wx = await loop.run_in_executor(None, weather.respond, self._weather_cfg, "")
-                response = await loop.run_in_executor(
-                    None, briefings.compose_on_demand,
-                    self.agent, today_evts, tomorrow_evts, upcoming_evts,
-                    canvas_pending, wx,
-                )
-                if response:
-                    await update.message.reply_text(response)
-                    return
-
             rows = self.conn.execute(
                 "SELECT role, content FROM conversation_history ORDER BY id DESC LIMIT ?",
                 (self._short_term_turns * 2,)
