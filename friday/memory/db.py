@@ -17,15 +17,16 @@ CREATE TABLE IF NOT EXISTS system_state (
 );
 
 CREATE TABLE IF NOT EXISTS events (
-    id         TEXT PRIMARY KEY,
-    source     TEXT,
-    title      TEXT,
-    body       TEXT,
-    due_at     TEXT,
-    urgency    TEXT,
-    processed  INTEGER DEFAULT 0,
-    notified   INTEGER DEFAULT 0,
-    created_at TEXT
+    id              TEXT PRIMARY KEY,
+    source          TEXT,
+    title           TEXT,
+    body            TEXT,
+    due_at          TEXT,
+    urgency         TEXT,
+    processed       INTEGER DEFAULT 0,
+    notified        INTEGER DEFAULT 0,
+    calendar_synced INTEGER DEFAULT 0,
+    created_at      TEXT
 );
 
 CREATE TABLE IF NOT EXISTS last_seen (
@@ -72,6 +73,14 @@ class Database:
         if "processed" not in cols:
             self._conn.execute("ALTER TABLE events ADD COLUMN processed INTEGER DEFAULT 0")
             logger.info("Migration: added events.processed column")
+        if "calendar_synced" not in cols:
+            self._conn.execute("ALTER TABLE events ADD COLUMN calendar_synced INTEGER DEFAULT 0")
+            # Backfill pre-existing canvas rows to synced=1 so the new auto-sync
+            # doesn't retroactively dump historical assignments into Apple Calendar.
+            self._conn.execute(
+                "UPDATE events SET calendar_synced = 1 WHERE source = 'canvas'"
+            )
+            logger.info("Migration: added events.calendar_synced column (canvas rows backfilled)")
 
     def connection(self) -> sqlite3.Connection:
         return self._conn

@@ -6,10 +6,13 @@ and writes raw records to the events table. Never calls the LLM.
 
 import logging
 import sqlite3
-from datetime import datetime, timezone
+from datetime import date as date_cls, datetime, time, timezone
+from zoneinfo import ZoneInfo
 
 import requests
 from icalendar import Calendar
+
+from actions import calendar as apple_writer
 
 logger = logging.getLogger("friday.canvas")
 
@@ -98,3 +101,65 @@ def fetch(cfg: dict, conn: sqlite3.Connection) -> int:
     conn.commit()
 
     return count
+
+
+def sync_to_apple_calendar(config: dict, conn: sqlite3.Connection) -> int:
+    """Write unsynced Canvas events with a future due_at to the 'Canvas'
+    Apple Calendar (auto_write handles the default-calendar fallback).
+    Idempotent via events.calendar_synced. Returns count of new writes."""
+    tz_name   = (config.get("agent") or {}).get("timezone", "America/Chicago")
+    local_tz  = ZoneInfo(tz_name)
+    now_local = datetime.now(local_tz)
+
+    rows = conn.execute(
+        "SELECT id, title, body, due_at FROM events "
+        "WHERE source='canvas' AND due_at IS NOT NULL AND calendar_synced = 0"
+    ).fetchall()
+
+    written = 0
+    for event_id, title, body, due_at in rows:
+        try:
+            date_str, time_str, due_dt_local = _due_at_local(due_at, local_tz)
+        except Exception as e:
+            logger.error(f"canvas sync — bad due_at {due_at!r}: {e}")
+            # Unparseable — mark synced so we don't retry forever.
+            conn.execute(
+                "UPDATE events SET calendar_synced = 1 WHERE id = ?", (event_id,),
+            )
+            continue
+        if due_dt_local < now_local:
+            conn.execute(
+                "UPDATE events SET calendar_synced = 1 WHERE id = ?", (event_id,),
+            )
+            continue
+        event = {
+            "title":    title,
+            "date":     date_str,
+            "calendar": "Canvas",
+            "notes":    (body or "")[:1000],
+        }
+        if time_str:
+            event["time"] = time_str
+        uid = apple_writer.auto_write(event)  # silent — telegram=None
+        if uid:
+            conn.execute(
+                "UPDATE events SET calendar_synced = 1 WHERE id = ?", (event_id,),
+            )
+            written += 1
+        # else: leave flag at 0; next 15-min poll retries.
+    if rows:
+        conn.commit()
+    return written
+
+
+def _due_at_local(due_at_iso: str, tz: ZoneInfo) -> tuple[str, str | None, datetime]:
+    """(YYYY-MM-DD, HH:MM or None, local-aware datetime). All-day inputs
+    (no 'T') stay all-day; their comparison datetime is midnight local."""
+    if "T" not in due_at_iso:
+        d = date_cls.fromisoformat(due_at_iso)
+        return due_at_iso[:10], None, datetime.combine(d, time.min, tzinfo=tz)
+    dt = datetime.fromisoformat(due_at_iso)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=tz)
+    dt_local = dt.astimezone(tz)
+    return dt_local.strftime("%Y-%m-%d"), dt_local.strftime("%H:%M"), dt_local

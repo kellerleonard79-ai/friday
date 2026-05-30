@@ -218,6 +218,11 @@ def main() -> None:
                     logger.info(f"Canvas: {count} new event(s) written.")
                 else:
                     logger.info("Canvas: no new events.")
+                synced = await loop.run_in_executor(
+                    None, canvas_connector.sync_to_apple_calendar, config, conn,
+                )
+                if synced:
+                    logger.info(f"Canvas: {synced} due date(s) written to Apple Calendar.")
             except Exception as e:
                 logger.error(f"Canvas poll failed: {e}")
 

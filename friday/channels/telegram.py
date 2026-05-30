@@ -116,4 +116,23 @@ class TelegramHandler:
             await query.answer()
         except Exception:
             return
-        # Phase 4: route confirm/edit/cancel here
+        data = (query.data or "").strip()
+        if ":" not in data:
+            return
+        verb, key = data.split(":", 1)
+        if verb not in ("confirm", "cancel"):
+            return  # 'edit' lands in Phase 5
+        row = self.conn.execute(
+            "SELECT action_type FROM pending_actions WHERE id = ?", (key,),
+        ).fetchone()
+        if not row:
+            return
+        action_type = row[0]
+        loop = asyncio.get_running_loop()
+        # New action types dispatch here in Phase 5:
+        #   - "groupme_send" → actions.groupme_send.confirm_pending / cancel_pending
+        #   - "gmail_draft"  → actions.gmail_draft.confirm_pending  / cancel_pending
+        if action_type == "calendar_add":
+            from actions import calendar as cal_action
+            fn = cal_action.confirm_pending if verb == "confirm" else cal_action.cancel_pending
+            await loop.run_in_executor(None, fn, key, self.conn, self)
