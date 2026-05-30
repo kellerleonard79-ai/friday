@@ -103,8 +103,10 @@ class FridayMenuBar(rumps.App):
             rumps.alert("Friday", f"Failed to send: {e}")
 
     def _restart(self):
-        _restart_sh = os.path.join(_HERE, "restart.sh")
-        subprocess.Popen(["bash", _restart_sh], start_new_session=True)
+        subprocess.Popen(
+            ["launchctl", "kickstart", "-k", f"gui/{os.getuid()}/com.friday.agent"],
+            start_new_session=True,
+        )
 
     def set_ollama(self, _):
         _save_provider("ollama")

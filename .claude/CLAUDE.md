@@ -296,7 +296,7 @@ ollama:
   max_tokens: 1000
  
 gemini:
-  model: models/gemini-2.5-flash-lite
+  model: gemma-4-31b-it
   max_tokens: 1000
   api_key: ''
  

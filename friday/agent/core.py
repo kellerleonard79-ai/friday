@@ -35,7 +35,7 @@ class FridayAgent:
             if not api_key:
                 raise EnvironmentError("GEMINI_API_KEY not set.")
             self.gemini_client = genai.Client(api_key=api_key)
-            self.model_name = gemini_cfg.get("model", "models/gemini-2.5-flash-lite")
+            self.model_name = gemini_cfg.get("model", "gemma-4-31b-it")
             self.max_tokens = gemini_cfg.get("max_tokens", 1000)
             from agent.tools import make_tools
             self._tools = make_tools(conn, config, self)
