@@ -35,6 +35,8 @@ from memory.db import Database
 import memory.state as state
 from connectors import weather as weather_connector
 from connectors import canvas as canvas_connector
+from connectors import apple_calendar as apple_cal
+from agent import briefings
 
 
 def load_config() -> dict:
@@ -113,16 +115,19 @@ def main() -> None:
     # ── Morning briefing job ─────────────────────────────────────────────────
 
     async def morning_briefing_job(context) -> None:
-        today = datetime.datetime.now().strftime("%A, %B %d")
+        today = datetime.date.today()
         loop = asyncio.get_running_loop()
-        wx = await loop.run_in_executor(
-            None, weather_connector.respond, config.get("weather", {}), "weather"
+        today_evts = await loop.run_in_executor(
+            None, apple_cal.events_for_day, config, today
         )
-        weather_ctx = f" {wx}" if wx else ""
+        upcoming_evts = await loop.run_in_executor(
+            None, apple_cal.events_in_window, config, today, today + datetime.timedelta(days=7)
+        )
+        wx = await loop.run_in_executor(
+            None, weather_connector.respond, config.get("weather", {}), ""
+        )
         response = await loop.run_in_executor(
-            None, agent._think,
-            f"Compose a brief morning briefing for {today}.{weather_ctx} "
-            f"Start with 'Good morning, sir. Here is your day:' and keep it under 4 sentences."
+            None, briefings.compose_morning, agent, today_evts, upcoming_evts, wx
         )
         if response:
             try:
@@ -201,22 +206,33 @@ def main() -> None:
     # ── Evening briefing job ──────────────────────────────────────────────────
 
     async def briefing_job(context) -> None:
-        today = datetime.datetime.now().strftime("%A, %B %d")
+        today = datetime.date.today()
+        tomorrow = today + datetime.timedelta(days=1)
         loop = asyncio.get_running_loop()
+        tomorrow_evts = await loop.run_in_executor(
+            None, apple_cal.events_for_day, config, tomorrow
+        )
+        upcoming_evts = await loop.run_in_executor(
+            None, apple_cal.events_in_window, config, tomorrow,
+            tomorrow + datetime.timedelta(days=7),
+        )
+        canvas_pending = conn.execute(
+            "SELECT title, due_at, urgency FROM events "
+            "WHERE source='canvas' AND urgency IN ('URGENT','SOON') AND notified=0 "
+            "ORDER BY due_at"
+        ).fetchall()
         wx = await loop.run_in_executor(
             None, weather_connector.respond, config.get("weather", {}), ""
         )
-        weather_ctx = f" Current weather: {wx}." if wx else ""
         response = await loop.run_in_executor(
-            None, agent._think,
-            f"Compose a brief evening briefing for {today}.{weather_ctx} "
-            f"Keep it under 5 sentences. Plain prose only."
+            None, briefings.compose_evening,
+            agent, tomorrow_evts, upcoming_evts, canvas_pending, wx,
         )
         if response:
             try:
                 await context.bot.send_message(
                     chat_id=chat_id,
-                    text=f"📅 Evening Briefing — {today}\n\n{response}",
+                    text=f"📅 Evening Briefing — {today.strftime('%A, %B %-d')}\n\n{response}",
                 )
             except Exception as e:
                 logger.error(f"Evening briefing send failed: {e}")

@@ -1,7 +1,14 @@
 agent:
   name: Friday
+  morning_briefing_time: '07:00'
   briefing_time: '21:45'
   timezone: America/Chicago
+  # Whitelist of Apple Calendar names to include in briefings.
+  # Leave empty to include all calendars except 'Siri Suggestions' and 'US Holidays'.
+  briefing_calendars:
+    - Keller Leonard
+    - Work
+    - Family
 
 telegram:
   bot_token: ''       # from @BotFather

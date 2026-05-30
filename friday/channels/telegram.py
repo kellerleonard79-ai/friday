@@ -10,14 +10,15 @@ import asyncio
 import logging
 import os
 import sqlite3
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 import requests
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ForceReply, Update
 from telegram.ext import ContextTypes
 
 import memory.state as state
-from connectors import weather
+from agent import briefings
+from connectors import apple_calendar, weather
 
 logger = logging.getLogger("friday.telegram")
 
@@ -30,6 +31,11 @@ _WEATHER_KEYWORDS = frozenset({
     "precipitation", "drizzle", "storm", "umbrella", "raining", "snowing",
 })
 
+_BRIEFING_KEYWORDS = (
+    "brief me", "briefing", "what's today", "what's tomorrow",
+    "today's schedule", "what's on", "what do i have",
+)
+
 
 class TelegramHandler:
     def __init__(self, config: dict, agent, conn: sqlite3.Connection):
@@ -38,6 +44,7 @@ class TelegramHandler:
         self.chat_id      = str(tg.get("chat_id") or os.environ.get("TELEGRAM_CHAT_ID", ""))
         self.agent        = agent
         self.conn         = conn
+        self._app_cfg        = config
         self._weather_cfg    = config.get("weather", {})
         self._short_term_turns = config.get("memory", {}).get("short_term_turns", 20)
 
@@ -98,6 +105,35 @@ class TelegramHandler:
                 wx = await loop.run_in_executor(None, weather.respond, self._weather_cfg, text)
                 if wx:
                     await update.message.reply_text(wx)
+                    return
+
+            if any(k in text.lower() for k in _BRIEFING_KEYWORDS):
+                today = date.today()
+                tomorrow = today + timedelta(days=1)
+                loop = asyncio.get_running_loop()
+                today_evts = await loop.run_in_executor(
+                    None, apple_calendar.events_for_day, self._app_cfg, today
+                )
+                tomorrow_evts = await loop.run_in_executor(
+                    None, apple_calendar.events_for_day, self._app_cfg, tomorrow
+                )
+                upcoming_evts = await loop.run_in_executor(
+                    None, apple_calendar.events_in_window,
+                    self._app_cfg, today, today + timedelta(days=7),
+                )
+                canvas_pending = self.conn.execute(
+                    "SELECT title, due_at, urgency FROM events "
+                    "WHERE source='canvas' AND urgency IN ('URGENT','SOON') AND notified=0 "
+                    "ORDER BY due_at"
+                ).fetchall()
+                wx = await loop.run_in_executor(None, weather.respond, self._weather_cfg, "")
+                response = await loop.run_in_executor(
+                    None, briefings.compose_on_demand,
+                    self.agent, today_evts, tomorrow_evts, upcoming_evts,
+                    canvas_pending, wx,
+                )
+                if response:
+                    await update.message.reply_text(response)
                     return
 
             rows = self.conn.execute(
