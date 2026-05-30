@@ -8028,3 +8028,177 @@ telegram.error.NetworkError: httpx.ConnectError: [Errno 8] nodename nor servname
 2026-05-30 10:57:32,438 [apscheduler.executors.default] INFO: Running job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-05-30 15:58:32 UTC)" (scheduled at 2026-05-30 15:57:32.436649+00:00)
 2026-05-30 10:57:32,441 [apscheduler.executors.default] INFO: Job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-05-30 15:58:32 UTC)" executed successfully
 2026-05-30 10:57:36,871 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 10:57:47,084 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 10:57:57,235 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 10:58:07,461 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 10:58:17,700 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 10:58:27,940 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 10:58:32,437 [apscheduler.executors.default] INFO: Running job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-05-30 15:59:32 UTC)" (scheduled at 2026-05-30 15:58:32.436649+00:00)
+2026-05-30 10:58:32,439 [apscheduler.executors.default] INFO: Job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-05-30 15:59:32 UTC)" executed successfully
+2026-05-30 10:58:38,079 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 10:58:48,318 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 10:58:58,559 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 10:59:08,698 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 10:59:18,837 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 10:59:28,974 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 10:59:32,437 [apscheduler.executors.default] INFO: Running job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-05-30 16:00:32 UTC)" (scheduled at 2026-05-30 15:59:32.436649+00:00)
+2026-05-30 10:59:32,440 [apscheduler.executors.default] INFO: Job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-05-30 16:00:32 UTC)" executed successfully
+2026-05-30 10:59:39,210 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 10:59:49,449 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 10:59:59,586 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:00:09,724 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:00:19,965 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:00:30,205 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:00:32,438 [apscheduler.executors.default] INFO: Running job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-05-30 16:01:32 UTC)" (scheduled at 2026-05-30 16:00:32.436649+00:00)
+2026-05-30 11:00:32,441 [apscheduler.executors.default] INFO: Job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-05-30 16:01:32 UTC)" executed successfully
+2026-05-30 11:00:40,445 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:00:50,685 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:01:00,925 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:01:11,163 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:01:21,404 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:01:31,542 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:01:32,438 [apscheduler.executors.default] INFO: Running job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-05-30 16:02:32 UTC)" (scheduled at 2026-05-30 16:01:32.436649+00:00)
+2026-05-30 11:01:32,440 [apscheduler.executors.default] INFO: Job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-05-30 16:02:32 UTC)" executed successfully
+2026-05-30 11:01:41,781 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:01:52,020 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:02:02,263 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:02:12,502 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:02:22,738 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:02:32,437 [apscheduler.executors.default] INFO: Running job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-05-30 16:03:32 UTC)" (scheduled at 2026-05-30 16:02:32.436649+00:00)
+2026-05-30 11:02:32,439 [apscheduler.executors.default] INFO: Job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-05-30 16:03:32 UTC)" executed successfully
+2026-05-30 11:02:32,986 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:02:43,222 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:02:53,360 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:03:03,599 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:03:13,838 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:03:22,436 [apscheduler.executors.default] INFO: Running job "poll_connectors_job (trigger: interval[0:15:00], next run at: 2026-05-30 16:18:22 UTC)" (scheduled at 2026-05-30 16:03:22.435962+00:00)
+2026-05-30 11:03:22,437 [friday] INFO: Polling connectors...
+2026-05-30 11:03:23,093 [friday] INFO: Canvas: no new events.
+2026-05-30 11:03:23,094 [apscheduler.executors.default] INFO: Job "poll_connectors_job (trigger: interval[0:15:00], next run at: 2026-05-30 16:18:22 UTC)" executed successfully
+2026-05-30 11:03:24,079 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:03:32,437 [apscheduler.executors.default] INFO: Running job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-05-30 16:04:32 UTC)" (scheduled at 2026-05-30 16:03:32.436649+00:00)
+2026-05-30 11:03:32,438 [apscheduler.executors.default] INFO: Job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-05-30 16:04:32 UTC)" executed successfully
+2026-05-30 11:03:34,252 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:03:44,389 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:03:54,530 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:04:04,680 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:04:14,870 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:04:25,007 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:04:32,438 [apscheduler.executors.default] INFO: Running job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-05-30 16:05:32 UTC)" (scheduled at 2026-05-30 16:04:32.436649+00:00)
+2026-05-30 11:04:32,440 [apscheduler.executors.default] INFO: Job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-05-30 16:05:32 UTC)" executed successfully
+2026-05-30 11:04:35,245 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:04:45,382 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:04:55,624 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:05:05,867 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:05:09,108 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:05:09,110 [telegram.ext.Application] INFO: Application is stopping. This might take a moment.
+2026-05-30 11:05:09,112 [apscheduler.scheduler] INFO: Scheduler has been shut down
+2026-05-30 11:05:09,123 [telegram.ext.Application] INFO: Application.stop() complete
+2026-05-30 11:05:10,662 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/sendMessage "HTTP/1.1 200 OK"
+2026-05-30 11:05:12,219 [friday] INFO: ==================================================
+2026-05-30 11:05:12,219 [friday] INFO:   Project Friday — Starting up
+2026-05-30 11:05:12,219 [friday] INFO:   Saturday, May 30 2026 11:05
+2026-05-30 11:05:12,219 [friday] INFO: ==================================================
+2026-05-30 11:05:12,223 [friday.db] INFO: Database ready: /Users/keller/Desktop/friday/friday/memory/friday_memory.db
+2026-05-30 11:05:12,333 [friday.core] INFO: Agent ready — gemini / models/gemini-2.5-flash-lite
+2026-05-30 11:05:12,364 [apscheduler.scheduler] INFO: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-30 11:05:12,364 [apscheduler.scheduler] INFO: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-30 11:05:12,365 [apscheduler.scheduler] INFO: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-30 11:05:12,365 [apscheduler.scheduler] INFO: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-30 11:05:12,365 [friday] INFO: Morning briefing scheduled at 07:00 America/Chicago
+2026-05-30 11:05:12,365 [friday] INFO: Evening briefing scheduled at 20:00 America/Chicago
+2026-05-30 11:05:12,365 [friday] INFO: Running. Ctrl+C to stop.
+2026-05-30 11:05:12,792 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getMe "HTTP/1.1 200 OK"
+2026-05-30 11:05:13,070 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/sendMessage "HTTP/1.1 200 OK"
+2026-05-30 11:05:13,071 [friday] INFO: Startup complete.
+2026-05-30 11:05:13,217 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/deleteWebhook "HTTP/1.1 200 OK"
+2026-05-30 11:05:13,219 [apscheduler.scheduler] INFO: Added job "morning_briefing_job" to job store "default"
+2026-05-30 11:05:13,219 [apscheduler.scheduler] INFO: Added job "briefing_job" to job store "default"
+2026-05-30 11:05:13,219 [apscheduler.scheduler] INFO: Added job "poll_connectors_job" to job store "default"
+2026-05-30 11:05:13,220 [apscheduler.scheduler] INFO: Added job "check_urgent_alerts_job" to job store "default"
+2026-05-30 11:05:13,220 [apscheduler.scheduler] INFO: Scheduler started
+2026-05-30 11:05:13,220 [telegram.ext.Application] INFO: Application started
+2026-05-30 11:05:22,367 [apscheduler.executors.default] INFO: Running job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-05-30 16:06:22 UTC)" (scheduled at 2026-05-30 16:05:22.365213+00:00)
+2026-05-30 11:05:22,368 [apscheduler.executors.default] INFO: Job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-05-30 16:06:22 UTC)" executed successfully
+2026-05-30 11:05:23,650 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:05:33,820 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:05:44,065 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:05:54,301 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:06:04,473 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:06:12,366 [apscheduler.executors.default] INFO: Running job "poll_connectors_job (trigger: interval[0:15:00], next run at: 2026-05-30 16:21:12 UTC)" (scheduled at 2026-05-30 16:06:12.364679+00:00)
+2026-05-30 11:06:12,366 [friday] INFO: Polling connectors...
+2026-05-30 11:06:13,049 [friday] INFO: Canvas: no new events.
+2026-05-30 11:06:13,049 [apscheduler.executors.default] INFO: Job "poll_connectors_job (trigger: interval[0:15:00], next run at: 2026-05-30 16:21:12 UTC)" executed successfully
+2026-05-30 11:06:14,680 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:06:22,367 [apscheduler.executors.default] INFO: Running job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-05-30 16:07:22 UTC)" (scheduled at 2026-05-30 16:06:22.365213+00:00)
+2026-05-30 11:06:22,368 [apscheduler.executors.default] INFO: Job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-05-30 16:07:22 UTC)" executed successfully
+2026-05-30 11:06:24,916 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:06:35,060 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:06:45,213 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:06:55,360 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:07:05,569 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:07:09,850 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:07:09,856 [telegram.ext.Application] INFO: Application is stopping. This might take a moment.
+2026-05-30 11:07:09,870 [apscheduler.scheduler] INFO: Scheduler has been shut down
+2026-05-30 11:07:09,880 [telegram.ext.Application] INFO: Application.stop() complete
+2026-05-30 11:07:10,428 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/sendMessage "HTTP/1.1 200 OK"
+2026-05-30 11:07:12,134 [friday] INFO: ==================================================
+2026-05-30 11:07:12,134 [friday] INFO:   Project Friday — Starting up
+2026-05-30 11:07:12,134 [friday] INFO:   Saturday, May 30 2026 11:07
+2026-05-30 11:07:12,134 [friday] INFO: ==================================================
+2026-05-30 11:07:12,136 [friday.db] INFO: Database ready: /Users/keller/Desktop/friday/friday/memory/friday_memory.db
+2026-05-30 11:07:12,259 [friday.core] INFO: Agent ready — gemini / models/gemini-2.5-flash-lite
+2026-05-30 11:07:12,393 [apscheduler.scheduler] INFO: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-30 11:07:12,393 [apscheduler.scheduler] INFO: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-30 11:07:12,395 [apscheduler.scheduler] INFO: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-30 11:07:12,395 [apscheduler.scheduler] INFO: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-30 11:07:12,397 [apscheduler.scheduler] INFO: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-30 11:07:12,397 [friday] INFO: Restored morning briefing override for 2026-05-30 11:09 UTC-05:00
+2026-05-30 11:07:12,398 [friday] INFO: Morning briefing scheduled at 07:00 America/Chicago
+2026-05-30 11:07:12,398 [friday] INFO: Evening briefing scheduled at 20:00 America/Chicago
+2026-05-30 11:07:12,398 [friday] INFO: Running. Ctrl+C to stop.
+2026-05-30 11:07:12,825 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getMe "HTTP/1.1 200 OK"
+2026-05-30 11:07:13,093 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/sendMessage "HTTP/1.1 200 OK"
+2026-05-30 11:07:13,095 [friday] INFO: Startup complete.
+2026-05-30 11:07:13,228 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/deleteWebhook "HTTP/1.1 200 OK"
+2026-05-30 11:07:13,229 [apscheduler.scheduler] INFO: Added job "morning_briefing_job" to job store "default"
+2026-05-30 11:07:13,229 [apscheduler.scheduler] INFO: Added job "briefing_job" to job store "default"
+2026-05-30 11:07:13,230 [apscheduler.scheduler] INFO: Added job "poll_connectors_job" to job store "default"
+2026-05-30 11:07:13,230 [apscheduler.scheduler] INFO: Added job "check_urgent_alerts_job" to job store "default"
+2026-05-30 11:07:13,230 [apscheduler.scheduler] INFO: Added job "morning_briefing_override_job" to job store "default"
+2026-05-30 11:07:13,230 [apscheduler.scheduler] INFO: Scheduler started
+2026-05-30 11:07:13,230 [telegram.ext.Application] INFO: Application started
+2026-05-30 11:07:22,401 [apscheduler.executors.default] INFO: Running job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-05-30 16:08:22 UTC)" (scheduled at 2026-05-30 16:07:22.395834+00:00)
+2026-05-30 11:07:22,402 [apscheduler.executors.default] INFO: Job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-05-30 16:08:22 UTC)" executed successfully
+2026-05-30 11:07:23,635 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:07:28,678 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-05-30 11:07:28,679 [telegram.ext.Application] INFO: Application is stopping. This might take a moment.
+2026-05-30 11:07:28,680 [apscheduler.scheduler] INFO: Scheduler has been shut down
+2026-05-30 11:07:28,691 [telegram.ext.Application] INFO: Application.stop() complete
+2026-05-30 11:07:29,219 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/sendMessage "HTTP/1.1 200 OK"
+2026-05-30 11:07:30,636 [friday] INFO: ==================================================
+2026-05-30 11:07:30,636 [friday] INFO:   Project Friday — Starting up
+2026-05-30 11:07:30,636 [friday] INFO:   Saturday, May 30 2026 11:07
+2026-05-30 11:07:30,636 [friday] INFO: ==================================================
+2026-05-30 11:07:30,638 [friday.db] INFO: Database ready: /Users/keller/Desktop/friday/friday/memory/friday_memory.db
+2026-05-30 11:07:30,736 [friday.core] INFO: Agent ready — gemini / models/gemini-2.5-flash-lite
+2026-05-30 11:07:30,766 [apscheduler.scheduler] INFO: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-30 11:07:30,767 [apscheduler.scheduler] INFO: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-30 11:07:30,767 [apscheduler.scheduler] INFO: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-30 11:07:30,767 [apscheduler.scheduler] INFO: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-30 11:07:30,767 [friday] INFO: Morning briefing scheduled at 07:00 America/Chicago
+2026-05-30 11:07:30,767 [friday] INFO: Evening briefing scheduled at 20:00 America/Chicago
+2026-05-30 11:07:30,767 [friday] INFO: Running. Ctrl+C to stop.
+2026-05-30 11:07:31,201 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getMe "HTTP/1.1 200 OK"
+2026-05-30 11:07:31,478 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/sendMessage "HTTP/1.1 200 OK"
+2026-05-30 11:07:31,479 [friday] INFO: Startup complete.
+2026-05-30 11:07:31,623 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/deleteWebhook "HTTP/1.1 200 OK"
+2026-05-30 11:07:31,640 [apscheduler.scheduler] INFO: Added job "morning_briefing_job" to job store "default"
+2026-05-30 11:07:31,640 [apscheduler.scheduler] INFO: Added job "briefing_job" to job store "default"
+2026-05-30 11:07:31,640 [apscheduler.scheduler] INFO: Added job "poll_connectors_job" to job store "default"
+2026-05-30 11:07:31,640 [apscheduler.scheduler] INFO: Added job "check_urgent_alerts_job" to job store "default"
+2026-05-30 11:07:31,640 [apscheduler.scheduler] INFO: Scheduler started
+2026-05-30 11:07:31,640 [telegram.ext.Application] INFO: Application started
+2026-05-30 11:07:40,769 [apscheduler.executors.default] INFO: Running job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-05-30 16:08:40 UTC)" (scheduled at 2026-05-30 16:07:40.767759+00:00)
+2026-05-30 11:07:40,770 [apscheduler.executors.default] INFO: Job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-05-30 16:08:40 UTC)" executed successfully
+2026-05-30 11:07:42,085 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"

@@ -22,6 +22,11 @@ def set(conn: sqlite3.Connection, key: str, value: str) -> None:
     conn.commit()
 
 
+def delete(conn: sqlite3.Connection, key: str) -> None:
+    conn.execute("DELETE FROM system_state WHERE key = ?", (key,))
+    conn.commit()
+
+
 def set_many(conn: sqlite3.Connection, pairs: dict) -> None:
     """Write multiple keys in a single transaction."""
     now = datetime.now().isoformat()

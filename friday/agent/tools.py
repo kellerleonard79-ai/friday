@@ -10,16 +10,22 @@ Each tool:
 """
 
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import memory.state as state
 from connectors import apple_calendar, weather
 
 logger = logging.getLogger("friday.tools")
 
 
-def make_tools(conn, config):
-    """Return the list of tool callables bound to this Friday instance."""
+def make_tools(conn, config, agent=None):
+    """Return the list of tool callables bound to this Friday instance.
+
+    `agent` is the FridayAgent; the reschedule tool reads `agent.job_queue`
+    and `agent._{morning,evening}_briefing_runner`, which friday.py attaches
+    after the PTB Application is built. Tool calls happen at message time,
+    long after that wiring is in place."""
 
     tz_name = (config.get("agent") or {}).get("timezone", "America/Chicago")
     local_tz = ZoneInfo(tz_name)
@@ -96,4 +102,61 @@ def make_tools(conn, config):
         items = [{"title": r[0], "due_at": r[1], "urgency": r[2]} for r in rows]
         return {"count": len(items), "items": items}
 
-    return [get_now, get_schedule, get_weather, get_pending_canvas]
+    def reschedule_briefing(briefing_type: str, time: str) -> dict:
+        """Override the next occurrence of a scheduled briefing. Use this when
+        the user wants to move WHEN they receive their morning or evening
+        briefing — applies only to the very next firing, then the default
+        schedule from config is restored automatically.
+
+        Args:
+            briefing_type: "morning" or "evening".
+            time: 24-hour HH:MM, e.g. "09:00", "21:30". Convert any phrasing
+                  the user gives ("9 AM", "nine in the morning", "half past
+                  eight") to HH:MM yourself before calling.
+
+        If the requested time has already passed today, it is interpreted
+        as that time tomorrow. Returns the resolved fire time in the user's
+        local timezone — relay it to the user when confirming."""
+        if briefing_type not in ("morning", "evening"):
+            return {"status": "error",
+                    "message": "briefing_type must be 'morning' or 'evening'"}
+        try:
+            hh, mm = [int(x) for x in time.split(":")]
+            if not (0 <= hh < 24 and 0 <= mm < 60):
+                raise ValueError
+        except (ValueError, AttributeError):
+            return {"status": "error",
+                    "message": f"Invalid time '{time}', expected HH:MM 24-hour"}
+
+        now_local = datetime.now(local_tz)
+        target = now_local.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        if target <= now_local:
+            target += timedelta(days=1)
+
+        state.set(conn, f"{briefing_type}_briefing_override", target.isoformat())
+
+        jq     = getattr(agent, "job_queue", None)
+        runner = getattr(agent, f"_{briefing_type}_briefing_runner", None)
+        if jq is None or runner is None:
+            logger.error("reschedule_briefing called before scheduler attached")
+            return {"status": "error",
+                    "message": "Scheduler not yet available; try again in a moment."}
+
+        job_name = f"{briefing_type}_briefing_override_job"
+        for j in jq.get_jobs_by_name(job_name):
+            j.schedule_removal()
+        jq.run_once(runner, when=target, name=job_name)
+
+        logger.info(
+            f"Override set: {briefing_type} briefing at "
+            f"{target.strftime('%Y-%m-%d %H:%M %Z')}"
+        )
+        return {
+            "status": "ok",
+            "type": briefing_type,
+            "scheduled_for_local": target.strftime("%A, %B %-d at %-I:%M %p %Z"),
+            "timezone": tz_name,
+        }
+
+    return [get_now, get_schedule, get_weather,
+            get_pending_canvas, reschedule_briefing]

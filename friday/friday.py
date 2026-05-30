@@ -128,14 +128,30 @@ def main() -> None:
     # ── Morning briefing job ─────────────────────────────────────────────────
 
     async def morning_briefing_job(context) -> None:
-        if not _within(MORNING_WINDOW):
-            now_local = datetime.datetime.now(local_tz)
-            logger.warning(
-                f"Morning briefing fired at {now_local.strftime('%H:%M %Z')} — "
-                f"outside {MORNING_WINDOW[0]:02d}:00–{MORNING_WINDOW[1]:02d}:00 "
-                f"window. Skipping (likely tz misconfig)."
-            )
-            return
+        is_override = getattr(context.job, "name", "") == "morning_briefing_override_job"
+        if is_override:
+            state.delete(conn, "morning_briefing_override")
+        else:
+            ovr = state.get(conn, "morning_briefing_override")
+            if ovr:
+                try:
+                    ovr_dt = datetime.datetime.fromisoformat(ovr)
+                    if ovr_dt.date() == datetime.datetime.now(local_tz).date():
+                        logger.info(
+                            f"Morning briefing skipped at default time — "
+                            f"override active for {ovr_dt.strftime('%H:%M %Z')}"
+                        )
+                        return
+                except ValueError:
+                    pass
+            if not _within(MORNING_WINDOW):
+                now_local = datetime.datetime.now(local_tz)
+                logger.warning(
+                    f"Morning briefing fired at {now_local.strftime('%H:%M %Z')} — "
+                    f"outside {MORNING_WINDOW[0]:02d}:00–{MORNING_WINDOW[1]:02d}:00 "
+                    f"window. Skipping (likely tz misconfig)."
+                )
+                return
         today = datetime.date.today()
         loop = asyncio.get_running_loop()
         today_evts = await loop.run_in_executor(
@@ -229,14 +245,30 @@ def main() -> None:
     # ── Evening briefing job ──────────────────────────────────────────────────
 
     async def briefing_job(context) -> None:
-        if not _within(EVENING_WINDOW):
-            now_local = datetime.datetime.now(local_tz)
-            logger.warning(
-                f"Evening briefing fired at {now_local.strftime('%H:%M %Z')} — "
-                f"outside {EVENING_WINDOW[0]:02d}:00–{EVENING_WINDOW[1]:02d}:00 "
-                f"window. Skipping (likely tz misconfig)."
-            )
-            return
+        is_override = getattr(context.job, "name", "") == "evening_briefing_override_job"
+        if is_override:
+            state.delete(conn, "evening_briefing_override")
+        else:
+            ovr = state.get(conn, "evening_briefing_override")
+            if ovr:
+                try:
+                    ovr_dt = datetime.datetime.fromisoformat(ovr)
+                    if ovr_dt.date() == datetime.datetime.now(local_tz).date():
+                        logger.info(
+                            f"Evening briefing skipped at default time — "
+                            f"override active for {ovr_dt.strftime('%H:%M %Z')}"
+                        )
+                        return
+                except ValueError:
+                    pass
+            if not _within(EVENING_WINDOW):
+                now_local = datetime.datetime.now(local_tz)
+                logger.warning(
+                    f"Evening briefing fired at {now_local.strftime('%H:%M %Z')} — "
+                    f"outside {EVENING_WINDOW[0]:02d}:00–{EVENING_WINDOW[1]:02d}:00 "
+                    f"window. Skipping (likely tz misconfig)."
+                )
+                return
         today = datetime.date.today()
         tomorrow = today + datetime.timedelta(days=1)
         loop = asyncio.get_running_loop()
@@ -281,6 +313,12 @@ def main() -> None:
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handler.on_message))
     app.add_handler(CallbackQueryHandler(handler.on_callback))
 
+    # Late-bind for the reschedule_briefing tool — it needs the live job_queue
+    # and the briefing runners to schedule one-shot overrides at message time.
+    agent.job_queue = app.job_queue
+    agent._morning_briefing_runner = morning_briefing_job
+    agent._evening_briefing_runner = briefing_job
+
     app.job_queue.run_daily(
         morning_briefing_job,
         time=datetime.time(mbh, mbm, tzinfo=local_tz),
@@ -291,6 +329,37 @@ def main() -> None:
     )
     app.job_queue.run_repeating(poll_connectors_job,    interval=900, first=60)
     app.job_queue.run_repeating(check_urgent_alerts_job, interval=60,  first=10)
+
+    # Restore any pending briefing override that survived a restart. The
+    # system_state row persists across restarts, but the in-memory one-shot
+    # does not — re-queue it here (or clear it if the time has already passed).
+    for kind, runner in (
+        ("morning", morning_briefing_job),
+        ("evening", briefing_job),
+    ):
+        ovr = state.get(conn, f"{kind}_briefing_override")
+        if not ovr:
+            continue
+        try:
+            ovr_dt = datetime.datetime.fromisoformat(ovr)
+        except ValueError:
+            logger.warning(f"Discarding malformed {kind} override: {ovr!r}")
+            state.delete(conn, f"{kind}_briefing_override")
+            continue
+        if ovr_dt <= datetime.datetime.now(local_tz):
+            logger.info(
+                f"{kind.capitalize()} override at {ovr_dt.isoformat()} "
+                f"already elapsed — clearing."
+            )
+            state.delete(conn, f"{kind}_briefing_override")
+            continue
+        app.job_queue.run_once(
+            runner, when=ovr_dt, name=f"{kind}_briefing_override_job",
+        )
+        logger.info(
+            f"Restored {kind} briefing override for "
+            f"{ovr_dt.strftime('%Y-%m-%d %H:%M %Z')}"
+        )
 
     logger.info(f"Morning briefing scheduled at {mbt_str} {tz_name}")
     logger.info(f"Evening briefing scheduled at {bt_str} {tz_name}")

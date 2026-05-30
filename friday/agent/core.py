@@ -38,7 +38,7 @@ class FridayAgent:
             self.model_name = gemini_cfg.get("model", "models/gemini-2.5-flash-lite")
             self.max_tokens = gemini_cfg.get("max_tokens", 1000)
             from agent.tools import make_tools
-            self._tools = make_tools(conn, config)
+            self._tools = make_tools(conn, config, self)
         else:
             self.gemini_client = None
             ollama_cfg = config.get("ollama", {})
