@@ -10,31 +10,18 @@ import asyncio
 import logging
 import os
 import sqlite3
-from datetime import date, datetime, timedelta
+from datetime import datetime
 
 import requests
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ForceReply, Update
 from telegram.ext import ContextTypes
 
 import memory.state as state
-from agent import briefings
-from connectors import apple_calendar, weather
 
 logger = logging.getLogger("friday.telegram")
 
 _API_BASE = "https://api.telegram.org/bot{token}/{method}"
 _semaphore = asyncio.Semaphore(1)
-
-_WEATHER_KEYWORDS = frozenset({
-    "weather", "temperature", "forecast", "rain", "snow",
-    "sunny", "cloudy", "humid", "wind", "cold", "hot", "warm", "outside",
-    "precipitation", "drizzle", "storm", "umbrella", "raining", "snowing",
-})
-
-_BRIEFING_KEYWORDS = (
-    "brief me", "briefing", "what's today", "what's tomorrow",
-    "today's schedule", "what's on", "what do i have",
-)
 
 
 class TelegramHandler:
@@ -44,8 +31,6 @@ class TelegramHandler:
         self.chat_id      = str(tg.get("chat_id") or os.environ.get("TELEGRAM_CHAT_ID", ""))
         self.agent        = agent
         self.conn         = conn
-        self._app_cfg        = config
-        self._weather_cfg    = config.get("weather", {})
         self._short_term_turns = config.get("memory", {}).get("short_term_turns", 20)
 
     # ── Outbound (sync) ───────────────────────────────────────────────────────

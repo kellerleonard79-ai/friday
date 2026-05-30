@@ -23,9 +23,11 @@ def _load_persona() -> str:
 
 
 class FridayAgent:
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, conn=None):
         self.persona  = _load_persona()
         self.provider = config.get("provider", "ollama")
+        self._config  = config
+        self._conn    = conn
 
         if self.provider == "gemini":
             gemini_cfg = config.get("gemini", {})
@@ -35,17 +37,25 @@ class FridayAgent:
             self.gemini_client = genai.Client(api_key=api_key)
             self.model_name = gemini_cfg.get("model", "models/gemini-2.5-flash-lite")
             self.max_tokens = gemini_cfg.get("max_tokens", 1000)
+            from agent.tools import make_tools
+            self._tools = make_tools(conn, config)
         else:
             self.gemini_client = None
             ollama_cfg = config.get("ollama", {})
             self.model_name = ollama_cfg.get("model", "llama3.2:1b")
             self.max_tokens = ollama_cfg.get("max_tokens", 1000)
             self.ollama_url = ollama_cfg.get("base_url", "http://localhost:11434")
+            self._tools = None
 
         logger.info(f"Agent ready — {self.provider} / {self.model_name}")
 
-    def _think(self, prompt: str, history: list | None = None) -> str:
-        """Synchronous LLM call. Always run via run_in_executor inside async handlers."""
+    def _think(self, prompt: str, history: list | None = None,
+               use_tools: bool = True) -> str:
+        """Synchronous LLM call. Always run via run_in_executor inside async handlers.
+
+        use_tools controls whether Gemini gets the tool list. Set False for
+        prompts that supply their own data explicitly (briefings, urgency tagging).
+        """
         try:
             if self.provider == "gemini":
                 contents = []
@@ -53,13 +63,16 @@ class FridayAgent:
                     role = "user" if turn["role"] == "user" else "model"
                     contents.append({"role": role, "parts": [{"text": turn["content"]}]})
                 contents.append({"role": "user", "parts": [{"text": prompt}]})
+                cfg_kwargs = dict(
+                    system_instruction=self.persona,
+                    max_output_tokens=self.max_tokens,
+                )
+                if use_tools and self._tools:
+                    cfg_kwargs["tools"] = self._tools
                 resp = self.gemini_client.models.generate_content(
                     model=self.model_name,
                     contents=contents,
-                    config=types.GenerateContentConfig(
-                        system_instruction=self.persona,
-                        max_output_tokens=self.max_tokens,
-                    ),
+                    config=types.GenerateContentConfig(**cfg_kwargs),
                 )
                 return (resp.text or "").strip()
 

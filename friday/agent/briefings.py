@@ -93,7 +93,7 @@ def compose_morning(agent, today_evts: list[dict], upcoming_evts: list[dict],
         f"  - One short weather note if notable.\n"
         f"  - If today has no events, say so plainly and pivot to the week ahead."
     )
-    return agent._think(prompt)
+    return agent._think(prompt, use_tools=False)
 
 
 def compose_evening(agent, tomorrow_evts: list[dict], upcoming_evts: list[dict],
@@ -115,7 +115,7 @@ def compose_evening(agent, tomorrow_evts: list[dict], upcoming_evts: list[dict],
         f"  - Surface anything tagged DUE IN 1/3/5 DAYS and pending Canvas URGENT/SOON items.\n"
         f"  - End with a brief, professional sign-off (e.g. \"Rest well, sir.\")."
     )
-    return agent._think(prompt)
+    return agent._think(prompt, use_tools=False)
 
 
 def compose_on_demand(agent, today_evts: list[dict], tomorrow_evts: list[dict],
@@ -136,4 +136,4 @@ def compose_on_demand(agent, today_evts: list[dict], tomorrow_evts: list[dict],
         f"tagged DUE IN 1/3/5 DAYS in the upcoming list, and any pending Canvas urgency. "
         f"If everything is empty, say so plainly."
     )
-    return agent._think(prompt)
+    return agent._think(prompt, use_tools=False)

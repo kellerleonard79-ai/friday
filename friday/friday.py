@@ -78,7 +78,7 @@ def main() -> None:
     db          = Database(db_path)
     conn        = db.connection()
 
-    agent   = FridayAgent(config)
+    agent   = FridayAgent(config, conn=conn)
     handler = TelegramHandler(config, agent, conn)
 
     bot_token  = handler.bot_token
@@ -150,7 +150,9 @@ def main() -> None:
                 f"SOON = due within 3 days.\n"
                 f"NORMAL = everything else or no due date."
             )
-            urgency = await loop.run_in_executor(None, agent._think, prompt)
+            urgency = await loop.run_in_executor(
+                None, lambda: agent._think(prompt, use_tools=False)
+            )
             urgency = urgency.strip().upper()
             if urgency not in ("URGENT", "SOON", "NORMAL"):
                 urgency = "NORMAL"
