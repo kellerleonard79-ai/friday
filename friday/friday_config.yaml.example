@@ -3,6 +3,10 @@ agent:
   morning_briefing_time: '07:00'
   briefing_time: '21:45'
   timezone: America/Chicago
+  # Fallback Apple Calendar used by actions.calendar when a write target
+  # doesn't exist (e.g. Canvas auto-sync when no 'Canvas' calendar is present).
+  # macOS exposes no scriptable "default calendar", so this must be explicit.
+  default_calendar: 'Keller Leonard'
   # Whitelist of Apple Calendar names to include in briefings.
   # Leave empty to include all calendars except 'Siri Suggestions' and 'US Holidays'.
   briefing_calendars:

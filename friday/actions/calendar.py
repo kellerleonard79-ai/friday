@@ -110,15 +110,6 @@ def _run_jxa(script: str) -> dict | None:
         return None
 
 
-def _get_default_calendar_name() -> str | None:
-    out = _run_jxa("""
-const Calendar = Application('Calendar');
-try { JSON.stringify({name: Calendar.defaultCalendar.name()}); }
-catch (e) { JSON.stringify({error: e.toString()}); }
-""")
-    return (out or {}).get("name")
-
-
 def _calendar_exists(name: str) -> bool:
     out = _run_jxa(f"""
 const Calendar = Application('Calendar');
@@ -128,13 +119,19 @@ JSON.stringify({{exists: t.length > 0}});
     return bool((out or {}).get("exists"))
 
 
-def _resolve_calendar(requested: str | None) -> str | None:
+# macOS Calendar has no scriptable "default calendar" via JXA, so the fallback
+# name has to be supplied explicitly (typically agent.default_calendar in config).
+def _resolve_calendar(requested: str | None, default: str | None) -> str | None:
     if requested and _calendar_exists(requested):
         return requested
-    default = _get_default_calendar_name()
-    if requested and default:
-        logger.info(f"Calendar {requested!r} not found — using default {default!r}.")
-    return default
+    if default and _calendar_exists(default):
+        if requested:
+            logger.info(f"Calendar {requested!r} not found — using configured default {default!r}.")
+        return default
+    logger.error(
+        f"No usable Apple Calendar — requested {requested!r}, default {default!r}."
+    )
+    return None
 
 
 # ── Event payload helpers ─────────────────────────────────────────────────────
@@ -166,9 +163,11 @@ def _friendly_date(date_str: str) -> str:
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def auto_write(event: dict, telegram=None) -> str | None:
+def auto_write(event: dict, telegram=None, default_calendar: str | None = None) -> str | None:
     """Immediate write, no approval gate. Returns Apple UID or None.
-    Sends a Telegram confirmation/failure note only if telegram is provided."""
+    Sends a Telegram confirmation/failure note only if telegram is provided.
+    default_calendar is the fallback when event['calendar'] is missing or
+    doesn't exist on the system."""
     try:
         title, start, end, all_day = _parse_event(event)
     except ValueError as e:
@@ -177,7 +176,7 @@ def auto_write(event: dict, telegram=None) -> str | None:
             telegram.send(f"Couldn't add event, sir — {e}.")
         return None
 
-    cal = _resolve_calendar(event.get("calendar"))
+    cal = _resolve_calendar(event.get("calendar"), default_calendar)
     if not cal:
         logger.error("auto_write — no usable calendar available")
         if telegram:
@@ -207,16 +206,25 @@ def auto_write(event: dict, telegram=None) -> str | None:
     return uid
 
 
-def gated_write(event: dict, conn: sqlite3.Connection, telegram) -> str | None:
+def gated_write(event: dict, conn: sqlite3.Connection, telegram,
+                default_calendar: str | None = None) -> str | None:
     """Stage event in pending_actions and prompt the user. The write happens
     only after confirm_pending() runs. Returns the pending key, or None if
-    the event was rejected upfront."""
+    the event was rejected upfront. The fallback calendar is resolved now so
+    the prompt shows the actual calendar that'll be written."""
     try:
         title, _, _, _ = _parse_event(event)
     except ValueError as e:
         logger.error(f"gated_write — bad event: {e}")
         telegram.send(f"Couldn't draft that event, sir — {e}.")
         return None
+
+    resolved = _resolve_calendar(event.get("calendar"), default_calendar)
+    if not resolved:
+        telegram.send(f"Couldn't draft {title!r}, sir — no Apple Calendar available.")
+        return None
+    event = dict(event)
+    event["calendar"] = resolved  # pin so confirm_pending writes to the same place
 
     pending_key = uuid.uuid4().hex[:12]
     conn.execute(

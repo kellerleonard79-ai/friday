@@ -107,7 +107,9 @@ def sync_to_apple_calendar(config: dict, conn: sqlite3.Connection) -> int:
     """Write unsynced Canvas events with a future due_at to the 'Canvas'
     Apple Calendar (auto_write handles the default-calendar fallback).
     Idempotent via events.calendar_synced. Returns count of new writes."""
-    tz_name   = (config.get("agent") or {}).get("timezone", "America/Chicago")
+    agent_cfg = config.get("agent") or {}
+    tz_name   = agent_cfg.get("timezone", "America/Chicago")
+    default_cal = agent_cfg.get("default_calendar")
     local_tz  = ZoneInfo(tz_name)
     now_local = datetime.now(local_tz)
 
@@ -140,7 +142,7 @@ def sync_to_apple_calendar(config: dict, conn: sqlite3.Connection) -> int:
         }
         if time_str:
             event["time"] = time_str
-        uid = apple_writer.auto_write(event)  # silent — telegram=None
+        uid = apple_writer.auto_write(event, default_calendar=default_cal)  # silent
         if uid:
             conn.execute(
                 "UPDATE events SET calendar_synced = 1 WHERE id = ?", (event_id,),
