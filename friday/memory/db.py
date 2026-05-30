@@ -48,6 +48,13 @@ CREATE TABLE IF NOT EXISTS conversation_history (
     content    TEXT,
     created_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS synced_events (
+    google_event_id  TEXT PRIMARY KEY,
+    calendar_name    TEXT,
+    apple_event_id   TEXT,
+    synced_at        TEXT
+);
 """
 
 

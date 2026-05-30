@@ -36,6 +36,7 @@ from memory.db import Database
 import memory.state as state
 from connectors import weather as weather_connector
 from connectors import canvas as canvas_connector
+from connectors import gcal_sync
 from connectors import apple_calendar as apple_cal
 from agent import briefings
 
@@ -219,6 +220,17 @@ def main() -> None:
                     logger.info("Canvas: no new events.")
             except Exception as e:
                 logger.error(f"Canvas poll failed: {e}")
+
+        gcal_cfg = config.get("gcal_sync") or {}
+        if gcal_cfg.get("calendars"):
+            try:
+                count = await loop.run_in_executor(
+                    None, gcal_sync.fetch, config, conn
+                )
+                if count:
+                    logger.info(f"gcal_sync: {count} total new event(s).")
+            except Exception as e:
+                logger.error(f"gcal_sync poll failed: {e}")
 
         await process_untagged_events(loop)
 
