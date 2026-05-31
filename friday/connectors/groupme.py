@@ -15,21 +15,48 @@ _API_BASE  = "https://api.groupme.com/v3"
 _TIMEOUT_S = 15
 _PAGE_SIZE = 100
 
+# Process-lifetime cache of lowercased group name → group id. Populated lazily
+# from GET /groups when a configured entry has a name but no id. Reset on restart.
+_name_to_id: dict[str, str] = {}
+
 
 def fetch(cfg: dict, conn: sqlite3.Connection) -> int:
-    """Poll all configured GroupMe groups. Returns total new events written."""
+    """Poll all configured GroupMe groups. Returns total new events written.
+    Group entries may give an explicit id, or just a name (resolved against
+    the account's group list)."""
     api_token = (cfg.get("api_token") or "").strip()
     groups    = cfg.get("groups") or []
     if not api_token:
         return 0
+
+    # Resolve any name-only entries up front so we make at most one
+    # /groups call per poll cycle (and only if needed).
+    needed = {
+        (g.get("name") or "").strip().lower()
+        for g in groups
+        if not str(g.get("id") or "").strip()
+           and (g.get("name") or "").strip()
+    }
+    if needed - set(_name_to_id):
+        _populate_name_cache(api_token)
 
     total = 0
     for group in groups:
         gid  = str(group.get("id") or "").strip()
         name = (group.get("name") or "").strip()
         pri  = (group.get("priority") or "low").strip().lower()
-        if not gid or not name:
-            continue
+        if not name and not gid:
+            continue  # placeholder row — silently skip
+        if not gid:
+            gid = _name_to_id.get(name.lower(), "")
+            if not gid:
+                logger.warning(
+                    f"groupme: no group matching name {name!r} on this "
+                    f"account — skipping"
+                )
+                continue
+        if not name:
+            name = gid  # fall back to id for log/title legibility
         if pri not in ("high", "low"):
             logger.warning(f"groupme[{name}] invalid priority {pri!r} — defaulting to low")
             pri = "low"
@@ -38,6 +65,53 @@ def fetch(cfg: dict, conn: sqlite3.Connection) -> int:
         except Exception as e:
             logger.error(f"groupme[{name}] unexpected error: {e}")
     return total
+
+
+def _populate_name_cache(api_token: str) -> None:
+    """Fetch the account's group list and cache lowercased name → id.
+    Failures are logged and swallowed — the per-group loop will warn for
+    any name that doesn't resolve."""
+    try:
+        r = requests.get(
+            f"{_API_BASE}/groups",
+            params={"token": api_token, "per_page": 100},
+            timeout=_TIMEOUT_S,
+        )
+    except requests.RequestException as e:
+        logger.warning(f"groupme: name resolution fetch failed: {e}")
+        return
+    if r.status_code in (401, 403):
+        logger.error(
+            f"groupme: name resolution auth failed ({r.status_code}) — check api_token"
+        )
+        return
+    if r.status_code != 200:
+        logger.error(f"groupme: name resolution {r.status_code}: {r.text[:120]}")
+        return
+    try:
+        all_groups = r.json().get("response") or []
+    except ValueError as e:
+        logger.error(f"groupme: name resolution bad JSON: {e}")
+        return
+    resolved = 0
+    for g in all_groups:
+        gname = (g.get("name") or "").strip().lower()
+        gid   = str(g.get("id") or "").strip()
+        if not gname or not gid:
+            continue
+        if gname in _name_to_id and _name_to_id[gname] != gid:
+            logger.warning(
+                f"groupme: duplicate name {gname!r} — keeping first "
+                f"({_name_to_id[gname]}), ignoring {gid}"
+            )
+            continue
+        if gname not in _name_to_id:
+            _name_to_id[gname] = gid
+            resolved += 1
+    logger.info(
+        f"groupme: name cache populated — {resolved} new, "
+        f"{len(_name_to_id)} total cached."
+    )
 
 
 def _poll_one(api_token: str, gid: str, name: str, priority: str,
