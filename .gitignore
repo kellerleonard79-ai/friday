@@ -8,3 +8,10 @@ state.json
 
 friday/friday_config.yaml
 com.friday.agent.plist
+
+voice/training_data/
+voice/models/training/
+**/*.wav
+**/*.tflite
+*.wav
+*.tflite
