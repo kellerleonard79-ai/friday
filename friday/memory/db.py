@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS events (
     processed       INTEGER DEFAULT 0,
     notified        INTEGER DEFAULT 0,
     calendar_synced INTEGER DEFAULT 0,
+    event_extracted INTEGER DEFAULT 0,
     created_at      TEXT
 );
 
@@ -81,6 +82,12 @@ class Database:
                 "UPDATE events SET calendar_synced = 1 WHERE source = 'canvas'"
             )
             logger.info("Migration: added events.calendar_synced column (canvas rows backfilled)")
+        if "event_extracted" not in cols:
+            self._conn.execute("ALTER TABLE events ADD COLUMN event_extracted INTEGER DEFAULT 0")
+            # Backfill all existing rows to extracted=1 — we don't want the new
+            # pass to retroactively scan every historical groupme message.
+            self._conn.execute("UPDATE events SET event_extracted = 1")
+            logger.info("Migration: added events.event_extracted column (existing rows backfilled)")
 
     def connection(self) -> sqlite3.Connection:
         return self._conn

@@ -8,6 +8,7 @@ All scheduling goes through job_queue — no secondary threads, no schedule libr
 
 import asyncio
 import datetime
+import json
 import logging
 import os
 import signal
@@ -40,6 +41,7 @@ from connectors import gcal_sync
 from connectors import groupme as groupme_connector
 from connectors import apple_calendar as apple_cal
 from agent import briefings
+from actions import calendar as apple_writer
 
 
 def load_config() -> dict:
@@ -220,6 +222,112 @@ def main() -> None:
         if rows:
             conn.commit()
 
+    # ── Event extraction from groupme messages ───────────────────────────────
+
+    async def extract_groupme_events(loop) -> None:
+        """For high-priority groupme rows that haven't been examined, ask the
+        LLM to extract a concrete calendar event and propose it via gated_write.
+        Conservative — requires explicit date AND start time."""
+        rows = conn.execute(
+            "SELECT id, title, body FROM events "
+            "WHERE source='groupme' AND event_extracted=0 "
+            "AND body LIKE '%[priority=high]%'"
+        ).fetchall()
+        if not rows:
+            return
+        handler = getattr(agent, "telegram_handler", None)
+        if handler is None:
+            logger.warning("groupme event extraction: telegram handler not bound — skipping")
+            return
+        default_cal = (config.get("agent") or {}).get("default_calendar")
+        today_local = datetime.datetime.now(local_tz).date()
+        today_iso = today_local.isoformat()
+        weekday   = today_local.strftime("%A")
+
+        for row_id, title, body in rows:
+            prompt = (
+                f"A GroupMe message:\n\n{body}\n\n"
+                f"Today is {today_iso} ({weekday}).\n\n"
+                f"Does this message describe a SPECIFIC event the user should "
+                f"add to their personal calendar — one with a clear date AND "
+                f"clear start time?\n\n"
+                f"Reply NONE if any of these are true:\n"
+                f"- No explicit date or start time\n"
+                f"- Vague phrasing (\"soon\", \"later\", \"sometime\", \"next week\" without a day)\n"
+                f"- The message discusses a past event\n"
+                f"- General chatter, questions, opinions, banter\n"
+                f"- Voting / scheduling poll where the time is still open\n"
+                f"- A recurring routine the user obviously already knows\n\n"
+                f"If there IS a concrete event, reply with ONLY a single-line JSON "
+                f"object (no markdown, no prose):\n"
+                f'{{"title":"...","date":"YYYY-MM-DD","start_time":"HH:MM",'
+                f'"end_time":"HH:MM or null","notes":"..."}}\n\n'
+                f"Rules:\n"
+                f"- title under 50 chars, descriptive\n"
+                f"- date AND start_time are required; if either is ambiguous, reply NONE\n"
+                f"- end_time only if explicitly stated\n"
+                f"- convert relative dates to absolute YYYY-MM-DD using the today date above\n"
+                f"- notes: short, include any location mentioned\n"
+            )
+            raw = await loop.run_in_executor(
+                None, lambda p=prompt: agent._think(p, use_tools=False)
+            )
+            raw = (raw or "").strip()
+            # Mark scanned regardless of outcome so we never retry the same row
+            conn.execute(
+                "UPDATE events SET event_extracted=1 WHERE id=?", (row_id,)
+            )
+            conn.commit()
+
+            if not raw or raw.upper() == "NONE":
+                continue
+            # Strip ```json fences the LLM may have added despite instructions
+            if raw.startswith("```"):
+                raw = raw.strip("`")
+                if raw.lower().startswith("json"):
+                    raw = raw[4:]
+                raw = raw.strip()
+            try:
+                event = json.loads(raw)
+            except json.JSONDecodeError:
+                logger.info(
+                    f"groupme event extraction: unparseable LLM output for {row_id}: {raw[:200]}"
+                )
+                continue
+            if not isinstance(event, dict):
+                continue
+            # Normalise LLM "null" string for end_time
+            if str(event.get("end_time", "")).strip().lower() in ("null", "none", ""):
+                event.pop("end_time", None)
+
+            # Prepend source attribution to the notes field so the card shows
+            # which group surfaced the event.
+            group_name = ""
+            for line in (body or "").splitlines():
+                if line.startswith("Group: "):
+                    group_name = line[len("Group: "):].strip()
+                    break
+            source_line = (
+                f"From GroupMe: {group_name}" if group_name else "From GroupMe"
+            )
+            existing_notes = (event.get("notes") or "").strip()
+            event["notes"] = source_line + (
+                "\n" + existing_notes if existing_notes else ""
+            )
+
+            try:
+                pending = apple_writer.gated_write(
+                    event, conn, handler, default_calendar=default_cal,
+                )
+            except Exception as e:
+                logger.error(f"groupme event extraction: gated_write failed for {row_id}: {e}")
+                continue
+            if pending:
+                logger.info(
+                    f"groupme event extraction: proposed for {row_id} — "
+                    f"{event.get('title')!r} on {event.get('date')}"
+                )
+
     # ── Poll connectors job ───────────────────────────────────────────────────
 
     async def poll_connectors_job(context) -> None:
@@ -267,6 +375,7 @@ def main() -> None:
                 logger.error(f"GroupMe poll failed: {e}")
 
         await process_untagged_events(loop)
+        await extract_groupme_events(loop)
 
     # ── Check urgent alerts job ───────────────────────────────────────────────
 
