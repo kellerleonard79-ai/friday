@@ -6,5 +6,4 @@ rumps>=0.4.0
 icalendar>=5.0
 fastapi>=0.110
 uvicorn>=0.27
-pywebview>=5.0
 pydantic>=2.0

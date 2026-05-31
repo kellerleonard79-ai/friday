@@ -110,15 +110,8 @@ class FridayMenuBar(rumps.App):
             rumps.alert("Friday", f"Pause failed: {e}")
 
     def open_dashboard(self, _):
-        # Spawn the pywebview window as a detached process. cwd=_HERE so the
-        # `dashboard.window` module is importable.
-        subprocess.Popen(
-            [_PYTHON, "-m", "dashboard.window"],
-            cwd=_HERE,
-            start_new_session=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        # Open the local dashboard URL in the user's default browser.
+        subprocess.Popen(["open", _DASH_URL], start_new_session=True)
 
 
 if __name__ == "__main__":
