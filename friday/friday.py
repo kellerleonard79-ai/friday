@@ -37,6 +37,7 @@ import memory.state as state
 from connectors import weather as weather_connector
 from connectors import canvas as canvas_connector
 from connectors import gcal_sync
+from connectors import groupme as groupme_connector
 from connectors import apple_calendar as apple_cal
 from agent import briefings
 
@@ -82,6 +83,7 @@ def main() -> None:
 
     agent   = FridayAgent(config, conn=conn)
     handler = TelegramHandler(config, agent, conn)
+    agent.telegram_handler = handler  # late-bound for propose_calendar_event tool
 
     bot_token  = handler.bot_token
     chat_id    = handler.chat_id
@@ -180,13 +182,29 @@ def main() -> None:
             "SELECT id, title, body, due_at, source FROM events WHERE processed=0"
         ).fetchall()
         for event_id, title, body, due_at, source in rows:
+            if source == "groupme":
+                criteria = (
+                    "GroupMe message. The body's first line is "
+                    "[priority=high] or [priority=low].\n"
+                    "URGENT = priority=high AND the message is genuinely "
+                    "time-sensitive (emergency, ASAP request, "
+                    "imminent deadline, direct urgent ask).\n"
+                    "SOON   = priority=high AND mentions something "
+                    "happening in the next few days.\n"
+                    "NORMAL = everything else. "
+                    "priority=low messages are never URGENT or SOON."
+                )
+            else:
+                criteria = (
+                    "URGENT = due within 24h, or exam/quiz/critical deadline.\n"
+                    "SOON   = due within 3 days.\n"
+                    "NORMAL = everything else or no due date."
+                )
             prompt = (
                 f"Event from {source}:\nTitle: {title}\nDue: {due_at}\n"
                 f"Details: {(body or '')[:500]}\n\n"
                 f"Assign urgency. Reply with exactly one word: URGENT, SOON, or NORMAL.\n"
-                f"URGENT = due within 24h, or exam/quiz/critical deadline.\n"
-                f"SOON = due within 3 days.\n"
-                f"NORMAL = everything else or no due date."
+                f"{criteria}"
             )
             urgency = await loop.run_in_executor(
                 None, lambda: agent._think(prompt, use_tools=False)
@@ -236,6 +254,17 @@ def main() -> None:
                     logger.info(f"gcal_sync: {count} total new event(s).")
             except Exception as e:
                 logger.error(f"gcal_sync poll failed: {e}")
+
+        groupme_cfg = config.get("groupme") or {}
+        if groupme_cfg.get("api_token") and groupme_cfg.get("groups"):
+            try:
+                count = await loop.run_in_executor(
+                    None, groupme_connector.fetch, groupme_cfg, conn,
+                )
+                if count:
+                    logger.info(f"GroupMe: {count} new message(s) written.")
+            except Exception as e:
+                logger.error(f"GroupMe poll failed: {e}")
 
         await process_untagged_events(loop)
 

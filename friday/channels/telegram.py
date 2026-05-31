@@ -92,20 +92,31 @@ class TelegramHandler:
             history = [{"role": r[0], "content": r[1]} for r in reversed(rows)]
 
             loop = asyncio.get_running_loop()
+            self.agent._last_action_emitted = None  # reset before the call
             response = await loop.run_in_executor(None, self.agent._think, text, history)
-            if not response:
-                logger.warning("Empty LLM response — sending fallback to user")
-                await update.message.reply_text("Sorry, sir — I drew a blank. Try again?")
-                return
-            await update.message.reply_text(response)
+            action_emitted = getattr(self.agent, "_last_action_emitted", None)
+
             now_iso = datetime.now().isoformat()
             self.conn.execute(
                 "INSERT INTO conversation_history (role, content, created_at) VALUES (?, ?, ?)",
                 ("user", text, now_iso),
             )
+
+            if response:
+                await update.message.reply_text(response)
+                assistant_log = response
+            elif action_emitted == "calendar_proposal":
+                # The card already went out via gated_write. Silence is correct.
+                # Record a synthetic note so future turns know what happened.
+                assistant_log = "[Sent calendar approval card — awaiting user response.]"
+            else:
+                logger.warning("Empty LLM response — sending fallback to user")
+                await update.message.reply_text("Sorry, sir — I drew a blank. Try again?")
+                assistant_log = "Sorry, sir — I drew a blank. Try again?"
+
             self.conn.execute(
                 "INSERT INTO conversation_history (role, content, created_at) VALUES (?, ?, ?)",
-                ("assistant", response, now_iso),
+                ("assistant", assistant_log, now_iso),
             )
             self.conn.commit()
 

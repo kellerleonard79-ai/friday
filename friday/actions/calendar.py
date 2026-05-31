@@ -12,12 +12,15 @@ Synchronous — always wrap calls in run_in_executor inside async handlers.
 
 Canonical event dict:
     {
-        "title":    str,
-        "date":     "YYYY-MM-DD",
-        "time":     "HH:MM"   (optional — omit for all-day),
-        "calendar": str       (optional — falls back to default Apple Calendar),
-        "notes":    str       (optional),
+        "title":      str,
+        "date":       "YYYY-MM-DD",
+        "start_time": "HH:MM"   (optional — omit for all-day),
+        "end_time":   "HH:MM"   (optional — defaults to start_time + 1h),
+        "calendar":   str       (optional — falls back to default Apple Calendar),
+        "notes":      str       (optional),
     }
+
+Legacy "time" is still accepted as a synonym for start_time (back-compat).
 """
 import json
 import logging
@@ -137,7 +140,10 @@ def _resolve_calendar(requested: str | None, default: str | None) -> str | None:
 # ── Event payload helpers ─────────────────────────────────────────────────────
 
 def _parse_event(event: dict) -> tuple[str, datetime, datetime, bool]:
-    """(title, start, end, all_day). Raises ValueError on bad input."""
+    """(title, start, end, all_day). Raises ValueError on bad input.
+    Honors start_time/end_time as a single-day range; falls back to 1h
+    duration when only start_time is given; treats no times as all-day.
+    Overnight ranges (end <= start) are rejected for now."""
     title = (event.get("title") or "").strip()
     if not title:
         raise ValueError("event.title required")
@@ -145,13 +151,26 @@ def _parse_event(event: dict) -> tuple[str, datetime, datetime, bool]:
     if not date_str:
         raise ValueError("event.date required (YYYY-MM-DD)")
     day = date_cls.fromisoformat(date_str)
-    time_str = (event.get("time") or "").strip()
-    if time_str:
-        hh, mm = (int(x) for x in time_str.split(":", 1))
-        start = datetime(day.year, day.month, day.day, hh, mm)
+
+    start_str = (event.get("start_time") or event.get("time") or "").strip()
+    end_str   = (event.get("end_time") or "").strip()
+
+    if not start_str:
+        if end_str:
+            raise ValueError("end_time given without start_time")
+        start = datetime(day.year, day.month, day.day)
+        return title, start, start + timedelta(days=1), True
+
+    sh, sm = (int(x) for x in start_str.split(":", 1))
+    start = datetime(day.year, day.month, day.day, sh, sm)
+    if not end_str:
         return title, start, start + _DEFAULT_DURATION, False
-    start = datetime(day.year, day.month, day.day)
-    return title, start, start + timedelta(days=1), True
+
+    eh, em = (int(x) for x in end_str.split(":", 1))
+    end = datetime(day.year, day.month, day.day, eh, em)
+    if end <= start:
+        raise ValueError(f"end_time {end_str} must be after start_time {start_str}")
+    return title, start, end, False
 
 
 def _friendly_date(date_str: str) -> str:
@@ -159,6 +178,17 @@ def _friendly_date(date_str: str) -> str:
         return date_cls.fromisoformat(date_str).strftime("%A, %B %-d")
     except Exception:
         return date_str
+
+
+def _format_when(event: dict) -> str:
+    """Render the time component for a draft card."""
+    start = (event.get("start_time") or event.get("time") or "").strip()
+    end   = (event.get("end_time") or "").strip()
+    if start and end:
+        return f" {start}–{end}"
+    if start:
+        return f" at {start}"
+    return " (all day)"
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -236,13 +266,12 @@ def gated_write(event: dict, conn: sqlite3.Connection, telegram,
     conn.commit()
 
     when     = _friendly_date(event.get("date", ""))
-    time_str = (event.get("time") or "").strip()
     cal_name = (event.get("calendar") or "default") or "default"
     notes    = (event.get("notes") or "").strip()
     draft = (
         f"Add to calendar?\n\n"
         f"📌 {title}\n"
-        f"📅 {when}" + (f" at {time_str}" if time_str else " (all day)") + "\n"
+        f"📅 {when}{_format_when(event)}\n"
         f"🗂  {cal_name}"
     )
     if notes:

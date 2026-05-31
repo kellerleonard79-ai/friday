@@ -158,5 +158,68 @@ def make_tools(conn, config, agent=None):
             "timezone": tz_name,
         }
 
+    def propose_calendar_event(
+        title: str,
+        date: str,
+        start_time: str = "",
+        end_time: str = "",
+        calendar: str = "",
+        notes: str = "",
+    ) -> dict:
+        """Propose a new event for the user's Apple Calendar. Sends an approval
+        card via Telegram with ✅ Confirm / ✏️ Edit / ❌ Cancel buttons. The
+        event is NOT written until the user taps Confirm.
+
+        Use this for work shifts, appointments, meetings — anything the user
+        says they have coming up. Always call get_now() first to resolve
+        relative phrases like 'next Saturday', 'tomorrow', 'this Friday'.
+
+        Args:
+            title:      Short event title, e.g. "Work — Nation" or "Dentist".
+            date:       ISO YYYY-MM-DD.
+            start_time: 24-hour HH:MM (e.g. "07:00", "14:30"). Convert any
+                        phrasing ("7 AM", "noon", "two thirty PM") to HH:MM
+                        before calling. Omit for an all-day event.
+            end_time:   24-hour HH:MM. Required for ranged events like shifts;
+                        omit to default to a 1-hour duration. Must be after
+                        start_time on the same day (overnight ranges not yet
+                        supported).
+            calendar:   Optional Apple Calendar name. Omit to use the user's
+                        configured default calendar.
+            notes:      Optional free-text notes.
+        """
+        handler = getattr(agent, "telegram_handler", None) if agent else None
+        if handler is None or conn is None:
+            return {"status": "error",
+                    "message": "Calendar gate not available"}
+        from actions import calendar as cal_action
+        event = {"title": title, "date": date}
+        if start_time:
+            event["start_time"] = start_time
+        if end_time:
+            event["end_time"] = end_time
+        if calendar:
+            event["calendar"] = calendar
+        if notes:
+            event["notes"] = notes
+        default_cal = (config.get("agent") or {}).get("default_calendar")
+        pending_key = cal_action.gated_write(
+            event, conn, handler, default_calendar=default_cal,
+        )
+        if not pending_key:
+            return {"status": "error",
+                    "message": "Failed to draft event — see logs"}
+        # Flag the handler that a side-effecting card already went out, so an
+        # empty LLM follow-up isn't treated as a failure.
+        if agent is not None:
+            agent._last_action_emitted = "calendar_proposal"
+        return {
+            "status": "pending",
+            "pending_key": pending_key,
+            "user_already_sees": "interactive approval card with title, date, time range, calendar, and Confirm/Edit/Cancel buttons",
+            "next_action": "Reply with an empty string. Do NOT describe the proposal again — the card is the response.",
+        }
+
     return [get_now, get_schedule, get_weather,
-            get_pending_canvas, reschedule_briefing]
+            get_pending_canvas, reschedule_briefing,
+            propose_calendar_event]

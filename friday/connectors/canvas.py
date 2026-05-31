@@ -141,7 +141,7 @@ def sync_to_apple_calendar(config: dict, conn: sqlite3.Connection) -> int:
             "notes":    (body or "")[:1000],
         }
         if time_str:
-            event["time"] = time_str
+            event["start_time"] = time_str
         uid = apple_writer.auto_write(event, default_calendar=default_cal)  # silent
         if uid:
             conn.execute(
