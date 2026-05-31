@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>F.R.I.D.A.Y.</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div id="saved-flash"></div>
+
+  <aside class="sidebar">
+    <div class="logo">F.R.I.D.A.Y.</div>
+    <div class="logo-sub">CONTROL CONSOLE</div>
+    <nav>
+      <a class="nav-item" data-route="status">Status</a>
+      <a class="nav-item" data-route="ai">AI Model</a>
+      <a class="nav-item" data-route="persona">Persona</a>
+      <a class="nav-item" data-route="integrations">Integrations</a>
+      <a class="nav-item" data-route="calendar">Calendar</a>
+      <a class="nav-item" data-route="notifications">Notifications</a>
+      <a class="nav-item" data-route="about">About</a>
+    </nav>
+    <div class="sidebar-footer">
+      <span class="dot" id="sidebar-dot"></span>
+      <span id="sidebar-status">CONNECTING</span>
+    </div>
+  </aside>
+
+  <main id="page"></main>
+
+  <!-- ─── Page templates ────────────────────────────────────────────────── -->
+
+  <template id="page-status">
+    <header class="page-header">
+      <h1>SYSTEM STATUS</h1>
+    </header>
+
+    <section class="panel status-hero">
+      <div class="hero-indicator">
+        <div class="pulse" id="hero-pulse"></div>
+        <div class="hero-text" id="hero-status">— — —</div>
+      </div>
+      <div class="hero-actions">
+        <button class="btn btn-primary" data-action="brief">Brief Me Now</button>
+        <button class="btn btn-outline" data-action="pause" id="pause-btn">Pause</button>
+        <button class="btn btn-teal" data-action="restart">Restart</button>
+      </div>
+    </section>
+
+    <section class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">LLM CALLS</div>
+        <div class="stat-value" id="stat-think">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">TOKENS IN</div>
+        <div class="stat-value" id="stat-tin">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">TOKENS OUT</div>
+        <div class="stat-value" id="stat-tout">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">UPTIME</div>
+        <div class="stat-value" id="stat-uptime">—</div>
+      </div>
+      <div class="stat-card span-2">
+        <div class="stat-label">LAST MESSAGE</div>
+        <div class="stat-value mono" id="stat-last">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">NEXT MORNING</div>
+        <div class="stat-value" id="stat-morning">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">NEXT EVENING</div>
+        <div class="stat-value" id="stat-evening">—</div>
+      </div>
+    </section>
+  </template>
+
+  <template id="page-ai">
+    <header class="page-header"><h1>AI MODEL</h1></header>
+
+    <section class="panel">
+      <label class="field-label">PROVIDER</label>
+      <div class="segmented" id="seg-provider">
+        <button data-value="ollama">OLLAMA</button>
+        <button data-value="gemini">GEMINI</button>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-gemini">
+      <h2>GEMINI</h2>
+      <label class="field-label">API KEY</label>
+      <div class="row">
+        <input type="password" class="input" id="gemini-key" data-secret="1">
+        <button class="btn btn-primary" id="gemini-key-save">Save</button>
+      </div>
+      <label class="field-label" style="margin-top: 16px;">MODEL</label>
+      <select class="input" id="gemini-model"></select>
+      <div class="hint" id="gemini-model-hint"></div>
+    </section>
+
+    <section class="panel" id="panel-ollama">
+      <h2>OLLAMA</h2>
+      <label class="field-label">BASE URL</label>
+      <input type="text" class="input" id="ollama-url">
+      <label class="field-label" style="margin-top: 12px;">MODEL</label>
+      <input type="text" class="input" id="ollama-model">
+    </section>
+
+    <section class="panel">
+      <label class="field-label">MAX TOKENS <span class="mono" id="maxtok-val">—</span></label>
+      <input type="range" min="256" max="8192" step="128" class="slider" id="max-tokens">
+    </section>
+  </template>
+
+  <template id="page-persona">
+    <header class="page-header"><h1>PERSONA</h1></header>
+
+    <section class="panel">
+      <label class="field-label">PERSONALITY PRESET</label>
+      <div class="preset-cards" id="preset-cards">
+        <div class="preset-card" data-value="professional">
+          <div class="preset-title">PROFESSIONAL</div>
+          <div class="preset-desc">Concise and direct. No flair.</div>
+        </div>
+        <div class="preset-card" data-value="butler">
+          <div class="preset-title">BUTLER</div>
+          <div class="preset-desc">Formal. JARVIS-style phrasing enabled.</div>
+        </div>
+        <div class="preset-card" data-value="friday">
+          <div class="preset-title">F.R.I.D.A.Y.</div>
+          <div class="preset-desc">Full JARVIS mode. Dry wit unlocked.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <label class="field-label">SNARK LEVEL</label>
+      <div class="segmented" id="seg-snark">
+        <button data-value="none">NONE</button>
+        <button data-value="medium">MEDIUM</button>
+        <button data-value="maximum">MAXIMUM</button>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-jarvis">
+      <h2>APPROVED PHRASES</h2>
+      <div id="jarvis-phrases"></div>
+    </section>
+
+    <section class="panel">
+      <label class="field-label">CUSTOM INSTRUCTIONS</label>
+      <textarea class="input" id="custom-instructions" rows="6"
+        placeholder="Additional persona notes appended to AGENTS.md..."></textarea>
+    </section>
+  </template>
+
+  <template id="page-integrations">
+    <header class="page-header"><h1>INTEGRATIONS</h1></header>
+
+    <section class="panel">
+      <h2>TELEGRAM</h2>
+      <label class="field-label">BOT TOKEN</label>
+      <div class="row">
+        <input type="password" class="input" id="tg-token" data-secret="1">
+        <button class="btn btn-primary" id="tg-token-save">Save</button>
+      </div>
+      <label class="field-label" style="margin-top: 12px;">CHAT ID</label>
+      <input type="text" class="input" id="tg-chat">
+      <div class="row" style="margin-top: 16px;">
+        <button class="btn btn-teal" id="tg-test">Test Connection</button>
+        <span class="hint" id="tg-test-result"></span>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>GROUPME</h2>
+      <label class="field-label">API TOKEN</label>
+      <div class="row">
+        <input type="password" class="input" id="gm-token" data-secret="1">
+        <button class="btn btn-primary" id="gm-token-save">Save</button>
+      </div>
+      <div class="row" style="margin-top: 16px;">
+        <button class="btn btn-teal" id="gm-fetch">Fetch My Groups</button>
+        <span class="hint" id="gm-fetch-result"></span>
+      </div>
+      <div id="gm-groups" class="group-cards"></div>
+    </section>
+
+    <section class="panel">
+      <h2>CANVAS</h2>
+      <label class="field-label">iCAL URL</label>
+      <input type="text" class="input" id="canvas-url">
+      <label class="field-label" style="margin-top: 12px;">API TOKEN</label>
+      <div class="row">
+        <input type="password" class="input" id="canvas-token" data-secret="1">
+        <button class="btn btn-primary" id="canvas-token-save">Save</button>
+      </div>
+      <div class="row" style="margin-top: 16px;">
+        <button class="btn btn-teal" id="canvas-test">Test Connection</button>
+        <span class="hint" id="canvas-test-result"></span>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>GMAIL</h2>
+      <div class="hint">
+        School Gmail is currently inaccessible via API — third-party sign-in is
+        locked down and forwarding is disabled. This integration is deferred
+        until a clean access path becomes available.
+      </div>
+    </section>
+  </template>
+
+  <template id="page-calendar">
+    <header class="page-header"><h1>CALENDAR</h1></header>
+
+    <section class="panel">
+      <label class="field-label">DEFAULT APPLE CALENDAR</label>
+      <input type="text" class="input" id="default-calendar">
+    </section>
+
+    <section class="panel">
+      <h2>GOOGLE CALENDAR SYNC</h2>
+      <div class="hint">One-way mirror Google → Apple. Add a row per calendar.</div>
+      <div id="gcal-list"></div>
+      <button class="btn btn-outline" id="gcal-add" style="margin-top: 12px;">+ Add Calendar</button>
+    </section>
+  </template>
+
+  <template id="page-notifications">
+    <header class="page-header"><h1>NOTIFICATIONS</h1></header>
+
+    <section class="panel">
+      <div class="notif-row">
+        <div>
+          <div class="notif-label">MORNING BRIEFING</div>
+          <input type="time" class="input small" id="morning-time">
+        </div>
+        <label class="switch"><input type="checkbox" id="morning-enabled"><span class="slider-sw"></span></label>
+      </div>
+      <div class="notif-row">
+        <div>
+          <div class="notif-label">EVENING BRIEFING</div>
+          <input type="time" class="input small" id="evening-time">
+        </div>
+        <label class="switch"><input type="checkbox" id="evening-enabled"><span class="slider-sw"></span></label>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="notif-row">
+        <div class="notif-label">PROACTIVE REMINDERS</div>
+        <label class="switch"><input type="checkbox" id="proactive"><span class="slider-sw"></span></label>
+      </div>
+      <div class="notif-row">
+        <div class="notif-label">URGENT INTERRUPTS</div>
+        <label class="switch"><input type="checkbox" id="urgent"><span class="slider-sw"></span></label>
+      </div>
+      <div class="notif-row">
+        <div class="notif-label">CANVAS POLLING</div>
+        <label class="switch"><input type="checkbox" id="canvas-poll"><span class="slider-sw"></span></label>
+      </div>
+      <div class="notif-row">
+        <div class="notif-label">GROUPME POLLING</div>
+        <label class="switch"><input type="checkbox" id="groupme-poll"><span class="slider-sw"></span></label>
+      </div>
+    </section>
+
+    <section class="panel">
+      <label class="field-label">REMINDER THRESHOLDS (DAYS OUT)</label>
+      <div class="checkbox-row">
+        <label><input type="checkbox" data-day="5"><span>5 days</span></label>
+        <label><input type="checkbox" data-day="3"><span>3 days</span></label>
+        <label><input type="checkbox" data-day="1"><span>1 day</span></label>
+      </div>
+    </section>
+  </template>
+
+  <template id="page-about">
+    <header class="page-header"><h1>ABOUT</h1></header>
+
+    <section class="panel">
+      <div class="about-row"><span class="field-label">VERSION</span><span class="mono">F.R.I.D.A.Y. v0.7</span></div>
+      <div class="about-row"><span class="field-label">SERVER</span><span class="mono">http://127.0.0.1:5174</span></div>
+    </section>
+
+    <section class="panel">
+      <h2>PHASE STATUS</h2>
+      <ul class="phase-list">
+        <li class="done">Phase 1 — Foundation</li>
+        <li class="done">Phase 2 — Read-only integrations</li>
+        <li class="done">Phase 3 — Briefings &amp; alerts</li>
+        <li class="done">Phase 4 — Calendar writing &amp; GroupMe</li>
+        <li>Phase 5 — Drafting &amp; sending</li>
+        <li>Phase 6 — Voice interface</li>
+        <li>Phase 7 — Hardening &amp; polish</li>
+      </ul>
+    </section>
+
+    <section class="panel">
+      <h2>QUICK ACTIONS</h2>
+      <div class="row">
+        <button class="btn btn-outline" id="about-restart">Restart Friday</button>
+        <button class="btn btn-teal" id="about-logs">View Logs</button>
+      </div>
+    </section>
+
+    <div class="modal-backdrop hidden" id="logs-modal">
+      <div class="modal">
+        <header><h2>FRIDAY.LOG</h2><button class="modal-close" id="logs-close">×</button></header>
+        <pre id="logs-body"></pre>
+      </div>
+    </div>
+  </template>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

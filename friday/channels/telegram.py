@@ -79,6 +79,12 @@ class TelegramHandler:
             if not text:
                 return
 
+            # Pause gate — dashboard sets system_state.paused = "true". Silent
+            # ignore so the user can resume and replay history if they want.
+            if state.get(self.conn, "paused") == "true":
+                logger.info(f"Message dropped (paused): {text[:80]}")
+                return
+
             state.set_many(self.conn, {
                 "last_message_at":      datetime.now().isoformat(),
                 "last_message_preview": text[:80],

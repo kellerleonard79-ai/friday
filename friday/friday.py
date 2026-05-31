@@ -13,6 +13,7 @@ import logging
 import os
 import signal
 import sys
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import yaml
@@ -42,6 +43,7 @@ from connectors import groupme as groupme_connector
 from connectors import apple_calendar as apple_cal
 from agent import briefings
 from actions import calendar as apple_writer
+from dashboard import server as dashboard_server
 
 
 def load_config() -> dict:
@@ -114,6 +116,21 @@ def main() -> None:
         state.set(conn, "started_at", datetime.datetime.now().isoformat())
         state.set(conn, "provider",   config.get("provider", "ollama"))
         state.set(conn, "model",      agent.model_name)
+        # Honor pre-existing pause state across restarts; default to unpaused.
+        if state.get(conn, "paused") is None:
+            state.set(conn, "paused", "false")
+
+        # Dashboard web server — runs inside this same asyncio loop. No threads,
+        # no second event loop. Honors the single-loop rule in CLAUDE.md.
+        config_path = Path(_HERE) / "friday_config.yaml"
+        try:
+            server = await dashboard_server.start_server(config_path, conn)
+            task = asyncio.create_task(server.serve(), name="dashboard_server")
+            app.bot_data["dashboard_server"] = server
+            app.bot_data["dashboard_task"] = task
+        except Exception as e:
+            logger.error(f"Dashboard server failed to start: {e}")
+
         await app.bot.send_message(
             chat_id=chat_id,
             text=f"⚡ Friday online — {config.get('provider', 'ollama')} / {agent.model_name}",
@@ -124,6 +141,15 @@ def main() -> None:
 
     async def post_stop(app: Application) -> None:
         state.set(conn, "status", "stopped")
+        server = app.bot_data.get("dashboard_server")
+        if server is not None:
+            server.should_exit = True
+        task = app.bot_data.get("dashboard_task")
+        if task is not None:
+            try:
+                await asyncio.wait_for(task, timeout=3)
+            except (asyncio.TimeoutError, Exception):
+                pass
         try:
             await app.bot.send_message(chat_id=chat_id, text="Friday going offline. 🔴")
         except Exception:

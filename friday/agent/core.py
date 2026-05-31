@@ -10,10 +10,19 @@ import requests
 from google import genai
 from google.genai import types
 
+import memory.state as state
+
 logger = logging.getLogger("friday.core")
 
 
-def _load_persona() -> str:
+_SNARK_DIRECTIVES = {
+    "none":    "Tone: dry and businesslike. No quips, no jokes.",
+    "medium":  "Tone: warm efficiency. The occasional dry remark is fine.",
+    "maximum": "Tone: confident and witty. Dry humor is welcome when the moment is right — never at the expense of clarity.",
+}
+
+
+def _load_persona_base() -> str:
     agents_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "AGENTS.md")
     try:
         with open(agents_path) as f:
@@ -22,9 +31,46 @@ def _load_persona() -> str:
         return "You are Friday, a helpful AI assistant. Be concise and direct."
 
 
+def _compose_persona(base: str, config: dict) -> str:
+    """AGENTS.md prose + a rendered block built from config['persona']."""
+    p = config.get("persona") or {}
+    preset = (p.get("preset") or "friday").lower()
+    snark  = (p.get("snark_level") or "medium").lower()
+    phrases = p.get("jarvis_phrases") or {}
+    custom = (p.get("custom_instructions") or "").strip()
+
+    parts = [base]
+
+    preset_lines = {
+        "professional": "## Mode\nProfessional secretary. Strictly utilitarian voice.",
+        "butler":       "## Mode\nButler. Formal address, occasional JARVIS-style flourishes drawn ONLY from the approved phrases below.",
+        "friday":       "## Mode\nF.R.I.D.A.Y. mode. Confident, capable, dry. Use approved phrases below when context fits — never force them.",
+    }
+    parts.append(preset_lines.get(preset, preset_lines["friday"]))
+
+    parts.append("## Tone Calibration\n" + _SNARK_DIRECTIVES.get(snark, _SNARK_DIRECTIVES["medium"]))
+
+    if preset in ("butler", "friday"):
+        enabled = [ph for ph, on in phrases.items() if on]
+        if enabled:
+            quoted = "\n".join(f'- "{ph}"' for ph in enabled)
+            parts.append(
+                "## Approved Phrases\n"
+                "You may use any of these verbatim when the moment fits. "
+                "Do not invent new flourishes outside this list.\n"
+                f"{quoted}"
+            )
+
+    if custom:
+        parts.append("## Custom Instructions\n" + custom)
+
+    return "\n\n".join(parts)
+
+
 class FridayAgent:
     def __init__(self, config: dict, conn=None):
-        self.persona  = _load_persona()
+        base_persona = _load_persona_base()
+        self.persona  = _compose_persona(base_persona, config)
         self.provider = config.get("provider", "ollama")
         self._config  = config
         self._conn    = conn
@@ -48,6 +94,25 @@ class FridayAgent:
             self._tools = None
 
         logger.info(f"Agent ready — {self.provider} / {self.model_name}")
+
+    # ── Stats instrumentation ─────────────────────────────────────────────
+
+    def _record_call(self, tokens_in: int = 0, tokens_out: int = 0) -> None:
+        """Bump system_state counters. Best-effort — never raise from here."""
+        if self._conn is None:
+            return
+        try:
+            cur = state.get(self._conn, "think_calls")
+            calls = int(cur) + 1 if cur and cur.isdigit() else 1
+            tin   = int(state.get(self._conn, "tokens_in") or 0) + max(0, int(tokens_in or 0))
+            tout  = int(state.get(self._conn, "tokens_out") or 0) + max(0, int(tokens_out or 0))
+            state.set_many(self._conn, {
+                "think_calls": calls,
+                "tokens_in":   tin,
+                "tokens_out":  tout,
+            })
+        except Exception as e:
+            logger.debug(f"stat record failed: {e}")
 
     def _think(self, prompt: str, history: list | None = None,
                use_tools: bool = True) -> str:
@@ -74,6 +139,11 @@ class FridayAgent:
                     contents=contents,
                     config=types.GenerateContentConfig(**cfg_kwargs),
                 )
+                usage = getattr(resp, "usage_metadata", None)
+                self._record_call(
+                    tokens_in=getattr(usage, "prompt_token_count", 0) or 0,
+                    tokens_out=getattr(usage, "candidates_token_count", 0) or 0,
+                )
                 text = (resp.text or "").strip()
                 if not text:
                     finish = None
@@ -81,7 +151,6 @@ class FridayAgent:
                         finish = resp.candidates[0].finish_reason
                     except Exception:
                         pass
-                    usage = getattr(resp, "usage_metadata", None)
                     logger.warning(
                         f"Gemini returned empty text. finish_reason={finish} usage={usage}"
                     )
@@ -102,7 +171,12 @@ class FridayAgent:
                     timeout=120,
                 )
                 r.raise_for_status()
-                return r.json().get("message", {}).get("content", "").strip()
+                data = r.json()
+                self._record_call(
+                    tokens_in=data.get("prompt_eval_count", 0) or 0,
+                    tokens_out=data.get("eval_count", 0) or 0,
+                )
+                return data.get("message", {}).get("content", "").strip()
 
         except Exception as e:
             logger.error(f"LLM error: {e}")
