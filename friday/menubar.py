@@ -16,6 +16,7 @@ from datetime import datetime, time, timedelta
 
 import requests
 import rumps
+from AppKit import NSApplication, NSImage
 
 import menubar_icon
 
@@ -72,6 +73,8 @@ class FridayMenuBar(rumps.App):
         # title="" so only the icon shows. icon set below per state.
         super().__init__("Friday", title="", icon=icons["offline"],
                          quit_button=None, template=False)
+        # Replace the Python "rocket" Dock icon with the user PNG (uncropped).
+        self._apply_dock_icon()
 
         # Non-clickable status header (set_callback(None) renders as disabled)
         self._status_row = rumps.MenuItem("Connecting…")
@@ -125,6 +128,19 @@ class FridayMenuBar(rumps.App):
             self._icons = menubar_icon.regenerate()
             # Force re-apply on next state comparison.
             self._last_state = None
+            self._apply_dock_icon()
+
+    def _apply_dock_icon(self) -> None:
+        """Replace the default Python rocket Dock icon with the user PNG,
+        center-cropped to a circle (transparent corners)."""
+        src = menubar_icon.USER_ICON_PATH
+        if not src.exists():
+            return
+        img = NSImage.alloc().initWithContentsOfFile_(str(src))
+        if img is not None and img.size().width > 0:
+            NSApplication.sharedApplication().setApplicationIconImage_(
+                menubar_icon.circular_crop(img)
+            )
 
     def _tick(self, _):
         self._maybe_refresh_icons()

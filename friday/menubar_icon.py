@@ -91,7 +91,34 @@ def _scaled_to_height(src: NSImage, height_pt: float) -> NSImage:
     return out
 
 
-def _circular_crop(src: NSImage) -> NSImage:
+def rounded_square_crop(src: NSImage, radius_ratio: float = 0.2237) -> NSImage:
+    """Center-crop to a square and mask with a rounded rectangle.
+    `radius_ratio` ≈ 0.2237 matches the macOS app-icon (squircle) curvature.
+    """
+    sz = src.size()
+    side = min(sz.width, sz.height)
+    out = NSImage.alloc().initWithSize_(NSSize(side, side))
+    out.lockFocus()
+    ctx = NSGraphicsContext.currentContext()
+    if ctx is not None:
+        ctx.setImageInterpolation_(NSImageInterpolationHigh)
+    radius = side * radius_ratio
+    NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+        NSMakeRect(0, 0, side, side), radius, radius,
+    ).addClip()
+    dst_x = (side - sz.width) / 2.0
+    dst_y = (side - sz.height) / 2.0
+    src.drawInRect_fromRect_operation_fraction_(
+        NSMakeRect(dst_x, dst_y, sz.width, sz.height),
+        NSMakeRect(0, 0, sz.width, sz.height),
+        NSCompositingOperationSourceOver,
+        1.0,
+    )
+    out.unlockFocus()
+    return out
+
+
+def circular_crop(src: NSImage) -> NSImage:
     """Center-crop the source into a square and mask it with a circle.
     Transparent corners; output is side × side where side = min(width, height).
     """
@@ -172,7 +199,7 @@ def _build_from_user_icon() -> dict[str, str]:
     if src is None or src.size().width <= 0:
         return {}
     # Circular crop first (preserves resolution), then scale to bar height.
-    scaled = _scaled_to_height(_circular_crop(src), _MENU_BAR_HEIGHT_PT)
+    scaled = _scaled_to_height(circular_crop(src), _MENU_BAR_HEIGHT_PT)
 
     out: dict[str, str] = {}
     # Per-state user overrides take precedence over the dimmed variant.
@@ -200,7 +227,7 @@ def _build_from_user_icon() -> dict[str, str]:
                 override_img = NSImage.alloc().initWithContentsOfFile_(str(override))
                 if override_img is not None and override_img.size().width > 0:
                     _write_image_png(
-                        _scaled_to_height(_circular_crop(override_img), _MENU_BAR_HEIGHT_PT),
+                        _scaled_to_height(circular_crop(override_img), _MENU_BAR_HEIGHT_PT),
                         cache_path,
                     )
                 else:
@@ -242,6 +269,27 @@ def regenerate() -> dict[str, str]:
 
 def using_user_icon() -> bool:
     return USER_ICON_PATH.exists()
+
+
+def ensure_favicon(out_path: Path, size: int = 128) -> Path | None:
+    """Generate a circular favicon from the user PNG into `out_path`.
+
+    Returns the path on success, None if the user PNG is missing. Regenerates
+    only if the source is newer than the favicon (or the favicon is missing).
+    """
+    if not USER_ICON_PATH.exists():
+        return None
+    src_mtime = USER_ICON_PATH.stat().st_mtime
+    if out_path.exists() and out_path.stat().st_mtime >= src_mtime:
+        return out_path
+    src = NSImage.alloc().initWithContentsOfFile_(str(USER_ICON_PATH))
+    if src is None or src.size().width <= 0:
+        return None
+    cropped = circular_crop(src)
+    sized = _scaled_to_height(cropped, float(size))
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    _write_image_png(sized, out_path)
+    return out_path
 
 
 if __name__ == "__main__":

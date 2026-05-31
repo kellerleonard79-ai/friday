@@ -70,7 +70,10 @@ const set = (obj, path, val) => {
 function bindInput(el, path, opts = {}) {
   const { onChange = () => {}, transform = (v) => v } = opts;
   const cur = get(CONFIG, path);
-  if (cur != null) el.value = cur;
+  if (cur != null) {
+    if (el.type === 'checkbox') el.checked = !!cur;
+    else el.value = cur;
+  }
   const evt = (el.type === 'checkbox' || el.tagName === 'SELECT') ? 'change' : 'blur';
   el.addEventListener(evt, async () => {
     const v = el.type === 'checkbox' ? el.checked : transform(el.value);

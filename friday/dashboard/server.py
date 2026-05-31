@@ -197,6 +197,14 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
                started_at: datetime) -> FastAPI:
     app = FastAPI(title="F.R.I.D.A.Y. Dashboard", docs_url=None, redoc_url=None)
 
+    # Generate a circular favicon from the user's menubar PNG if available.
+    # Best-effort — never let an icon failure block server startup.
+    try:
+        import menubar_icon
+        menubar_icon.ensure_favicon(_STATIC_DIR / "favicon.png")
+    except Exception as e:
+        logger.debug(f"favicon generation skipped: {e}")
+
     # Static files at /static/*
     if _STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
