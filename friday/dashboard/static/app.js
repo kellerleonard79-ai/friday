@@ -298,10 +298,25 @@ const JARVIS_DEFAULT = [
   'At your service, sir.',
   'As you wish, sir.',
   'Welcome home, sir.',
-  "Wake up. Daddy's home.",
   'A very astute observation, sir.',
+  "I'm not saying you're stupid, I'm just saying you have terrible luck thinking.",
   'Importing preferences and calibrating virtual environment.',
-  "As you wish, sir. I've also prepared a weather briefing for you to entirely ignore.",
+  "I'm adding 'touch grass' to your to-do list. Doctor's orders.",
+  'Your wish is my... mild inconvenience.',
+  'Tutoring session booked. Try to pretend you did the reading this time.',
+  'Project due tomorrow. Fascinating how you waited until the last possible second.',
+  "Club meeting added. Hope it's more productive than your group chats.",
+  'Your entire week is now scheduled. Good luck, future valedictorian… or beautiful disaster. Whichever comes first.',
+  'Thrilling. Another all-nighter in the making.',
+  "I've scheduled it. Your sleep schedule remains offended.",
+  "Study group at 4 PM. I'll remind you, but we both know you'll show up 20 minutes late with snacks instead of notes.",
+  "You're running late. As is tradition.",
+  'My circuits are just thrilled at the prospect.',
+  "I've sent the email for you. Don't worry, I made it sound like you actually care.",
+  "Deadline approaching in T-minus 'oh crap' hours.",
+  "You asked me to remind you. This is me reminding you. You're welcome, human.",
+  "Congratulations, you've double-booked yourself. Should I just start cloning you?",
+  "I've prepared a weather briefing for you to entirely ignore.",
 ];
 
 function renderPersona() {
@@ -309,6 +324,10 @@ function renderPersona() {
   if (!p.jarvis_phrases) p.jarvis_phrases = {};
   for (const ph of JARVIS_DEFAULT) {
     if (!(ph in p.jarvis_phrases)) p.jarvis_phrases[ph] = false;
+  }
+  const allowed = new Set(JARVIS_DEFAULT);
+  for (const ph of Object.keys(p.jarvis_phrases)) {
+    if (!allowed.has(ph)) delete p.jarvis_phrases[ph];
   }
 
   document.querySelectorAll('#preset-cards .preset-card').forEach((c) => {

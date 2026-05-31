@@ -80,7 +80,6 @@ _DEFAULT_PERSONA = {
         "At your service, sir.": True,
         "As you wish, sir.": True,
         "Welcome home, sir.": False,
-        "Wake up. Daddy's home.": False,
         "A very astute observation, sir.": True,
         "I'm not saying you're stupid, I'm just saying you have terrible luck thinking.": True,
         "Importing preferences and calibrating virtual environment.": True,
