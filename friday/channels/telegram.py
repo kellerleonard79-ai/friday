@@ -82,8 +82,24 @@ class TelegramHandler:
             # Pause gate — dashboard sets system_state.paused = "true". Silent
             # ignore so the user can resume and replay history if they want.
             if state.get(self.conn, "paused") == "true":
-                logger.info(f"Message dropped (paused): {text[:80]}")
-                return
+                # Timed-pause auto-resume: clear and proceed if past the deadline.
+                until = state.get(self.conn, "paused_until")
+                if until:
+                    try:
+                        if datetime.fromisoformat(until) <= datetime.now():
+                            state.set(self.conn, "paused", "false")
+                            state.delete(self.conn, "paused_until")
+                            logger.info("Timed pause expired — resuming.")
+                        else:
+                            logger.info(f"Message dropped (paused until {until}): {text[:80]}")
+                            return
+                    except ValueError:
+                        state.delete(self.conn, "paused_until")
+                        logger.info(f"Message dropped (paused, bad until): {text[:80]}")
+                        return
+                else:
+                    logger.info(f"Message dropped (paused): {text[:80]}")
+                    return
 
             state.set_many(self.conn, {
                 "last_message_at":      datetime.now().isoformat(),

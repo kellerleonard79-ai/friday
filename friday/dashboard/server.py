@@ -67,6 +67,7 @@ _GEMINI_TIERS: dict[str, dict[str, Any]] = {
 
 class PauseRequest(BaseModel):
     paused: bool
+    until: str | None = None  # ISO datetime; menubar uses this for timed pauses
 
 
 # ── Config I/O ───────────────────────────────────────────────────────────────
@@ -211,7 +212,7 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
         cfg = _load_config(config_path)
         notif = cfg.get("notifications") or {}
         keys = [
-            "status", "paused", "provider", "model",
+            "status", "paused", "paused_until", "provider", "model",
             "started_at", "think_calls", "tokens_in", "tokens_out",
             "last_message_at", "last_message_preview",
         ]
@@ -342,7 +343,11 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
     @app.post("/api/friday/pause")
     def api_friday_pause(req: PauseRequest) -> dict:
         state.set(conn, "paused", "true" if req.paused else "false")
-        return {"ok": True, "paused": req.paused}
+        if req.paused and req.until:
+            state.set(conn, "paused_until", req.until)
+        else:
+            state.delete(conn, "paused_until")
+        return {"ok": True, "paused": req.paused, "until": req.until}
 
     @app.post("/api/friday/brief")
     def api_friday_brief() -> dict:
