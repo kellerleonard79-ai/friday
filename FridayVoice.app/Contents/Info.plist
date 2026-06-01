@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.friday.voice</string>
+
+    <key>CFBundleName</key>
+    <string>FridayVoice</string>
+
+    <key>CFBundleDisplayName</key>
+    <string>F.R.I.D.A.Y. Voice</string>
+
+    <key>CFBundleExecutable</key>
+    <string>FridayVoice</string>
+
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+
+    <key>CFBundleVersion</key>
+    <string>1.0</string>
+
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Friday's voice assistant captures audio for push-to-talk transcription.</string>
+
+    <key>LSUIElement</key>
+    <true/>
+
+    <key>LSBackgroundOnly</key>
+    <true/>
+</dict>
+</plist>
