@@ -256,7 +256,11 @@ class VoiceListener:
         if not _probe_microphone():
             sys.exit(3)
 
-        self.stream.start()
+        # The stream is only started here when a detector needs it always-on.
+        # PTT-only mode opens/closes the stream per session so macOS's orange
+        # "mic in use" menu-bar indicator is only lit during actual capture.
+        if self.cfg.wake_enabled or self.cfg.clap_enabled:
+            self.stream.start()
         self.whisper = _load_whisper(self.cfg.whisper_model)
 
         if self.cfg.clap_enabled:
@@ -388,9 +392,21 @@ class VoiceListener:
     # ----- the session state machine -----
 
     def _run_session(self, source: str, phrase: Optional[str]) -> None:
+        # In PTT-only mode the stream is not running at idle (so macOS's
+        # orange mic indicator stays dark). Open it now and tear it down in
+        # the finally block. With wake/clap enabled the stream is always-on
+        # at boot, so we only pause/resume around the session.
+        ptt_owns_stream = (
+            source == "ptt"
+            and not self.cfg.wake_enabled
+            and not self.cfg.clap_enabled
+        )
         try:
             cfg = voice_config.load()
-            self.stream.pause()
+            if ptt_owns_stream:
+                self.stream.start()
+            else:
+                self.stream.pause()
             if self.wake is not None:
                 self.wake.reset()
 
@@ -419,6 +435,8 @@ class VoiceListener:
             # the ack TTS wouldn't loop into the mic; with the stream still
             # paused, AudioStream._callback never notifies subscribers and
             # record_until_silence loops forever waiting on next_frame.
+            # (In PTT-owns-stream mode the stream was just .start()-ed above
+            # and isn't paused, so resume() is a no-op — safe to call.)
             self.stream.resume()
 
             # Step 6: record
@@ -480,10 +498,14 @@ class VoiceListener:
                     LISTENING_FLAG.unlink()
             except OSError:
                 pass
-            # Step 12: resume wake
+            # Step 12: resume wake / close stream
             self._ptt_active.clear()
             self._ptt_release_event.clear()
-            self.stream.resume()
+            if ptt_owns_stream:
+                # Closes PyAudio → macOS's orange mic indicator turns off.
+                self.stream.stop()
+            else:
+                self.stream.resume()
             # Step 13: release lock
             try:
                 self.session_lock.release()
