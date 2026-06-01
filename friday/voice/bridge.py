@@ -125,6 +125,11 @@ class TelegramBridge:
         await self._client.start()
         _LOGGER.info("Telethon client authenticated")
 
+        # Warm the dialog cache so get_entity() can resolve the bot by numeric ID.
+        # Without this, Telethon raises "Could not find input entity" even when
+        # the user has an existing chat with the bot.
+        await self._client.get_dialogs()
+
         # Resolve the bot once and cache the entity.
         try:
             self._bot_entity = await self._client.get_entity(self.bot_user_id)
