@@ -49,10 +49,11 @@ _DIM_ALPHA = {"paused": 0.55, "offline": 0.25}
 
 # Fallback text-rendering colors (used only if no user PNG provided).
 _TEXT_COLORS = {
-    "online":  (1.00, 0.42, 0.00),
-    "paused":  (1.00, 0.42, 0.00, 0.55),
-    "offline": (0.55, 0.55, 0.55),
-    "error":   (1.00, 0.23, 0.19),
+    "online":    (1.00, 0.42, 0.00),
+    "paused":    (1.00, 0.42, 0.00, 0.55),
+    "offline":   (0.55, 0.55, 0.55),
+    "error":     (1.00, 0.23, 0.19),
+    "listening": (1.00, 0.20, 0.20),
 }
 _TEXT = "F.R.I.D.A.Y."
 _FONT_POINT_SIZE = 13.0
@@ -158,6 +159,37 @@ def _dimmed(src: NSImage, alpha: float) -> NSImage:
     return out
 
 
+def _with_record_dot(src: NSImage) -> NSImage:
+    """Composite a small red "recording" dot onto the bottom-right corner.
+    Used as the menu bar's "Friday is listening" indicator."""
+    sz = src.size()
+    out = NSImage.alloc().initWithSize_(sz)
+    out.lockFocus()
+    src.drawInRect_fromRect_operation_fraction_(
+        NSMakeRect(0, 0, sz.width, sz.height),
+        NSMakeRect(0, 0, sz.width, sz.height),
+        NSCompositingOperationSourceOver,
+        1.0,
+    )
+    dot_diameter = min(sz.width, sz.height) * 0.42
+    dot_x = sz.width - dot_diameter
+    dot_y = 0.0
+    # White stroke ring so the dot reads against any background colour.
+    NSColor.whiteColor().set()
+    NSBezierPath.bezierPathWithOvalInRect_(
+        NSMakeRect(
+            dot_x - 1.0, dot_y - 1.0,
+            dot_diameter + 2.0, dot_diameter + 2.0,
+        ),
+    ).fill()
+    NSColor.colorWithSRGBRed_green_blue_alpha_(1.0, 0.20, 0.20, 1.0).set()
+    NSBezierPath.bezierPathWithOvalInRect_(
+        NSMakeRect(dot_x, dot_y, dot_diameter, dot_diameter),
+    ).fill()
+    out.unlockFocus()
+    return out
+
+
 # ── Text fallback ───────────────────────────────────────────────────────
 
 def _attributed(text: str, color: tuple) -> NSAttributedString:
@@ -202,12 +234,13 @@ def _build_from_user_icon() -> dict[str, str]:
     scaled = _scaled_to_height(circular_crop(src), _MENU_BAR_HEIGHT_PT)
 
     out: dict[str, str] = {}
-    # Per-state user overrides take precedence over the dimmed variant.
+    # Per-state user overrides take precedence over the dimmed/decorated variants.
     overrides = {
-        "paused":  USER_ICON_DIR / "menubar-paused.png",
-        "offline": USER_ICON_DIR / "menubar-offline.png",
+        "paused":    USER_ICON_DIR / "menubar-paused.png",
+        "offline":   USER_ICON_DIR / "menubar-offline.png",
+        "listening": USER_ICON_DIR / "menubar-listening.png",
     }
-    for state in ("online", "paused", "offline", "error"):
+    for state in ("online", "paused", "offline", "error", "listening"):
         cache_path = CACHE_DIR / f"{state}.png"
         override = overrides.get(state)
         effective_mtime = src_mtime
@@ -222,6 +255,18 @@ def _build_from_user_icon() -> dict[str, str]:
         elif state == "error":
             # No per-state override semantics for error; reuse online.
             _write_image_png(scaled, cache_path)
+        elif state == "listening":
+            if override and override.exists():
+                override_img = NSImage.alloc().initWithContentsOfFile_(str(override))
+                if override_img is not None and override_img.size().width > 0:
+                    _write_image_png(
+                        _scaled_to_height(circular_crop(override_img), _MENU_BAR_HEIGHT_PT),
+                        cache_path,
+                    )
+                else:
+                    _write_image_png(_with_record_dot(scaled), cache_path)
+            else:
+                _write_image_png(_with_record_dot(scaled), cache_path)
         else:
             if override and override.exists():
                 override_img = NSImage.alloc().initWithContentsOfFile_(str(override))

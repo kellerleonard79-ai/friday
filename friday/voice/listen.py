@@ -60,6 +60,66 @@ def _load_whisper(model_name: str):
     return model
 
 
+def _probe_microphone() -> bool:
+    """Open a brief PyAudio input stream at boot to trigger the macOS TCC
+    microphone permission dialog.
+
+    A launchd-spawned binary will never appear in System Settings → Privacy &
+    Security → Microphone until it actually attempts to capture audio — and
+    when it does, TCC silently denies if the binary has no UI context to
+    attach the prompt to. So the recommended flow is: run this interactively
+    from a Terminal once so the prompt surfaces, grant access, then relaunch
+    via LaunchAgent (which inherits the grant).
+
+    Returns True if a stream opened and read cleanly, False otherwise. Always
+    safe to call; never raises."""
+    import pyaudio  # local: keep boot order explicit
+
+    pa = None
+    stream = None
+    try:
+        pa = pyaudio.PyAudio()
+        stream = pa.open(
+            format=pyaudio.paInt16,
+            channels=1,
+            rate=SAMPLE_RATE,
+            input=True,
+            frames_per_buffer=FRAME_SAMPLES,
+        )
+        # Drain ~1 second so the TCC prompt has time to appear and the user
+        # has a chance to click Allow before we move on.
+        captured = 0
+        target = SAMPLE_RATE  # ≈ 1.0s at 16 kHz
+        while captured < target:
+            stream.read(FRAME_SAMPLES, exception_on_overflow=False)
+            captured += FRAME_SAMPLES
+        _LOGGER.info("mic probe: input stream opened cleanly (%d samples drained)", captured)
+        return True
+    except (PermissionError, OSError) as e:
+        _LOGGER.error(
+            "Microphone access denied — grant access in System Settings → "
+            "Privacy & Security → Microphone, then restart the voice agent. "
+            "(probe error: %s: %s)",
+            type(e).__name__, e,
+        )
+        return False
+    except Exception as e:
+        _LOGGER.exception("mic probe: unexpected error %s: %s", type(e).__name__, e)
+        return False
+    finally:
+        try:
+            if stream is not None:
+                stream.stop_stream()
+                stream.close()
+        except Exception:
+            pass
+        try:
+            if pa is not None:
+                pa.terminate()
+        except Exception:
+            pass
+
+
 def _transcribe_wav_bytes(model, wav_bytes: bytes) -> str:
     """Whisper accepts a numpy array of float32 at 16 kHz. Decode the WAV
     in-memory and hand it over."""
@@ -113,10 +173,15 @@ class VoiceListener:
         self.shutdown = threading.Event()
 
         self.stream = AudioStream()
-        self.wake = WakeDetector(
-            phrases=self.cfg.wake_phrases,
-            solo_trigger_enabled=self.cfg.solo_trigger_enabled,
-        )
+        # Wake/clap are gated by config flags so the detectors can be fully
+        # disabled (no model load, no subscriber, no trigger surface) when the
+        # user only wants push-to-talk active.
+        self.wake: Optional[WakeDetector] = None
+        if self.cfg.wake_enabled:
+            self.wake = WakeDetector(
+                phrases=self.cfg.wake_phrases,
+                solo_trigger_enabled=self.cfg.solo_trigger_enabled,
+            )
         self.clap: Optional[ClapDetector] = None
         self.ptt: Optional[PTTListener] = None
         self.bridge: Optional[TelegramBridge] = None
@@ -144,23 +209,40 @@ class VoiceListener:
             )
             sys.exit(2)
 
+        # Force a microphone permission request before any other capture
+        # happens. This is what makes the LaunchAgent's python binary appear
+        # in System Settings → Privacy & Security → Microphone. Run this
+        # script interactively from a Terminal at least once so the dialog
+        # can surface on screen and be approved.
+        _probe_microphone()
+
         self.stream.start()
         self.whisper = _load_whisper(self.cfg.whisper_model)
 
-        self.clap = ClapDetector(
-            self.stream,
-            sensitivity=self.cfg.clap_sensitivity,
-            window_ms=self.cfg.clap_window_ms,
-            on_clap=lambda: self._trigger(source="clap"),
-        )
-        self.clap.start()
+        if self.cfg.clap_enabled:
+            self.clap = ClapDetector(
+                self.stream,
+                sensitivity=self.cfg.clap_sensitivity,
+                window_ms=self.cfg.clap_window_ms,
+                on_clap=lambda: self._trigger(source="clap"),
+            )
+            self.clap.start()
+        else:
+            _LOGGER.info("clap detector disabled (voice.clap_enabled=false)")
 
         self.bridge = TelegramBridge(
             api_id=self.cfg.telegram_api_id,
             api_hash=self.cfg.telegram_api_hash,
             bot_token=self.cfg.telegram_bot_token,
+            session_string=self.cfg.telegram_telethon_session or None,
         )
         self.bridge.connect()
+        # If this was a first-time auth (or Telethon rotated the session
+        # blob), persist it back to friday_config.yaml so the next launchd
+        # restart skips the phone/code prompt entirely.
+        new_session = self.bridge.get_session_string()
+        if new_session and new_session != self.cfg.telegram_telethon_session:
+            voice_config.persist_telethon_session(new_session)
 
         self.ptt = PTTListener(
             key_name=self.cfg.push_to_talk_key,
@@ -169,12 +251,23 @@ class VoiceListener:
         )
         self.ptt.start()
 
-        self._wake_thread = threading.Thread(
-            target=self._wake_loop, name="wake-loop", daemon=True
-        )
-        self._wake_thread.start()
+        if self.cfg.wake_enabled and self.wake is not None:
+            self._wake_thread = threading.Thread(
+                target=self._wake_loop, name="wake-loop", daemon=True
+            )
+            self._wake_thread.start()
+        else:
+            _LOGGER.info("wake detector disabled (voice.wake_enabled=false)")
 
-        _LOGGER.info("F.R.I.D.A.Y. Voice — online. Say 'Hey Jarvis' to activate.")
+        # Banner reflects what's actually live so a glance at the log tells
+        # the user which trigger paths exist.
+        active = []
+        if self.cfg.wake_enabled and self.wake is not None:
+            active.append("wake")
+        if self.cfg.clap_enabled and self.clap is not None:
+            active.append("clap")
+        active.append(f"PTT={self.cfg.push_to_talk_key}")
+        _LOGGER.info("F.R.I.D.A.Y. Voice — online. Triggers: %s", ", ".join(active))
 
     def shutdown_all(self) -> None:
         self.shutdown.set()
@@ -258,7 +351,8 @@ class VoiceListener:
         try:
             cfg = voice_config.load()
             self.stream.pause()
-            self.wake.reset()
+            if self.wake is not None:
+                self.wake.reset()
 
             # Step 3: offline check
             if not friday_is_running():
@@ -280,6 +374,12 @@ class VoiceListener:
                 LISTENING_FLAG.touch()
             except OSError as e:
                 _LOGGER.warning("could not touch %s: %s", LISTENING_FLAG, e)
+
+            # Resume the audio stream before recording. We paused at Step 2 so
+            # the ack TTS wouldn't loop into the mic; with the stream still
+            # paused, AudioStream._callback never notifies subscribers and
+            # record_until_silence loops forever waiting on next_frame.
+            self.stream.resume()
 
             # Step 6: record
             if source == "ptt":
@@ -314,6 +414,7 @@ class VoiceListener:
 
             # Step 9: bridge → bot → reply
             assert self.bridge is not None
+            _LOGGER.info("bridge dispatch: %r", transcript[:200])
             reply = self.bridge.send_and_wait(transcript, timeout=cfg.response_timeout_s)
             _LOGGER.info("reply: %r", (reply or "")[:200])
 
@@ -323,6 +424,12 @@ class VoiceListener:
                     tts.speak(reply, voice=cfg.tts_voice).join()
                 else:
                     _LOGGER.info("reply delivered to Telegram only (no external audio, always_speak=False)")
+            else:
+                # Bridge returned nothing — never leave the user wondering why.
+                # See voice/bridge.py logs for the specific failure (timeout,
+                # send error, disconnect, etc).
+                _LOGGER.warning("bridge returned no reply — speaking failure cue")
+                tts.speak("I couldn't reach Friday, sir.", voice=cfg.tts_voice).join()
 
         except Exception as e:
             _LOGGER.exception("session crashed: %s", e)

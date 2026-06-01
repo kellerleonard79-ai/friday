@@ -21,14 +21,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-from pathlib import Path
 from typing import Optional
 
 from telethon import TelegramClient, events
+from telethon.sessions import StringSession
 
 _LOGGER = logging.getLogger(__name__)
-
-SESSION_PATH = Path(__file__).resolve().parent / "friday_voice.session"
 
 
 class TelegramBridge:
@@ -37,8 +35,20 @@ class TelegramBridge:
         api_id: int,
         api_hash: str,
         bot_token: str,
-        session_path: Path = SESSION_PATH,
+        session_string: Optional[str] = None,
     ) -> None:
+        """Initialize the bridge.
+
+        `session_string` is an opaque base64-ish blob produced by Telethon's
+        StringSession.save(). Pass the saved value (from friday_config.yaml's
+        telegram.telethon_session) on subsequent runs to skip re-auth. Pass
+        None / empty on first run; after connect() succeeds, read the newly
+        generated value via get_session_string() and persist it.
+
+        StringSession avoids the SQLite-backed file session, which was prone
+        to OperationalError: database is locked when multiple Telethon
+        components (update loop, keepalive, reply handler) raced or when
+        two listener processes shared a session file."""
         if not (api_id and api_hash and bot_token):
             raise ValueError("api_id, api_hash, bot_token are all required")
         self.api_id = api_id
@@ -50,11 +60,8 @@ class TelegramBridge:
         except (ValueError, IndexError) as e:
             raise ValueError(f"malformed bot_token: {e}") from e
 
-        # Strip ".session" if user typed it — Telethon adds it back.
-        session_name = str(session_path)
-        if session_name.endswith(".session"):
-            session_name = session_name[: -len(".session")]
-        self._session_name = session_name
+        self._session_string_in: str = session_string or ""
+        self._session_string_out: Optional[str] = None
 
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._loop_thread: Optional[threading.Thread] = None
@@ -94,19 +101,35 @@ class TelegramBridge:
 
     def send_and_wait(self, text: str, timeout: int = 30) -> Optional[str]:
         """Send `text` to the Friday bot AS the user. Wait up to `timeout`
-        seconds for the bot's reply. Returns the reply text or None on timeout."""
+        seconds for the bot's reply. Returns the reply text or None on any
+        failure (timeout, send error, or bridge not connected). Every failure
+        path is logged at WARNING or higher so silent drops are impossible."""
         if self._loop is None or self._client is None:
-            raise RuntimeError("bridge not connected")
+            _LOGGER.error("send_and_wait: bridge not connected (loop=%s client=%s)",
+                          self._loop is not None, self._client is not None)
+            return None
+        if not text or not text.strip():
+            _LOGGER.warning("send_and_wait: refusing to send empty/whitespace text")
+            return None
+
+        _LOGGER.info("send_and_wait: dispatching (%d chars, timeout=%ds)", len(text), timeout)
         fut = asyncio.run_coroutine_threadsafe(
             self._async_send_and_wait(text, timeout), self._loop
         )
         try:
-            return fut.result(timeout=timeout + 5)
+            reply = fut.result(timeout=timeout + 5)
         except asyncio.TimeoutError:
+            _LOGGER.warning("send_and_wait: outer future timed out after %ds (bot likely offline)", timeout + 5)
             return None
         except Exception as e:
-            _LOGGER.exception("send_and_wait failed: %s", e)
+            _LOGGER.exception("send_and_wait: future raised %s: %s", type(e).__name__, e)
             return None
+
+        if reply is None:
+            _LOGGER.warning("send_and_wait: returning None (no reply received within %ds)", timeout)
+        else:
+            _LOGGER.info("send_and_wait: reply received (%d chars)", len(reply))
+        return reply
 
     # ---------- internals ----------
 
@@ -118,12 +141,29 @@ class TelegramBridge:
         finally:
             self._loop.close()
 
+    def get_session_string(self) -> Optional[str]:
+        """After connect() succeeds, returns the StringSession blob to persist.
+        Returns the same value that was passed in if nothing changed, or a
+        freshly-generated value if this was a first-time auth. Callers should
+        compare to the value they passed in and write back to config only if
+        it changed, to avoid spurious file writes."""
+        return self._session_string_out
+
     async def _async_connect(self) -> None:
-        self._client = TelegramClient(self._session_name, self.api_id, self.api_hash)
-        # `start()` triggers the interactive auth flow if no session exists.
-        # On first run this prompts in the terminal for phone + code.
+        # StringSession with an empty string triggers the interactive auth
+        # flow (phone + code). With a saved string it reauthenticates silently.
+        self._client = TelegramClient(
+            StringSession(self._session_string_in),
+            self.api_id,
+            self.api_hash,
+        )
         await self._client.start()
-        _LOGGER.info("Telethon client authenticated")
+        try:
+            self._session_string_out = self._client.session.save()
+        except Exception as e:
+            _LOGGER.warning("could not snapshot session string: %s", e)
+            self._session_string_out = None
+        _LOGGER.info("Telethon client authenticated (StringSession)")
 
         # Warm the dialog cache so get_entity() can resolve the bot by numeric ID.
         # Without this, Telethon raises "Could not find input entity" even when
@@ -163,24 +203,77 @@ class TelegramBridge:
                 pass
 
         try:
-            await self._client.send_message(self._bot_entity, text)
-            _LOGGER.info("voice → bot: %s", text[:80])
             try:
-                return await asyncio.wait_for(reply_future, timeout=timeout)
-            except asyncio.TimeoutError:
-                _LOGGER.warning("no bot reply after %ds", timeout)
+                sent = await self._client.send_message(self._bot_entity, text)
+            except Exception as e:
+                _LOGGER.exception(
+                    "send_message failed (%s): %s — text=%r",
+                    type(e).__name__, e, text[:80],
+                )
                 return None
+            _LOGGER.info("voice → bot (msg_id=%s): %s",
+                         getattr(sent, "id", "?"), text[:80])
+            # Race the reply against connection loss. Without this, a Telethon
+            # disconnect mid-wait makes us sit on a future that nothing will
+            # ever resolve, burning the full timeout for no reason.
+            try:
+                reply = await self._wait_for_reply_or_disconnect(reply_future, timeout)
+            except asyncio.TimeoutError:
+                _LOGGER.warning("no bot reply after %ds — Friday may be offline or stuck", timeout)
+                return None
+            if reply is None:
+                # Disconnect path (logged inside helper). Surface as a normal
+                # None return so the caller speaks the failure cue.
+                return None
+            _LOGGER.info("bot → voice: %s", reply[:80] if reply else "<empty>")
+            return reply
         finally:
             # Remove the handler so we don't accumulate one per call.
             self._client.remove_event_handler(_on_bot_reply)
+
+    async def _wait_for_reply_or_disconnect(
+        self,
+        reply_future: "asyncio.Future[str]",
+        timeout: int,
+    ) -> Optional[str]:
+        """Poll the connection state every 500 ms while waiting for the bot
+        reply. Returns the reply on success, None if the client disconnects
+        before the reply arrives, and raises asyncio.TimeoutError on full
+        timeout."""
+        loop = asyncio.get_event_loop()
+        deadline = loop.time() + timeout
+        tick = 0.5
+        while True:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                raise asyncio.TimeoutError()
+            try:
+                return await asyncio.wait_for(
+                    asyncio.shield(reply_future),
+                    timeout=min(tick, remaining),
+                )
+            except asyncio.TimeoutError:
+                # Did we lose the connection while waiting?
+                connected = False
+                try:
+                    connected = bool(self._client and self._client.is_connected())
+                except Exception:
+                    connected = False
+                if not connected:
+                    _LOGGER.warning(
+                        "Telethon client disconnected mid-wait — aborting reply wait",
+                    )
+                    return None
+                # Still connected, keep polling.
 
 
 if __name__ == "__main__":
     # CLI: smoke test the bridge. Reads config, prompts auth, sends a ping.
     import logging
     import sys
+    from pathlib import Path
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from config import load, telegram_credentials_present
+    from config import load, persist_telethon_session, telegram_credentials_present
 
     logging.basicConfig(level=logging.INFO)
     cfg = load()
@@ -191,8 +284,16 @@ if __name__ == "__main__":
         )
         sys.exit(1)
 
-    bridge = TelegramBridge(cfg.telegram_api_id, cfg.telegram_api_hash, cfg.telegram_bot_token)
+    bridge = TelegramBridge(
+        cfg.telegram_api_id,
+        cfg.telegram_api_hash,
+        cfg.telegram_bot_token,
+        session_string=cfg.telegram_telethon_session or None,
+    )
     bridge.connect()
+    new_session = bridge.get_session_string()
+    if new_session and new_session != cfg.telegram_telethon_session:
+        persist_telethon_session(new_session)
     try:
         reply = bridge.send_and_wait("voice bridge smoke test, please respond", timeout=30)
         print("REPLY:", reply)

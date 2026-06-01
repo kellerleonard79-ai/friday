@@ -1,0 +1,220 @@
+10:33:00 INFO wakeword: skipping single-token wake phrase 'Friday' (solo_trigger_enabled=False)
+10:33:00 WARNING wakeword: no model available for phrases ['Friday you up', 'Friday status'] — they will never fire. Train custom models or alias them to hey_jarvis.
+10:33:00 INFO wakeword: WakeDetector loading models: ['/Users/keller/friday/friday/voice/models/hey_jarvis.onnx']
+10:33:00 INFO wakeword: WakeDetector ready. Phrase→label map: {'Hey Friday': 'hey_jarvis'}
+10:33:01 INFO audio: audio stream opened at 16000 Hz
+10:33:01 INFO __main__: loading whisper model 'base'...
+10:33:02 INFO __main__: whisper ready in 0.8s
+10:33:02 INFO audio: audio subscriber registered: clap
+10:33:02 INFO telethon.network.mtprotosender: Connecting to 149.154.175.51:443/TcpFull...
+10:33:02 INFO telethon.network.mtprotosender: Connection to 149.154.175.51:443/TcpFull complete!
+10:33:02 INFO bridge: Telethon client authenticated
+10:33:02 INFO bridge: bot entity resolved: KellerFridaySecretaryBot
+10:33:02 INFO ptt: PTT listener started on key=Key.alt_r
+10:33:02 INFO audio: audio subscriber registered: wake
+10:33:02 INFO __main__: F.R.I.D.A.Y. Voice — online. Say 'Hey Jarvis' to activate.
+10:33:02 WARNING pynput.keyboard.Listener: This process is not trusted! Input event monitoring will not be possible until it is added to accessibility clients.
+10:34:14 INFO __main__: signal 15 received, shutting down
+10:34:14 INFO telethon.network.mtprotosender: Disconnecting from 149.154.175.51:443/TcpFull...
+10:34:14 INFO telethon.network.mtprotosender: Disconnection from 149.154.175.51:443/TcpFull complete!
+10:34:14 WARNING bridge: bridge disconnect error: Event loop is closed
+/Users/keller/friday/friday/voice/bridge.py:87: RuntimeWarning: coroutine 'TelegramBridge._async_disconnect' was never awaited
+  _LOGGER.warning("bridge disconnect error: %s", e)
+RuntimeWarning: Enable tracemalloc to get the object allocation traceback
+10:34:19 INFO wakeword: skipping single-token wake phrase 'Friday' (solo_trigger_enabled=False)
+10:34:19 WARNING wakeword: no model available for phrases ['Friday you up', 'Friday status'] — they will never fire. Train custom models or alias them to hey_jarvis.
+10:34:19 INFO wakeword: WakeDetector loading models: ['/Users/keller/friday/friday/voice/models/hey_jarvis.onnx']
+10:34:19 INFO wakeword: WakeDetector ready. Phrase→label map: {'Hey Friday': 'hey_jarvis'}
+10:34:19 INFO audio: audio stream opened at 16000 Hz
+10:34:20 INFO __main__: loading whisper model 'base'...
+10:34:21 INFO __main__: whisper ready in 0.7s
+10:34:21 INFO audio: audio subscriber registered: clap
+10:34:21 INFO telethon.network.mtprotosender: Connecting to 149.154.175.51:443/TcpFull...
+10:34:21 INFO telethon.network.mtprotosender: Connection to 149.154.175.51:443/TcpFull complete!
+10:34:21 INFO bridge: Telethon client authenticated
+10:34:21 INFO bridge: bot entity resolved: KellerFridaySecretaryBot
+10:34:21 INFO ptt: PTT listener started on key=Key.alt_r
+10:34:21 INFO audio: audio subscriber registered: wake
+10:34:21 INFO __main__: F.R.I.D.A.Y. Voice — online. Say 'Hey Jarvis' to activate.
+10:34:44 INFO audio: audio subscriber registered: record_ptt
+10:34:45 INFO audio: record_while_held: 0.48s captured
+10:34:45 INFO __main__: PTT press dropped (session active)
+10:34:46 INFO __main__: PTT press dropped (session active)
+10:34:46 INFO __main__: transcript: ''
+10:34:46 INFO __main__: PTT press dropped (session active)
+10:34:47 INFO __main__: PTT press dropped (session active)
+10:34:47 INFO __main__: PTT press dropped (session active)
+10:36:16 INFO audio: audio subscriber registered: record_ptt
+10:36:18 INFO audio: record_while_held: 0.48s captured
+10:36:18 INFO __main__: transcript: ''
+10:36:21 WARNING audio: clap dropped 3 frames (lagged)
+10:36:21 WARNING audio: wake dropped 3 frames (lagged)
+10:36:23 INFO audio: audio subscriber registered: record_ptt
+10:36:25 INFO audio: record_while_held: 0.48s captured
+10:36:25 INFO __main__: transcript: ''
+10:36:45 INFO audio: audio subscriber registered: record_ptt
+10:36:48 INFO audio: record_while_held: 0.48s captured
+10:36:49 INFO __main__: transcript: ''
+10:36:51 WARNING audio: clap dropped 21 frames (lagged)
+10:36:51 WARNING audio: wake dropped 21 frames (lagged)
+10:40:22 INFO __main__: signal 15 received, shutting down
+10:40:22 INFO telethon.network.mtprotosender: Disconnecting from 149.154.175.51:443/TcpFull...
+10:40:22 INFO telethon.network.mtprotosender: Disconnection from 149.154.175.51:443/TcpFull complete!
+10:40:23 WARNING bridge: bridge disconnect error: Event loop is closed
+/Users/keller/friday/friday/voice/bridge.py:87: RuntimeWarning: coroutine 'TelegramBridge._async_disconnect' was never awaited
+  _LOGGER.warning("bridge disconnect error: %s", e)
+RuntimeWarning: Enable tracemalloc to get the object allocation traceback
+10:54:05 INFO __main__: mic probe: input stream opened cleanly (16640 samples drained)
+10:54:05 INFO audio: audio stream opened at 16000 Hz
+10:54:05 INFO __main__: loading whisper model 'base'...
+10:54:06 INFO __main__: whisper ready in 0.8s
+10:54:06 INFO __main__: clap detector disabled (voice.clap_enabled=false)
+10:54:06 INFO telethon.network.mtprotosender: Connecting to 149.154.175.51:443/TcpFull...
+10:54:06 INFO telethon.network.mtprotosender: Connection to 149.154.175.51:443/TcpFull complete!
+10:54:06 INFO bridge: Telethon client authenticated
+10:54:06 INFO bridge: bot entity resolved: KellerFridaySecretaryBot
+10:54:06 INFO ptt: PTT listener started on key=Key.alt_r
+10:54:06 INFO __main__: wake detector disabled (voice.wake_enabled=false)
+10:54:06 INFO __main__: F.R.I.D.A.Y. Voice — online. Triggers: PTT=right_option
+10:54:55 ERROR __main__: session crashed: 'NoneType' object has no attribute 'reset'
+Traceback (most recent call last):
+  File "/Users/keller/friday/friday/voice/listen.py", line 347, in _run_session
+    self.wake.reset()
+    ^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'reset'
+10:59:37 INFO __main__: signal 15 received, shutting down
+10:59:37 INFO telethon.network.mtprotosender: Disconnecting from 149.154.175.51:443/TcpFull...
+10:59:37 INFO telethon.network.mtprotosender: Disconnection from 149.154.175.51:443/TcpFull complete!
+10:59:38 WARNING bridge: bridge disconnect error: Event loop is closed
+/Users/keller/friday/friday/voice/bridge.py:87: RuntimeWarning: coroutine 'TelegramBridge._async_disconnect' was never awaited
+  def disconnect(self) -> None:
+RuntimeWarning: Enable tracemalloc to get the object allocation traceback
+10:59:43 INFO __main__: mic probe: input stream opened cleanly (16640 samples drained)
+10:59:43 INFO audio: audio stream opened at 16000 Hz
+10:59:44 INFO __main__: loading whisper model 'base'...
+10:59:44 INFO __main__: whisper ready in 0.7s
+10:59:44 INFO __main__: clap detector disabled (voice.clap_enabled=false)
+10:59:44 INFO telethon.network.mtprotosender: Connecting to 149.154.167.51:443/TcpFull...
+10:59:46 INFO telethon.network.mtprotosender: Connection to 149.154.167.51:443/TcpFull complete!
+10:59:47 ERROR __main__: boot failed: EOF when reading a line
+Traceback (most recent call last):
+  File "/Users/keller/friday/friday/voice/listen.py", line 479, in main
+    listener.boot()
+  File "/Users/keller/friday/friday/voice/listen.py", line 239, in boot
+    self.bridge.connect()
+  File "/Users/keller/friday/friday/voice/bridge.py", line 85, in connect
+    fut.result()  # surfaces exceptions
+    ^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/concurrent/futures/_base.py", line 456, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/Users/keller/friday/friday/voice/bridge.py", line 160, in _async_connect
+    await self._client.start()
+  File "/Users/keller/friday/friday/voice/.venv/lib/python3.12/site-packages/telethon/client/auth.py", line 167, in _start
+    value = phone()
+            ^^^^^^^
+  File "/Users/keller/friday/friday/voice/.venv/lib/python3.12/site-packages/telethon/client/auth.py", line 22, in <lambda>
+    phone: typing.Union[typing.Callable[[], str], str] = lambda: input('Please enter your phone (or bot token): '),
+                                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+EOFError: EOF when reading a line
+10:59:47 INFO telethon.network.mtprotosender: Disconnecting from 149.154.167.51:443/TcpFull...
+10:59:47 INFO telethon.network.mtprotosender: Disconnection from 149.154.167.51:443/TcpFull complete!
+10:59:53 INFO __main__: mic probe: input stream opened cleanly (16640 samples drained)
+10:59:53 INFO audio: audio stream opened at 16000 Hz
+10:59:53 INFO __main__: loading whisper model 'base'...
+10:59:54 INFO __main__: whisper ready in 0.9s
+10:59:54 INFO __main__: clap detector disabled (voice.clap_enabled=false)
+10:59:54 INFO telethon.network.mtprotosender: Connecting to 149.154.167.51:443/TcpFull...
+10:59:56 INFO telethon.network.mtprotosender: Connection to 149.154.167.51:443/TcpFull complete!
+10:59:56 ERROR __main__: boot failed: EOF when reading a line
+Traceback (most recent call last):
+  File "/Users/keller/friday/friday/voice/listen.py", line 479, in main
+    try:
+        ^
+  File "/Users/keller/friday/friday/voice/listen.py", line 239, in boot
+    self.bridge.connect()
+  File "/Users/keller/friday/friday/voice/bridge.py", line 85, in connect
+    fut.result()  # surfaces exceptions
+    ^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/concurrent/futures/_base.py", line 456, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/Users/keller/friday/friday/voice/bridge.py", line 160, in _async_connect
+    await self._client.start()
+  File "/Users/keller/friday/friday/voice/.venv/lib/python3.12/site-packages/telethon/client/auth.py", line 167, in _start
+    value = phone()
+            ^^^^^^^
+  File "/Users/keller/friday/friday/voice/.venv/lib/python3.12/site-packages/telethon/client/auth.py", line 22, in <lambda>
+    phone: typing.Union[typing.Callable[[], str], str] = lambda: input('Please enter your phone (or bot token): '),
+                                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+EOFError: EOF when reading a line
+10:59:56 INFO telethon.network.mtprotosender: Disconnecting from 149.154.167.51:443/TcpFull...
+10:59:56 INFO telethon.network.mtprotosender: Disconnection from 149.154.167.51:443/TcpFull complete!
+11:00:14 INFO __main__: mic probe: input stream opened cleanly (16640 samples drained)
+11:00:14 INFO audio: audio stream opened at 16000 Hz
+11:00:15 INFO __main__: loading whisper model 'base'...
+11:00:15 INFO __main__: whisper ready in 0.7s
+11:00:15 INFO __main__: clap detector disabled (voice.clap_enabled=false)
+11:00:15 INFO telethon.network.mtprotosender: Connecting to 149.154.167.51:443/TcpFull...
+11:00:17 INFO telethon.network.mtprotosender: Connection to 149.154.167.51:443/TcpFull complete!
+11:00:18 ERROR __main__: boot failed: EOF when reading a line
+Traceback (most recent call last):
+  File "/Users/keller/friday/friday/voice/listen.py", line 480, in main
+    listener.boot()
+  File "/Users/keller/friday/friday/voice/listen.py", line 239, in boot
+    self.bridge.connect()
+  File "/Users/keller/friday/friday/voice/bridge.py", line 85, in connect
+    fut.result()  # surfaces exceptions
+    ^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/concurrent/futures/_base.py", line 456, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/Users/keller/friday/friday/voice/bridge.py", line 160, in _async_connect
+    await self._client.start()
+  File "/Users/keller/friday/friday/voice/.venv/lib/python3.12/site-packages/telethon/client/auth.py", line 167, in _start
+    value = phone()
+            ^^^^^^^
+  File "/Users/keller/friday/friday/voice/.venv/lib/python3.12/site-packages/telethon/client/auth.py", line 22, in <lambda>
+    phone: typing.Union[typing.Callable[[], str], str] = lambda: input('Please enter your phone (or bot token): '),
+                                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+EOFError: EOF when reading a line
+11:00:18 INFO telethon.network.mtprotosender: Disconnecting from 149.154.167.51:443/TcpFull...
+11:00:18 INFO telethon.network.mtprotosender: Disconnection from 149.154.167.51:443/TcpFull complete!
+11:00:25 INFO __main__: mic probe: input stream opened cleanly (16640 samples drained)
+11:00:25 INFO audio: audio stream opened at 16000 Hz
+11:00:26 INFO __main__: loading whisper model 'base'...
+11:00:26 INFO __main__: whisper ready in 0.8s
+11:00:26 INFO __main__: clap detector disabled (voice.clap_enabled=false)
+11:00:26 INFO telethon.network.mtprotosender: Connecting to 149.154.167.51:443/TcpFull...
+11:00:29 INFO telethon.network.mtprotosender: Connection to 149.154.167.51:443/TcpFull complete!
+11:00:29 ERROR __main__: boot failed: EOF when reading a line
+Traceback (most recent call last):
+  File "/Users/keller/friday/friday/voice/listen.py", line 480, in main
+    listener.boot()
+  File "/Users/keller/friday/friday/voice/listen.py", line 239, in boot
+    self.bridge.connect()
+  File "/Users/keller/friday/friday/voice/bridge.py", line 85, in connect
+    fut.result()  # surfaces exceptions
+    ^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/concurrent/futures/_base.py", line 456, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/Users/keller/friday/friday/voice/bridge.py", line 160, in _async_connect
+    await self._client.start()
+  File "/Users/keller/friday/friday/voice/.venv/lib/python3.12/site-packages/telethon/client/auth.py", line 167, in _start
+    value = phone()
+            ^^^^^^^
+  File "/Users/keller/friday/friday/voice/.venv/lib/python3.12/site-packages/telethon/client/auth.py", line 22, in <lambda>
+    phone: typing.Union[typing.Callable[[], str], str] = lambda: input('Please enter your phone (or bot token): '),
+                                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+EOFError: EOF when reading a line
+11:00:29 INFO telethon.network.mtprotosender: Disconnecting from 149.154.167.51:443/TcpFull...
+11:00:29 INFO telethon.network.mtprotosender: Disconnection from 149.154.167.51:443/TcpFull complete!

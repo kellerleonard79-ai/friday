@@ -13,12 +13,18 @@ import os
 import subprocess
 import sys
 from datetime import datetime, time, timedelta
+from pathlib import Path
 
 import requests
 import rumps
 from AppKit import NSApplication, NSImage
 
 import menubar_icon
+
+# voice/listen.py creates this for the duration of every wake/PTT session
+# (recording → transcription → bridge → TTS). Treat its presence as an
+# authoritative "Friday is actively listening / handling a voice turn" signal.
+LISTENING_FLAG = Path("/tmp/friday_listening")
 
 _HERE   = os.path.dirname(os.path.abspath(__file__))
 _PYTHON = sys.executable
@@ -108,8 +114,12 @@ class FridayMenuBar(rumps.App):
         ]
 
         self._last_state = None
+        self._current_icon_key: str | None = None
         self._tick(None)
         rumps.Timer(self._tick, 10).start()
+        # Fast poll just for the listening flag. Cheap (single stat() call) and
+        # gives near-instant visual feedback when wake fires.
+        rumps.Timer(self._listening_tick, 1).start()
 
     # ── Tick ──────────────────────────────────────────────────────────────
 
@@ -142,6 +152,26 @@ class FridayMenuBar(rumps.App):
                 menubar_icon.circular_crop(img)
             )
 
+    def _desired_icon_key(self) -> str:
+        """Compute which cached icon should currently be displayed. Listening
+        only overrides the `online` state — if Friday is paused/offline/error
+        we keep the underlying state icon so the user isn't misled."""
+        base = self._last_state or "offline"
+        if base == "online" and LISTENING_FLAG.exists():
+            return "listening"
+        return base
+
+    def _apply_icon(self) -> None:
+        key = self._desired_icon_key()
+        if key == self._current_icon_key:
+            return
+        self.icon = self._icons.get(key, self._icons.get("offline"))
+        self._current_icon_key = key
+
+    def _listening_tick(self, _):
+        """Cheap 1s poll: just check the flag file and (maybe) swap the icon."""
+        self._apply_icon()
+
     def _tick(self, _):
         self._maybe_refresh_icons()
         snap = _status_snapshot()
@@ -159,12 +189,13 @@ class FridayMenuBar(rumps.App):
                 except ValueError:
                     pass
 
-        # Icon swap on state change.
+        # Pause-menu titles follow the underlying state, not the listening
+        # overlay — listening is transient, pause is a deliberate setting.
         if st != self._last_state:
             self._last_state = st
-            self.icon = self._icons.get(st, self._icons["offline"])
             self._pause.title = "Resume Friday" if st == "paused" else "Pause Friday"
             self._pause_for.title = "Resume Friday" if st == "paused" else "Pause For…"
+        self._apply_icon()
 
         # Status row: state line + a compact stats line.
         last_msg  = _fmt_clock(snap.get("last_message_at"))
@@ -180,6 +211,8 @@ class FridayMenuBar(rumps.App):
         else:
             label = {"online": "Online", "paused": "Paused",
                      "offline": "Offline", "error": "Error"}.get(st, st)
+            if st == "online" and LISTENING_FLAG.exists():
+                label = "Listening…"
             self._status_row.title = (
                 f"{label} · last msg {last_msg} · "
                 f"{calls} calls · {tin}/{tout} tok"

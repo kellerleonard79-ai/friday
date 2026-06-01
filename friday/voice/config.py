@@ -42,6 +42,8 @@ class VoiceConfig:
     mic_enabled: bool
     solo_trigger_enabled: bool
     always_speak: bool
+    wake_enabled: bool
+    clap_enabled: bool
 
     clap_sensitivity: float
     clap_window_ms: int
@@ -58,11 +60,13 @@ class VoiceConfig:
 
     wake_phrases: List[str]
     acknowledgment_phrases: List[str]
+    ack_phrases_only: bool
 
     telegram_bot_token: str
     telegram_chat_id: str
     telegram_api_id: int
     telegram_api_hash: str
+    telegram_telethon_session: str
 
     raw: Dict[str, Any] = field(default_factory=dict, repr=False)
 
@@ -72,6 +76,8 @@ _DEFAULTS: Dict[str, Any] = {
     "mic_enabled": True,
     "solo_trigger_enabled": False,
     "always_speak": False,
+    "wake_enabled": True,
+    "clap_enabled": True,
     "clap_sensitivity": 0.7,
     "clap_window_ms": 600,
     "silence_ms": 1500,
@@ -89,6 +95,13 @@ _DEFAULTS: Dict[str, Any] = {
         "As you wish, sir.",
         "Welcome home, sir.",
     ],
+    "short_ack_phrases": [
+        "Yes sir?",
+        "Listening.",
+        "Go ahead, sir.",
+        "Mhm.",
+    ],
+    "ack_phrases_only": True,
 }
 
 
@@ -122,15 +135,26 @@ def _build(data: Dict[str, Any]) -> VoiceConfig:
     def vget(key: str) -> Any:
         return voice.get(key, _DEFAULTS[key])
 
-    # Acknowledgment phrases: prefer persona.jarvis_phrases if it exists and
-    # has anything enabled. That avoids duplicating the curated list the user
-    # already maintains there.
-    jarvis_phrases = persona.get("jarvis_phrases") or {}
-    enabled_from_persona = [p for p, on in jarvis_phrases.items() if on]
-    if enabled_from_persona:
-        ack_phrases = enabled_from_persona
+    # Acknowledgment phrase pool selection:
+    #   - voice.ack_phrases_only = true  → use the short neutral list
+    #     (voice.short_ack_phrases). The longer persona.jarvis_phrases are
+    #     reserved for LLM responses only.
+    #   - voice.ack_phrases_only = false → fall back to legacy behavior:
+    #     pull from persona.jarvis_phrases (if any enabled) or
+    #     voice.acknowledgment_phrases.
+    ack_phrases_only = _coerce_bool(
+        voice.get("ack_phrases_only", _DEFAULTS["ack_phrases_only"]),
+        _DEFAULTS["ack_phrases_only"],
+    )
+    if ack_phrases_only:
+        ack_phrases = list(voice.get("short_ack_phrases") or _DEFAULTS["short_ack_phrases"])
     else:
-        ack_phrases = list(voice.get("acknowledgment_phrases") or _DEFAULTS["acknowledgment_phrases"])
+        jarvis_phrases = persona.get("jarvis_phrases") or {}
+        enabled_from_persona = [p for p, on in jarvis_phrases.items() if on]
+        if enabled_from_persona:
+            ack_phrases = enabled_from_persona
+        else:
+            ack_phrases = list(voice.get("acknowledgment_phrases") or _DEFAULTS["acknowledgment_phrases"])
 
     wake_phrases = list(voice.get("wake_phrases") or _DEFAULTS["wake_phrases"])
 
@@ -139,6 +163,8 @@ def _build(data: Dict[str, Any]) -> VoiceConfig:
         mic_enabled=_coerce_bool(vget("mic_enabled"), True),
         solo_trigger_enabled=_coerce_bool(vget("solo_trigger_enabled"), False),
         always_speak=_coerce_bool(vget("always_speak"), False),
+        wake_enabled=_coerce_bool(vget("wake_enabled"), True),
+        clap_enabled=_coerce_bool(vget("clap_enabled"), True),
         clap_sensitivity=_coerce_float(vget("clap_sensitivity"), 0.7),
         clap_window_ms=_coerce_int(vget("clap_window_ms"), 600),
         silence_ms=_coerce_int(vget("silence_ms"), 1500),
@@ -151,10 +177,12 @@ def _build(data: Dict[str, Any]) -> VoiceConfig:
         response_timeout_s=_coerce_int(vget("response_timeout_s"), 30),
         wake_phrases=wake_phrases,
         acknowledgment_phrases=ack_phrases,
+        ack_phrases_only=ack_phrases_only,
         telegram_bot_token=str(telegram.get("bot_token") or ""),
         telegram_chat_id=str(telegram.get("chat_id") or ""),
         telegram_api_id=_coerce_int(telegram.get("api_id"), 0),
         telegram_api_hash=str(telegram.get("api_hash") or ""),
+        telegram_telethon_session=str(telegram.get("telethon_session") or ""),
         raw=data,
     )
 
@@ -192,6 +220,74 @@ def load() -> VoiceConfig:
         _cache_mtime = mtime
         _cache_value = cfg
         return cfg
+
+
+def persist_telethon_session(session_string: str) -> bool:
+    """Write `telegram.telethon_session: <value>` into friday_config.yaml,
+    preserving comments and key order by doing a targeted line-level edit
+    rather than a full YAML round-trip.
+
+    Returns True on success, False on any failure (file unreadable, telegram
+    block missing, etc). Failure is logged but never raises — the bridge can
+    still operate using the unsaved in-memory session for this run."""
+    global _cache_mtime  # noqa: PLW0603 — invalidate so next load() re-reads
+    if not session_string:
+        _LOGGER.warning("persist_telethon_session: refusing to save empty string")
+        return False
+    try:
+        text = CONFIG_PATH.read_text()
+    except OSError as e:
+        _LOGGER.error("persist_telethon_session: read failed: %s", e)
+        return False
+
+    lines = text.splitlines(keepends=True)
+    # Locate the `telegram:` top-level key and the next top-level key.
+    tel_start = tel_end = -1
+    for i, line in enumerate(lines):
+        if line.rstrip("\n") == "telegram:" or line.startswith("telegram:"):
+            tel_start = i
+            break
+    if tel_start < 0:
+        _LOGGER.error("persist_telethon_session: 'telegram:' block not found")
+        return False
+    tel_end = len(lines)
+    for j in range(tel_start + 1, len(lines)):
+        stripped = lines[j].lstrip(" ")
+        if not lines[j].strip() or lines[j].startswith(" ") or lines[j].startswith("\t"):
+            continue
+        # Top-level (zero-indent, non-blank, non-comment) means block ended.
+        if not lines[j].startswith(" ") and not lines[j].startswith("#"):
+            tel_end = j
+            break
+
+    new_line = f"  telethon_session: {session_string}\n"
+    # Look for an existing telethon_session line inside the block.
+    replaced = False
+    for k in range(tel_start + 1, tel_end):
+        if lines[k].lstrip(" ").startswith("telethon_session:"):
+            lines[k] = new_line
+            replaced = True
+            break
+    if not replaced:
+        # Insert just before the block ends, keeping any trailing blank line.
+        insert_at = tel_end
+        while insert_at > tel_start + 1 and not lines[insert_at - 1].strip():
+            insert_at -= 1
+        lines.insert(insert_at, new_line)
+
+    tmp_path = CONFIG_PATH.with_suffix(".yaml.tmp")
+    try:
+        tmp_path.write_text("".join(lines))
+        tmp_path.replace(CONFIG_PATH)
+    except OSError as e:
+        _LOGGER.error("persist_telethon_session: write failed: %s", e)
+        return False
+
+    # Invalidate cache so the next load() re-parses the new file.
+    with _cache_lock:
+        _cache_mtime = None
+    _LOGGER.info("persist_telethon_session: saved %d-char session", len(session_string))
+    return True
 
 
 def telegram_credentials_present(cfg: Optional[VoiceConfig] = None) -> bool:
