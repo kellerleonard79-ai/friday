@@ -92,14 +92,18 @@ const ROUTES = {
   integrations: renderIntegrations,
   calendar: renderCalendar,
   notifications: renderNotifications,
+  voice: renderVoice,
   about: renderAbout,
 };
+
+let VOICE_TIMER = null;
 
 function navigate(route) {
   if (!ROUTES[route]) route = 'status';
   if (CURRENT_ROUTE === route) return;
   CURRENT_ROUTE = route;
   if (STATUS_TIMER) { clearInterval(STATUS_TIMER); STATUS_TIMER = null; }
+  if (VOICE_TIMER) { clearInterval(VOICE_TIMER); VOICE_TIMER = null; }
   document.querySelectorAll('.nav-item').forEach((a) => {
     a.classList.toggle('active', a.dataset.route === route);
   });
@@ -570,6 +574,74 @@ function renderNotifications() {
       await saveConfig();
     };
   });
+}
+
+// ── Voice ──────────────────────────────────────────────────────────────
+
+function renderVoice() {
+  const v = (CONFIG.voice = CONFIG.voice || {});
+
+  bindInput(document.getElementById('v-enabled'),       'voice.enabled');
+  bindInput(document.getElementById('v-mic'),           'voice.mic_enabled');
+  bindInput(document.getElementById('v-wake'),          'voice.wake_enabled');
+  bindInput(document.getElementById('v-clap'),          'voice.clap_enabled');
+  bindInput(document.getElementById('v-always-speak'),  'voice.always_speak');
+  bindInput(document.getElementById('v-ptt-key'),       'voice.push_to_talk_key');
+
+  const whisperSel = document.getElementById('v-whisper');
+  whisperSel.value = v.whisper_model || 'base';
+  whisperSel.onchange = async () => {
+    set(CONFIG, 'voice.whisper_model', whisperSel.value);
+    await saveConfig();
+  };
+
+  const pulse = document.getElementById('voice-pulse');
+  const text = document.getElementById('voice-status');
+  const sessionEl = document.getElementById('voice-session-state');
+
+  async function tick() {
+    let s;
+    try { s = await api.get('/api/voice/status'); }
+    catch { return; }
+    pulse.className = 'pulse';
+    text.className = 'hero-text';
+    if (s.listening) {
+      text.textContent = 'LISTENING';
+      pulse.classList.add('online');
+    } else if (s.agent_loaded) {
+      text.textContent = 'ONLINE';
+      pulse.classList.add('online');
+    } else {
+      text.textContent = 'OFFLINE';
+      text.classList.add('offline');
+      pulse.classList.add('offline');
+    }
+    sessionEl.textContent = s.session_present ? 'present' : 'missing';
+    sessionEl.style.color = s.session_present ? 'var(--teal)' : 'var(--danger)';
+  }
+
+  tick();
+  VOICE_TIMER = setInterval(tick, 2000);
+
+  document.getElementById('voice-restart').onclick = async () => {
+    try { await api.post('/api/voice/restart'); flash('RESTARTING VOICE'); }
+    catch { flash('FAILED', true); }
+  };
+
+  const modal = document.getElementById('voice-logs-modal');
+  document.getElementById('voice-logs-btn').onclick = async () => {
+    const body = document.getElementById('voice-logs-body');
+    body.textContent = 'loading...';
+    modal.classList.remove('hidden');
+    try {
+      const r = await api.get('/api/voice/logs?lines=200');
+      body.textContent = (r.lines || []).join('\n');
+      body.scrollTop = body.scrollHeight;
+    } catch (e) {
+      body.textContent = `Error: ${e.message}`;
+    }
+  };
+  document.getElementById('voice-logs-close').onclick = () => modal.classList.add('hidden');
 }
 
 // ── About ──────────────────────────────────────────────────────────────

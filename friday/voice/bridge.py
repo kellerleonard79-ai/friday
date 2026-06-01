@@ -157,7 +157,33 @@ class TelegramBridge:
             self.api_id,
             self.api_hash,
         )
-        await self._client.start()
+        # Under launchd there is no TTY, so Telethon's default phone/code
+        # prompts call input() and hit EOFError → the LaunchAgent's KeepAlive
+        # then respawns us in a tight loop. Detect headless context and raise
+        # a clear error instead, so failure throttles cleanly and the user
+        # knows exactly what to do (re-run bridge.py interactively).
+        import sys as _sys
+
+        headless = not _sys.stdin.isatty()
+
+        def _no_tty(field: str):
+            def _raise():
+                raise RuntimeError(
+                    f"voice: Telethon needs to {field} but no TTY is attached "
+                    "(running under launchd?). Stop the LaunchAgent and run "
+                    "`python voice/bridge.py` in a Terminal to re-auth; the "
+                    "new session blob will persist back to friday_config.yaml."
+                )
+            return _raise
+
+        if headless:
+            await self._client.start(
+                phone=_no_tty("ask for phone"),
+                code_callback=_no_tty("ask for SMS code"),
+                password=_no_tty("ask for 2FA password"),
+            )
+        else:
+            await self._client.start()
         try:
             self._session_string_out = self._client.session.save()
         except Exception as e:

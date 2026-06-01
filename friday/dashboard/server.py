@@ -39,6 +39,9 @@ logger = logging.getLogger("friday.dashboard")
 
 _STATIC_DIR = Path(__file__).parent / "static"
 _LOG_PATH   = Path(__file__).resolve().parent.parent / "logs" / "friday.log"
+_VOICE_LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "voice.err"
+# voice/listen.py touches this for the duration of every PTT/wake session.
+_LISTENING_FLAG = Path("/tmp/friday_listening")
 
 # Sensitive keys masked by default. dot-paths into friday_config.yaml.
 _SECRET_PATHS: tuple[str, ...] = (
@@ -362,6 +365,52 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
             return {"ok": True}
         except Exception as e:
             raise HTTPException(500, f"Restart failed: {e}")
+
+    @app.get("/api/voice/status")
+    def api_voice_status() -> dict:
+        """Operational state of the voice satellite (com.friday.voice
+        LaunchAgent). agent_loaded reflects whether launchd has the job in a
+        running state; listening reflects the transient PTT/wake-session flag
+        voice/listen.py touches at /tmp/friday_listening."""
+        uid = os.getuid()
+        agent_loaded = False
+        try:
+            out = subprocess.run(
+                ["launchctl", "print", f"gui/{uid}/com.friday.voice"],
+                capture_output=True, text=True, timeout=2,
+            )
+            # `launchctl print` returns rc=0 with "state = running" when up;
+            # rc != 0 when the job isn't loaded at all.
+            agent_loaded = (out.returncode == 0 and "state = running" in out.stdout)
+        except Exception as e:
+            logger.debug(f"voice status launchctl probe failed: {e}")
+        cfg = _load_config(config_path)
+        session_present = bool((cfg.get("telegram") or {}).get("telethon_session"))
+        return {
+            "agent_loaded": agent_loaded,
+            "listening": _LISTENING_FLAG.exists(),
+            "session_present": session_present,
+        }
+
+    @app.post("/api/voice/restart")
+    def api_voice_restart() -> dict:
+        uid = os.getuid()
+        try:
+            subprocess.Popen(
+                ["launchctl", "kickstart", "-k", f"gui/{uid}/com.friday.voice"],
+                start_new_session=True,
+            )
+            return {"ok": True}
+        except Exception as e:
+            raise HTTPException(500, f"Voice restart failed: {e}")
+
+    @app.get("/api/voice/logs")
+    def api_voice_logs(lines: int = Query(100, ge=1, le=1000)) -> dict:
+        if not _VOICE_LOG_PATH.exists():
+            return {"lines": []}
+        with open(_VOICE_LOG_PATH, "r", errors="replace") as f:
+            tail = deque(f, maxlen=lines)
+        return {"lines": [ln.rstrip("\n") for ln in tail]}
 
     @app.post("/api/friday/pause")
     def api_friday_pause(req: PauseRequest) -> dict:

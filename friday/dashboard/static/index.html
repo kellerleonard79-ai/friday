@@ -23,6 +23,7 @@
       <a class="nav-item" data-route="integrations">Integrations</a>
       <a class="nav-item" data-route="calendar">Calendar</a>
       <a class="nav-item" data-route="notifications">Notifications</a>
+      <a class="nav-item" data-route="voice">Voice</a>
       <a class="nav-item" data-route="about">About</a>
     </nav>
     <div class="sidebar-footer">
@@ -283,6 +284,94 @@
         <label><input type="checkbox" data-day="1"><span>1 day</span></label>
       </div>
     </section>
+  </template>
+
+  <template id="page-voice">
+    <header class="page-header"><h1>VOICE</h1></header>
+
+    <section class="panel status-hero">
+      <div class="hero-indicator">
+        <div class="pulse" id="voice-pulse"></div>
+        <div class="hero-text" id="voice-status">— — —</div>
+      </div>
+      <div class="hero-actions">
+        <button class="btn btn-teal" id="voice-restart">Restart Voice</button>
+        <button class="btn btn-outline" id="voice-logs-btn">View Logs</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>SESSION</h2>
+      <div class="notif-row">
+        <div class="notif-label">TELETHON SESSION</div>
+        <span class="mono" id="voice-session-state">—</span>
+      </div>
+      <div class="hint" id="voice-session-hint">
+        Session blob is stored in <span class="mono">friday_config.yaml</span>. If
+        rejected, stop the LaunchAgent and run
+        <span class="mono">python voice/bridge.py</span> in a Terminal to re-auth.
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>TRIGGERS</h2>
+      <div class="notif-row">
+        <div class="notif-label">VOICE ENABLED</div>
+        <label class="switch"><input type="checkbox" id="v-enabled"><span class="slider-sw"></span></label>
+      </div>
+      <div class="notif-row">
+        <div class="notif-label">MICROPHONE ENABLED</div>
+        <label class="switch"><input type="checkbox" id="v-mic"><span class="slider-sw"></span></label>
+      </div>
+      <div class="notif-row">
+        <div>
+          <div class="notif-label">PUSH-TO-TALK KEY</div>
+          <div class="hint">e.g. right_option, left_option, f13, right_cmd</div>
+        </div>
+        <input type="text" class="input small" id="v-ptt-key" style="max-width: 180px;">
+      </div>
+      <div class="notif-row">
+        <div>
+          <div class="notif-label">WAKE WORD</div>
+          <div class="hint">Dormant alternative path. PTT is primary.</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="v-wake"><span class="slider-sw"></span></label>
+      </div>
+      <div class="notif-row">
+        <div>
+          <div class="notif-label">CLAP DETECTOR</div>
+          <div class="hint">Dormant alternative path. PTT is primary.</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="v-clap"><span class="slider-sw"></span></label>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>OUTPUT</h2>
+      <div class="notif-row">
+        <div>
+          <div class="notif-label">ALWAYS SPEAK</div>
+          <div class="hint">Otherwise TTS only fires when external audio (headphones/AirPlay) is present.</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="v-always-speak"><span class="slider-sw"></span></label>
+      </div>
+      <div class="notif-row">
+        <div class="notif-label">WHISPER MODEL</div>
+        <select class="input small" id="v-whisper" style="max-width: 180px;">
+          <option value="tiny">tiny</option>
+          <option value="base">base</option>
+          <option value="small">small</option>
+          <option value="medium">medium</option>
+        </select>
+      </div>
+    </section>
+
+    <div class="modal-backdrop hidden" id="voice-logs-modal">
+      <div class="modal">
+        <header><h2>VOICE.ERR</h2><button class="modal-close" id="voice-logs-close">×</button></header>
+        <pre id="voice-logs-body"></pre>
+      </div>
+    </div>
   </template>
 
   <template id="page-about">

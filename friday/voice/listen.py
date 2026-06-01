@@ -87,13 +87,30 @@ def _probe_microphone() -> bool:
             frames_per_buffer=FRAME_SAMPLES,
         )
         # Drain ~1 second so the TCC prompt has time to appear and the user
-        # has a chance to click Allow before we move on.
+        # has a chance to click Allow before we move on. Capture the actual
+        # samples so we can validate signal — PyAudio doesn't raise when TCC
+        # denies the mic, it just delivers zero-filled buffers.
         captured = 0
         target = SAMPLE_RATE  # ≈ 1.0s at 16 kHz
+        chunks: list[bytes] = []
         while captured < target:
-            stream.read(FRAME_SAMPLES, exception_on_overflow=False)
+            chunks.append(stream.read(FRAME_SAMPLES, exception_on_overflow=False))
             captured += FRAME_SAMPLES
-        _LOGGER.info("mic probe: input stream opened cleanly (%d samples drained)", captured)
+        pcm = np.frombuffer(b"".join(chunks), dtype=np.int16)
+        peak = int(np.abs(pcm).max()) if pcm.size else 0
+        if peak == 0:
+            _LOGGER.error(
+                "mic probe: opened OK but captured pure silence (peak=0). "
+                "macOS TCC is denying microphone access to this binary "
+                "(%s). Open System Settings → Privacy & Security → "
+                "Microphone and enable it for the venv's python, OR run "
+                "`%s %s` once in Terminal so the permission dialog can "
+                "surface. Aborting so launchd throttles instead of "
+                "respawning into endless silent sessions.",
+                sys.executable, sys.executable, __file__,
+            )
+            return False
+        _LOGGER.info("mic probe: %d samples drained, peak=%d (signal OK)", captured, peak)
         return True
     except (PermissionError, OSError) as e:
         _LOGGER.error(
@@ -124,12 +141,32 @@ def _transcribe_wav_bytes(model, wav_bytes: bytes) -> str:
     """Whisper accepts a numpy array of float32 at 16 kHz. Decode the WAV
     in-memory and hand it over."""
     import wave
+    # Persist the last capture for offline debugging — listen with
+    # `afplay /tmp/friday_last_ptt.wav` to confirm what the mic actually heard.
+    try:
+        with open("/tmp/friday_last_ptt.wav", "wb") as dbg:
+            dbg.write(wav_bytes)
+    except OSError as e:
+        _LOGGER.debug("could not snapshot wav: %s", e)
     with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
         sr = wf.getframerate()
         n = wf.getnframes()
         pcm = np.frombuffer(wf.readframes(n), dtype=np.int16)
     if sr != SAMPLE_RATE:
         _LOGGER.warning("transcribe: unexpected sr=%d", sr)
+    # Diagnostic: empty-string transcripts almost always trace back to silence
+    # in the captured audio. Log RMS + peak so we can tell at a glance whether
+    # the mic captured real signal or just noise floor.
+    if pcm.size > 0:
+        f = pcm.astype(np.float32)
+        rms = float(np.sqrt(np.mean(f * f)))
+        peak = int(np.abs(pcm).max())
+        _LOGGER.info(
+            "audio diag: %.2fs, %d samples, rms=%.1f, peak=%d",
+            pcm.size / SAMPLE_RATE, pcm.size, rms, peak,
+        )
+    else:
+        _LOGGER.warning("audio diag: empty pcm buffer")
     audio = pcm.astype(np.float32) / 32768.0
     result = model.transcribe(audio, fp16=False, language="en")
     return (result.get("text") or "").strip()
@@ -213,8 +250,11 @@ class VoiceListener:
         # happens. This is what makes the LaunchAgent's python binary appear
         # in System Settings → Privacy & Security → Microphone. Run this
         # script interactively from a Terminal at least once so the dialog
-        # can surface on screen and be approved.
-        _probe_microphone()
+        # can surface on screen and be approved. The probe validates real
+        # signal (not just bytes), so a TCC denial fails here rather than
+        # silently feeding zeros to every PTT session.
+        if not _probe_microphone():
+            sys.exit(3)
 
         self.stream.start()
         self.whisper = _load_whisper(self.cfg.whisper_model)

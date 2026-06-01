@@ -34,6 +34,9 @@ _DASH_URL = "http://127.0.0.1:5174"
 _STATUS   = f"{_DASH_URL}/api/status"
 _PAUSE    = f"{_DASH_URL}/api/friday/pause"
 _BRIEF    = f"{_DASH_URL}/api/friday/brief"
+_VOICE_STATUS  = f"{_DASH_URL}/api/voice/status"
+_VOICE_RESTART = f"{_DASH_URL}/api/voice/restart"
+_VOICE_LOG     = os.path.join(_HERE, "logs", "voice.err")
 
 
 def _friday_running_proc() -> bool:
@@ -53,6 +56,23 @@ def _status_snapshot() -> dict:
         return {"state": "offline", **d}
     except Exception:
         return {"state": "error" if _friday_running_proc() else "offline"}
+
+
+def _voice_snapshot() -> dict:
+    """Best-effort snapshot of the voice LaunchAgent. Returns
+    {state: 'online'|'listening'|'offline'|'error', session_present: bool}."""
+    try:
+        r = requests.get(_VOICE_STATUS, timeout=1.5)
+        if r.status_code != 200:
+            return {"state": "error"}
+        d = r.json()
+        if d.get("listening"):
+            return {"state": "listening", **d}
+        if d.get("agent_loaded"):
+            return {"state": "online", **d}
+        return {"state": "offline", **d}
+    except Exception:
+        return {"state": "error"}
 
 
 def _fmt_clock(iso: str | None) -> str:
@@ -98,6 +118,15 @@ class FridayMenuBar(rumps.App):
 
         self._dashboard  = rumps.MenuItem("Open Dashboard", callback=self.open_dashboard)
         self._logs       = rumps.MenuItem("Open Logs",      callback=self.open_logs)
+
+        # Voice submenu: status header + restart + open voice log.
+        self._voice         = rumps.MenuItem("Voice")
+        self._voice_status  = rumps.MenuItem("Voice: connecting…")
+        self._voice_status.set_callback(None)  # non-clickable header
+        self._voice_restart = rumps.MenuItem("Restart Voice", callback=self.restart_voice)
+        self._voice_logs    = rumps.MenuItem("Open Voice Logs", callback=self.open_voice_logs)
+        self._voice.update([self._voice_status, None, self._voice_restart, self._voice_logs])
+
         self._quit       = rumps.MenuItem("Quit Friday Bar", callback=rumps.quit_application)
 
         self.menu = [
@@ -107,6 +136,7 @@ class FridayMenuBar(rumps.App):
             self._pause,
             self._pause_for,
             None,
+            self._voice,
             self._dashboard,
             self._logs,
             None,
@@ -197,6 +227,12 @@ class FridayMenuBar(rumps.App):
             self._pause_for.title = "Resume Friday" if st == "paused" else "Pause For…"
         self._apply_icon()
 
+        # Voice submenu header. Cheap call; folds into the 10 s tick.
+        vsnap = _voice_snapshot()
+        vlabel = {"online": "Online", "listening": "Listening…",
+                  "offline": "Offline", "error": "Error"}.get(vsnap["state"], vsnap["state"])
+        self._voice_status.title = f"Voice: {vlabel}"
+
         # Status row: state line + a compact stats line.
         last_msg  = _fmt_clock(snap.get("last_message_at"))
         tin       = _fmt_int(snap.get("tokens_in"))
@@ -265,6 +301,20 @@ class FridayMenuBar(rumps.App):
             subprocess.Popen(["open", _LOG], start_new_session=True)
         else:
             rumps.alert("Friday", f"Log not found: {_LOG}")
+
+    def restart_voice(self, _):
+        try:
+            r = requests.post(_VOICE_RESTART, timeout=5)
+            if r.status_code != 200:
+                rumps.alert("Friday", f"Voice restart failed: HTTP {r.status_code}")
+        except Exception as e:
+            rumps.alert("Friday", f"Voice restart failed: {e}")
+
+    def open_voice_logs(self, _):
+        if os.path.exists(_VOICE_LOG):
+            subprocess.Popen(["open", _VOICE_LOG], start_new_session=True)
+        else:
+            rumps.alert("Friday", f"Voice log not found: {_VOICE_LOG}")
 
 
 if __name__ == "__main__":
