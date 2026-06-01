@@ -8,6 +8,7 @@ state.json
 
 friday/friday_config.yaml
 com.friday.agent.plist
+com.friday.voice.plist
 
 voice/training_data/
 voice/models/training/
@@ -15,3 +16,10 @@ voice/models/training/
 **/*.tflite
 *.wav
 *.tflite
+
+# Voice subsystem runtime artifacts — local-only.
+friday/voice/.venv/
+friday/voice/trainer_src/
+friday/voice/training/
+friday/voice/friday_voice.session*
+friday/voice/__pycache__/
