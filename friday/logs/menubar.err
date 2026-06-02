@@ -1,1 +1,0 @@
-No application knows how to open URL file:///Users/keller/friday/friday/logs/voice.err (Error Domain=NSOSStatusErrorDomain Code=-10814 "kLSApplicationNotFoundErr: E.g. no application claims the file" UserInfo={_LSLine=1973, _LSFunction=runEvaluator, _LSFile=LSBindingEvaluator.mm, _LSErrorMessage=kLSApplicationNotFoundErr}).

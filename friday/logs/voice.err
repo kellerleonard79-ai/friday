@@ -464,8 +464,3 @@ RuntimeWarning: Enable tracemalloc to get the object allocation traceback
 18:56:36 INFO bridge: send_and_wait: reply received (15 chars)
 18:56:36 INFO __main__: reply: 'Listening, sir.'
 18:56:36 INFO __main__: reply delivered to Telegram only (no external audio, always_speak=False)
-19:39:47 INFO audio: audio stream opened at 16000 Hz
-19:39:47 INFO audio: audio subscriber registered: record_ptt
-19:39:47 INFO audio: record_while_held: 0.48s captured
-19:39:47 INFO __main__: audio diag: 0.48s, 7680 samples, rms=78.1, peak=236
-19:39:49 INFO __main__: transcript: ''

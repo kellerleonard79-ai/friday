@@ -44,7 +44,6 @@ from connectors import apple_calendar as apple_cal
 from agent import briefings
 from actions import calendar as apple_writer
 from dashboard import server as dashboard_server
-from voice.clap import ClapListener
 
 
 def load_config() -> dict:
@@ -90,11 +89,6 @@ def main() -> None:
     handler = TelegramHandler(config, agent, conn)
     agent.telegram_handler = handler  # late-bound for propose_calendar_event tool
 
-    clap_listener = ClapListener(config=config, on_trigger=agent.on_message)
-    if config.get("agent", {}).get("clap_enabled"):
-        clap_listener.start()
-        logger.info("ClapListener started")
-
     bot_token  = handler.bot_token
     chat_id    = handler.chat_id
     agent_cfg  = config.get("agent", {})
@@ -118,9 +112,6 @@ def main() -> None:
     # ── Post-init: startup message + initial state ────────────────────────────
 
     async def post_init(app: Application) -> None:
-        # Off-loop entry points (e.g. ClapListener.on_trigger → agent.on_message)
-        # need a handle to the PTB event loop to schedule coroutines onto it.
-        agent.loop = asyncio.get_running_loop()
         state.set(conn, "status",     "running")
         state.set(conn, "started_at", datetime.datetime.now().isoformat())
         state.set(conn, "provider",   config.get("provider", "ollama"))
@@ -150,10 +141,6 @@ def main() -> None:
 
     async def post_stop(app: Application) -> None:
         state.set(conn, "status", "stopped")
-        try:
-            clap_listener.stop()
-        except Exception as e:
-            logger.warning(f"ClapListener stop failed: {e}")
         server = app.bot_data.get("dashboard_server")
         if server is not None:
             server.should_exit = True

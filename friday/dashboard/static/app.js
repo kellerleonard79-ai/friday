@@ -584,7 +584,7 @@ function renderVoice() {
   bindInput(document.getElementById('v-enabled'),       'voice.enabled');
   bindInput(document.getElementById('v-mic'),           'voice.mic_enabled');
   bindInput(document.getElementById('v-wake'),          'voice.wake_enabled');
-  bindInput(document.getElementById('v-clap'),          'agent.clap_enabled');
+  bindInput(document.getElementById('v-clap'),          'voice.clap_enabled');
   bindInput(document.getElementById('v-always-speak'),  'voice.always_speak');
   bindInput(document.getElementById('v-ptt-key'),       'voice.push_to_talk_key');
 

@@ -3,7 +3,6 @@ agent/core.py
 LLM calls only. No routing, no state, no Telegram references.
 """
 
-import asyncio
 import logging
 import os
 
@@ -94,78 +93,7 @@ class FridayAgent:
             self.ollama_url = ollama_cfg.get("base_url", "http://localhost:11434")
             self._tools = None
 
-        # Late-bound by friday.py in post_init so off-loop entry points
-        # (voice clap listener, etc.) can schedule onto the PTB event loop.
-        self.loop: asyncio.AbstractEventLoop | None = None
-        self.telegram_handler = None
-
         logger.info(f"Agent ready — {self.provider} / {self.model_name}")
-
-    # ── Off-loop entry point ──────────────────────────────────────────────
-
-    def on_message(self, text: str) -> None:
-        """Inject a user message from a non-async context (e.g. the clap
-        listener's daemon thread). Routes through the same semaphore-gated
-        path as a Telegram text message so conversation history, pause gate,
-        and reply delivery all behave identically. Fire-and-forget — the
-        caller does not block on the LLM call."""
-        text = (text or "").strip()
-        if not text:
-            return
-        if self.loop is None or self.telegram_handler is None:
-            logger.warning("on_message called before agent bound to loop/handler — dropping: %r", text[:80])
-            return
-        try:
-            asyncio.run_coroutine_threadsafe(self._handle_off_loop(text), self.loop)
-        except RuntimeError as e:
-            logger.warning("on_message could not schedule onto loop: %s", e)
-
-    async def _handle_off_loop(self, text: str) -> None:
-        from channels.telegram import _semaphore  # shared semaphore — single source of truth
-        from datetime import datetime
-        handler = self.telegram_handler
-        conn = self._conn
-        async with _semaphore:
-            if conn is not None and state.get(conn, "paused") == "true":
-                logger.info("Off-loop message dropped (paused): %r", text[:80])
-                return
-            history: list[dict] = []
-            if conn is not None:
-                rows = conn.execute(
-                    "SELECT role, content FROM conversation_history ORDER BY id DESC LIMIT ?",
-                    (40,),
-                ).fetchall()
-                history = [{"role": r[0], "content": r[1]} for r in reversed(rows)]
-
-            loop = asyncio.get_running_loop()
-            self._last_action_emitted = None
-            response = await loop.run_in_executor(None, self._think, text, history)
-            action_emitted = getattr(self, "_last_action_emitted", None)
-
-            now_iso = datetime.now().isoformat()
-            if conn is not None:
-                conn.execute(
-                    "INSERT INTO conversation_history (role, content, created_at) VALUES (?, ?, ?)",
-                    ("user", text, now_iso),
-                )
-
-            if response:
-                assistant_log = response
-                if handler is not None:
-                    await loop.run_in_executor(None, handler.send, response)
-            elif action_emitted == "calendar_proposal":
-                assistant_log = "[Sent calendar approval card — awaiting user response.]"
-            else:
-                assistant_log = "Sorry, sir — I drew a blank. Try again?"
-                if handler is not None:
-                    await loop.run_in_executor(None, handler.send, assistant_log)
-
-            if conn is not None:
-                conn.execute(
-                    "INSERT INTO conversation_history (role, content, created_at) VALUES (?, ?, ?)",
-                    ("assistant", assistant_log, now_iso),
-                )
-                conn.commit()
 
     # ── Stats instrumentation ─────────────────────────────────────────────
 
