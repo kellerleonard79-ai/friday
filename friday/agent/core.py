@@ -5,6 +5,7 @@ LLM calls only. No routing, no state, no Telegram references.
 
 import logging
 import os
+import time
 
 import requests
 from google import genai
@@ -13,6 +14,12 @@ from google.genai import types
 import memory.state as state
 
 logger = logging.getLogger("friday.core")
+
+# Google API transient errors worth retrying. 503/504 = server overload,
+# 429 = rate limit. Everything else (400 bad request, 401 auth, etc.) is
+# our fault and retrying just wastes time.
+_GEMINI_RETRY_CODES = ("503", "504", "429")
+_GEMINI_RETRY_BACKOFF_S = (1.0, 2.0)  # delays before attempts 2 and 3
 
 
 _SNARK_DIRECTIVES = {
@@ -114,6 +121,29 @@ class FridayAgent:
         except Exception as e:
             logger.debug(f"stat record failed: {e}")
 
+    def _gemini_generate_with_retry(self, *, contents, config):
+        """Call Gemini generate_content with backoff on transient 503/504/429.
+        Other errors propagate immediately to the caller's except block."""
+        attempt = 0
+        while True:
+            try:
+                return self.gemini_client.models.generate_content(
+                    model=self.model_name,
+                    contents=contents,
+                    config=config,
+                )
+            except Exception as e:
+                msg = str(e)
+                is_transient = any(msg.startswith(code) for code in _GEMINI_RETRY_CODES)
+                if not is_transient or attempt >= len(_GEMINI_RETRY_BACKOFF_S):
+                    raise
+                delay = _GEMINI_RETRY_BACKOFF_S[attempt]
+                logger.warning(
+                    f"Gemini transient error (attempt {attempt + 1}): {msg.splitlines()[0]} — retrying in {delay}s"
+                )
+                time.sleep(delay)
+                attempt += 1
+
     def _think(self, prompt: str, history: list | None = None,
                use_tools: bool = True) -> str:
         """Synchronous LLM call. Always run via run_in_executor inside async handlers.
@@ -134,8 +164,7 @@ class FridayAgent:
                 )
                 if use_tools and self._tools:
                     cfg_kwargs["tools"] = self._tools
-                resp = self.gemini_client.models.generate_content(
-                    model=self.model_name,
+                resp = self._gemini_generate_with_retry(
                     contents=contents,
                     config=types.GenerateContentConfig(**cfg_kwargs),
                 )

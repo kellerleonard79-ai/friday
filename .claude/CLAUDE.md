@@ -396,3 +396,30 @@ gcal_sync:
 - Friday does not modify existing Apple Calendar events. If a Google event changes, Friday
   logs it but does not attempt to update the Apple Calendar entry. Update sync is out of scope
   for now.
+
+## Microphone Access (TCC) and the Orange Indicator
+
+macOS TCC microphone permission is granted per executable binary path, not per Python
+script. Friday's two processes use different binaries:
+
+- `friday.py` runs directly under `/Library/Frameworks/Python.framework/Versions/3.14/bin/python3`
+- `voice/listen.py` runs under the `FridayVoice.app/Contents/MacOS/FridayVoice` wrapper
+
+Each binary needs its own TCC grant. A grant given to the wrapper does NOT extend to the
+raw python binary, and vice versa. Under launchd, TCC denial returns silent (zero-filled)
+audio buffers rather than an error — so a denied process opens its stream "successfully"
+and reads nothing forever. Code that opens an input stream from friday.py must validate
+real signal at boot (probe peak > 0) and log a clear TCC warning on zero-only buffers.
+
+The orange "mic in use" indicator lights whenever any process holds an active input
+stream. `voice/listen.py` only starts the always-on stream at boot if `voice.wake_enabled`
+or `voice.clap_enabled` is true; with both false, listen.py runs in PTT-only mode and
+only opens the mic during an actual PTT session — dot off at idle. **Config changes do
+not affect a running listen.py.** After flipping wake/clap flags, restart the voice
+LaunchAgent (`launchctl kickstart -k gui/$(id -u)/com.friday.voice`) for it to take
+effect. The boot-time `_probe_microphone` call briefly opens the mic to trigger the TCC
+dialog — this is by design and does not mean the always-on stream is running.
+
+If a process appears running via `launchctl print` but the menubar reports voice offline,
+the menubar polls `/api/voice/status` every few seconds and may have cached an earlier
+failed boot. Wait ~10 seconds or restart via the menubar's "Restart Voice" item.

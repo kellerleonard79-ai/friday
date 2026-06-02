@@ -2,22 +2,27 @@
 
 Custom-trained [openWakeWord](https://github.com/dscripka/openWakeWord) models that detect Friday's wake phrases. These models are loaded at runtime by `voice/wakeword.py`.
 
-## Interim state (2026-05-31)
+## Current state (2026-06-02)
 
-**Custom training is deferred.** Smoke-testing the training pipeline showed it takes ~3.5 hours on this M1 for a tiny 50-sample run, which projects to **10–30 hours per phrase** for a real model with the full corpus. That's not viable on the current hardware.
+**"Hey Friday" now triggers on Friday phonemes** via a community-trained openwakeword model dropped in as `hey_friday.onnx`. In-house training is still deferred (~10–30 h per phrase on this M1 — see "Retraining from scratch" below).
 
-For now, `voice/wakeword.py` aliases the phrase "Hey Friday" to openWakeWord's bundled **`hey_jarvis_v0.1`** model. **In practice this means you must say _"Hey Jarvis"_ aloud to trigger Friday** — the model only fires on jarvis phonemes, not friday phonemes. The other phrases ("Friday you up", "Friday status", "Friday") have no model and will silently never fire.
+`voice/wakeword.py:_resolve_model_path` looks up `voice/models/<phrase-slug>.onnx` first and only falls back to the `HEY_JARVIS_ALIASES` map when no custom file exists, so `hey_friday.onnx` takes priority automatically. The alias entry `"hey friday"` in `voice/wakeword.py:31` is now effectively dead code for this phrase but is left in place as a safety net if the model file is ever removed.
 
-When custom-trained `.onnx` files land in this directory by phrase slug (`hey_friday.onnx`, `friday_you_up.onnx`, etc.), `voice/wakeword.py` picks them up automatically with no code change. Until then: train remotely on a cloud GPU, or live with "Hey Jarvis".
+### `hey_friday.onnx` provenance
+
+- Source: [fwartner/home-assistant-wakewords-collection](https://github.com/fwartner/home-assistant-wakewords-collection), file `en/hey_friday/hey_Friday!.onnx` (renamed to `hey_friday.onnx` locally so the openwakeword internal label matches our `_slug("Hey Friday")` value).
+- License: MIT (repo LICENSE, © 2023 Florian Wartner).
+- Size: 206,980 bytes. Git-blob sha1 `4e7439da86d89b39bf05fe284551778011e84489` (verify with `git hash-object hey_friday.onnx`).
+- Downloaded: 2026-06-02.
+- Threshold: default 0.5 (`voice/wakeword.py:DEFAULT_THRESHOLD`). Tune via `WakeDetector.set_threshold("Hey Friday", x)` if false-positive rate is high; wiring this through `friday_config.yaml` is a fast-follow (see plan `spicy-twirling-hare.md` Step 6).
 
 ## What ships here
 
 | Phrase | File | Status |
 |---|---|---|
-| "Hey Friday" | `hey_jarvis.onnx` (interim alias) | **Fires on "Hey Jarvis" only.** Replace with a real `hey_friday.onnx` when trained. |
-| "Friday you up" | (none) | No model. Won't fire. |
-| "Friday status" | (none) | No model. Won't fire. |
-| "Friday" (solo) | (none) | No model. Gated behind `voice.solo_trigger_enabled` anyway. |
+| "Hey Friday" | `hey_friday.onnx` | Live. Fires on "Hey Friday" phonemes. |
+| "Hey Jarvis" (dev alias) | `hey_jarvis.onnx` | Optional — copy of bundled `hey_jarvis_v0.1.onnx` for offline poking with the trainer/CLI. Not in `voice.wake_phrases` by default. |
+| "Friday you up" / "Friday status" / "Friday" (solo) | (none) | Not enabled. Solo "Friday" is gated by `voice.solo_trigger_enabled=false` anyway due to false-positive risk in natural conversation. |
 
 Models are stored as **`.onnx`**, not `.tflite`. openWakeWord's runtime accepts both, and on a Mac with `onnxruntime` installed there is no measurable inference-speed difference. The TFLite conversion path requires `tensorflow-cpu==2.8.1` which has no macOS-arm64 wheel, so we skip it.
 
