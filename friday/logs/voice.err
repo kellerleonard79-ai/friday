@@ -380,3 +380,30 @@ RuntimeWarning: Enable tracemalloc to get the object allocation traceback
 18:56:30 INFO __main__: audio diag: 0.48s, 7680 samples, rms=5.3, peak=77
 18:56:31 INFO __main__: PTT press dropped (session active)
 18:56:31 INFO __main__: transcript: ''
+19:01:10 INFO audio: audio stream opened at 16000 Hz
+19:01:10 INFO audio: audio subscriber registered: record_ptt
+19:01:17 INFO audio: record_while_held: 7.44s captured
+19:01:17 INFO __main__: audio diag: 7.44s, 119040 samples, rms=2669.7, peak=27161
+19:01:18 INFO __main__: transcript: 'Add oil change appointment to my calendar on June 18th at 930.'
+19:01:18 INFO __main__: bridge dispatch: 'Add oil change appointment to my calendar on June 18th at 930.'
+19:01:18 INFO bridge: send_and_wait: dispatching (62 chars, timeout=30s)
+19:01:18 INFO bridge: voice → bot (msg_id=379): Add oil change appointment to my calendar on June 18th at 930.
+19:01:19 INFO bridge: bot → voice: Sorry, sir — I drew a blank. Try again?
+19:01:19 INFO bridge: send_and_wait: reply received (39 chars)
+19:01:19 INFO __main__: reply: 'Sorry, sir — I drew a blank. Try again?'
+19:01:26 INFO audio: audio stream opened at 16000 Hz
+19:01:26 INFO audio: audio subscriber registered: record_ptt
+19:01:32 INFO audio: record_while_held: 6.48s captured
+19:01:32 INFO __main__: audio diag: 6.48s, 103680 samples, rms=2474.7, peak=22772
+19:01:33 INFO __main__: transcript: 'again. Add oil change appointment to my calendar on June 18th at 9.30am.'
+19:01:33 INFO __main__: bridge dispatch: 'again. Add oil change appointment to my calendar on June 18th at 9.30am.'
+19:01:33 INFO bridge: send_and_wait: dispatching (72 chars, timeout=30s)
+19:01:33 INFO bridge: voice → bot (msg_id=381): again. Add oil change appointment to my calendar on June 18th at 9.30am.
+19:01:47 INFO bridge: bot → voice: 📋 Friday
+
+Add to calendar?
+
+📌 Oil Change Appointment
+📅 Thursday, June 18 at 09:3
+19:01:47 INFO bridge: send_and_wait: reply received (99 chars)
+19:01:47 INFO __main__: reply: '📋 Friday\n\nAdd to calendar?\n\n📌 Oil Change Appointment\n📅 Thursday, June 18 at 09:30\n🗂  Keller Leonard'
