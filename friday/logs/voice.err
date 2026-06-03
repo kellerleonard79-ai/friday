@@ -499,3 +499,36 @@ Add to calendar?
 19:36:07 INFO bridge: bot → voice: Done sir, I've added Tennis with Camp to your calendar tomorrow at 2:30 PM.
 19:36:07 INFO bridge: send_and_wait: reply received (75 chars)
 19:36:07 INFO __main__: reply: "Done sir, I've added Tennis with Camp to your calendar tomorrow at 2:30 PM."
+19:45:05 INFO audio: audio stream opened at 16000 Hz
+19:45:05 INFO audio: audio subscriber registered: record_ptt
+19:45:12 INFO audio: record_while_held: 7.36s captured
+19:45:12 INFO __main__: audio diag: 7.36s, 117760 samples, rms=1508.3, peak=20981
+19:45:14 INFO __main__: transcript: 'Add Git Racket from Mallory to my calendar tomorrow at 10.30am.'
+19:45:14 INFO __main__: bridge dispatch: 'Add Git Racket from Mallory to my calendar tomorrow at 10.30am.'
+19:45:14 INFO bridge: send_and_wait: dispatching (63 chars, timeout=30s)
+19:45:14 INFO bridge: voice → bot (msg_id=402): Add Git Racket from Mallory to my calendar tomorrow at 10.30am.
+19:45:15 INFO bridge: bot → voice: Sorry, sir — I drew a blank. Try again?
+19:45:15 INFO bridge: send_and_wait: reply received (39 chars)
+19:45:15 INFO __main__: reply: 'Sorry, sir — I drew a blank. Try again?'
+19:45:22 INFO audio: audio stream opened at 16000 Hz
+19:45:22 INFO audio: audio subscriber registered: record_ptt
+19:45:27 INFO audio: record_while_held: 5.84s captured
+19:45:27 INFO __main__: audio diag: 5.84s, 93440 samples, rms=2269.3, peak=28526
+19:45:28 INFO __main__: transcript: 'I have to get Racket from Mallory to my calendar tomorrow at 10.30am.'
+19:45:28 INFO __main__: bridge dispatch: 'I have to get Racket from Mallory to my calendar tomorrow at 10.30am.'
+19:45:28 INFO bridge: send_and_wait: dispatching (69 chars, timeout=30s)
+19:45:28 INFO bridge: voice → bot (msg_id=404): I have to get Racket from Mallory to my calendar tomorrow at 10.30am.
+19:45:29 INFO bridge: bot → voice: Sorry, sir — I drew a blank. Try again?
+19:45:29 INFO bridge: send_and_wait: reply received (39 chars)
+19:45:29 INFO __main__: reply: 'Sorry, sir — I drew a blank. Try again?'
+19:52:37 INFO audio: audio stream opened at 16000 Hz
+19:52:37 INFO audio: audio subscriber registered: record_ptt
+19:52:42 INFO audio: record_while_held: 6.24s captured
+19:52:42 INFO __main__: audio diag: 6.24s, 99840 samples, rms=2654.1, peak=31759
+19:52:44 INFO __main__: transcript: 'Add Get Racket from Mallory to my calendar tomorrow at 9.30am.'
+19:52:44 INFO __main__: bridge dispatch: 'Add Get Racket from Mallory to my calendar tomorrow at 9.30am.'
+19:52:44 INFO bridge: send_and_wait: dispatching (62 chars, timeout=30s)
+19:52:44 INFO bridge: voice → bot (msg_id=406): Add Get Racket from Mallory to my calendar tomorrow at 9.30am.
+19:53:13 INFO bridge: bot → voice: Done sir, I've added Get Racket from Mallory to your calendar tomorrow at 9:30 A
+19:53:13 INFO bridge: send_and_wait: reply received (82 chars)
+19:53:13 INFO __main__: reply: "Done sir, I've added Get Racket from Mallory to your calendar tomorrow at 9:30 AM."

@@ -36280,3 +36280,273 @@ telegram.error.Conflict: Conflict: terminated by other getUpdates request; make 
 2026-06-02 19:42:24,793 [apscheduler.executors.default] INFO: Job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-06-03 00:43:24 UTC)" executed successfully
 2026-06-02 19:42:26,541 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
 2026-06-02 19:42:36,781 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:42:46,975 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:42:57,468 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:43:07,602 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:43:17,736 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:43:24,779 [apscheduler.executors.default] INFO: Running job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-06-03 00:44:24 UTC)" (scheduled at 2026-06-03 00:43:24.778154+00:00)
+2026-06-02 19:43:24,781 [apscheduler.executors.default] INFO: Job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-06-03 00:44:24 UTC)" executed successfully
+2026-06-02 19:43:27,878 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:43:38,017 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:43:48,364 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:43:57,410 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 409 Conflict"
+2026-06-02 19:43:57,415 [telegram.ext.Application] ERROR: No error handlers are registered, logging exception.
+Traceback (most recent call last):
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/ext/_utils/networkloop.py", line 161, in network_retry_loop
+    await do_action()
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/ext/_utils/networkloop.py", line 154, in do_action
+    action_cb_task.result()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/ext/_updater.py", line 340, in polling_action_cb
+    updates = await self.bot.get_updates(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/ext/_extbot.py", line 672, in get_updates
+    updates = await super().get_updates(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<9 lines>...
+    )
+    ^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/_bot.py", line 4865, in get_updates
+    await self._post(
+    ^^^^^^^^^^^^^^^^^
+    ...<7 lines>...
+    ),
+    ^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/_bot.py", line 704, in _post
+    return await self._do_post(
+           ^^^^^^^^^^^^^^^^^^^^
+    ...<6 lines>...
+    )
+    ^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/ext/_extbot.py", line 370, in _do_post
+    return await super()._do_post(
+           ^^^^^^^^^^^^^^^^^^^^^^^
+    ...<6 lines>...
+    )
+    ^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/_bot.py", line 733, in _do_post
+    result = await request.post(
+             ^^^^^^^^^^^^^^^^^^^
+    ...<6 lines>...
+    )
+    ^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/request/_baserequest.py", line 198, in post
+    result = await self._request_wrapper(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<7 lines>...
+    )
+    ^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/request/_baserequest.py", line 375, in _request_wrapper
+    raise exception
+telegram.error.Conflict: Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-06-02 19:44:01,783 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 409 Conflict"
+2026-06-02 19:44:01,785 [telegram.ext.Application] ERROR: No error handlers are registered, logging exception.
+Traceback (most recent call last):
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/ext/_utils/networkloop.py", line 161, in network_retry_loop
+    await do_action()
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/ext/_utils/networkloop.py", line 154, in do_action
+    action_cb_task.result()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/ext/_updater.py", line 340, in polling_action_cb
+    updates = await self.bot.get_updates(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/ext/_extbot.py", line 672, in get_updates
+    updates = await super().get_updates(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<9 lines>...
+    )
+    ^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/_bot.py", line 4865, in get_updates
+    await self._post(
+    ^^^^^^^^^^^^^^^^^
+    ...<7 lines>...
+    ),
+    ^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/_bot.py", line 704, in _post
+    return await self._do_post(
+           ^^^^^^^^^^^^^^^^^^^^
+    ...<6 lines>...
+    )
+    ^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/ext/_extbot.py", line 370, in _do_post
+    return await super()._do_post(
+           ^^^^^^^^^^^^^^^^^^^^^^^
+    ...<6 lines>...
+    )
+    ^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/_bot.py", line 733, in _do_post
+    result = await request.post(
+             ^^^^^^^^^^^^^^^^^^^
+    ...<6 lines>...
+    )
+    ^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/request/_baserequest.py", line 198, in post
+    result = await self._request_wrapper(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<7 lines>...
+    )
+    ^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/telegram/request/_baserequest.py", line 375, in _request_wrapper
+    raise exception
+telegram.error.Conflict: Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-06-02 19:44:13,479 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:44:23,618 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:44:24,792 [apscheduler.executors.default] INFO: Running job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-06-03 00:45:24 UTC)" (scheduled at 2026-06-03 00:44:24.778154+00:00)
+2026-06-02 19:44:24,866 [apscheduler.executors.default] INFO: Job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-06-03 00:45:24 UTC)" executed successfully
+2026-06-02 19:44:34,632 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:44:44,763 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:44:54,920 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:45:05,121 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:45:14,339 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:45:14,348 [friday.telegram] INFO: Message: Add Git Racket from Mallory to my calendar tomorrow at 10.30am.
+2026-06-02 19:45:14,357 [google_genai.models] INFO: AFC is enabled with max remote calls: 10.
+2026-06-02 19:45:14,836 [httpx] INFO: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent "HTTP/1.1 500 Internal Server Error"
+2026-06-02 19:45:14,844 [friday.core] ERROR: LLM error: 500 INTERNAL. {'error': {'code': 500, 'message': 'Internal error encountered.', 'status': 'INTERNAL'}}
+2026-06-02 19:45:14,845 [friday.telegram] WARNING: Empty LLM response — sending fallback to user
+2026-06-02 19:45:15,728 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/sendMessage "HTTP/1.1 200 OK"
+2026-06-02 19:45:24,616 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:45:24,780 [apscheduler.executors.default] INFO: Running job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-06-03 00:46:24 UTC)" (scheduled at 2026-06-03 00:45:24.778154+00:00)
+2026-06-02 19:45:24,781 [apscheduler.executors.default] INFO: Job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-06-03 00:46:24 UTC)" executed successfully
+2026-06-02 19:45:28,675 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:45:28,678 [friday.telegram] INFO: Message: I have to get Racket from Mallory to my calendar tomorrow at 10.30am.
+2026-06-02 19:45:28,680 [google_genai.models] INFO: AFC is enabled with max remote calls: 10.
+2026-06-02 19:45:29,136 [httpx] INFO: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent "HTTP/1.1 500 Internal Server Error"
+2026-06-02 19:45:29,138 [friday.core] ERROR: LLM error: 500 INTERNAL. {'error': {'code': 500, 'message': 'Internal error encountered.', 'status': 'INTERNAL'}}
+2026-06-02 19:45:29,138 [friday.telegram] WARNING: Empty LLM response — sending fallback to user
+2026-06-02 19:45:29,675 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/sendMessage "HTTP/1.1 200 OK"
+2026-06-02 19:45:38,847 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:45:49,065 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:45:59,226 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:46:09,472 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:46:19,705 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:46:24,780 [apscheduler.executors.default] INFO: Running job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-06-03 00:47:24 UTC)" (scheduled at 2026-06-03 00:46:24.778154+00:00)
+2026-06-02 19:46:24,782 [apscheduler.executors.default] INFO: Job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-06-03 00:47:24 UTC)" executed successfully
+2026-06-02 19:46:29,948 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:46:40,140 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:46:50,271 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:47:00,463 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:47:10,692 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:47:20,842 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:47:24,780 [apscheduler.executors.default] INFO: Running job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-06-03 00:48:24 UTC)" (scheduled at 2026-06-03 00:47:24.778154+00:00)
+2026-06-02 19:47:24,782 [apscheduler.executors.default] INFO: Job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-06-03 00:48:24 UTC)" executed successfully
+2026-06-02 19:47:30,978 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:47:41,156 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:47:51,358 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:48:01,600 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:48:11,838 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:48:22,001 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:48:24,779 [apscheduler.executors.default] INFO: Running job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-06-03 00:49:24 UTC)" (scheduled at 2026-06-03 00:48:24.778154+00:00)
+2026-06-02 19:48:24,781 [apscheduler.executors.default] INFO: Job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-06-03 00:49:24 UTC)" executed successfully
+2026-06-02 19:48:32,214 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:48:42,346 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:48:52,567 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:49:02,709 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:49:12,870 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:49:23,004 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:49:24,779 [apscheduler.executors.default] INFO: Running job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-06-03 00:50:24 UTC)" (scheduled at 2026-06-03 00:49:24.778154+00:00)
+2026-06-02 19:49:24,781 [apscheduler.executors.default] INFO: Job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-06-03 00:50:24 UTC)" executed successfully
+2026-06-02 19:49:33,345 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:49:43,480 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:49:53,659 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:50:03,975 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:50:14,206 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:50:14,780 [apscheduler.executors.default] INFO: Running job "poll_connectors_job (trigger: interval[0:15:00], next run at: 2026-06-03 01:05:14 UTC)" (scheduled at 2026-06-03 00:50:14.777290+00:00)
+2026-06-02 19:50:14,781 [friday] INFO: Polling connectors...
+2026-06-02 19:50:15,452 [friday] INFO: Canvas: no new events.
+2026-06-02 19:50:16,552 [friday.groupme] WARNING: groupme[Los Muchachos Part 2] invalid priority 'muted' — defaulting to low
+2026-06-02 19:50:17,006 [friday.groupme] WARNING: groupme[Tiger Debate Camp Volunteers] invalid priority 'normal' — defaulting to low
+2026-06-02 19:50:17,193 [friday.groupme] INFO: groupme[Tiger Debate Camp Volunteers]: 1 new message(s) written.
+2026-06-02 19:50:17,194 [friday.groupme] WARNING: groupme[First Students] invalid priority 'muted' — defaulting to low
+2026-06-02 19:50:17,625 [friday.groupme] WARNING: groupme[Cybersecurity Team] invalid priority 'normal' — defaulting to low
+2026-06-02 19:50:17,871 [friday.groupme] WARNING: groupme[SLU 301] invalid priority 'normal' — defaulting to low
+2026-06-02 19:50:19,101 [friday.groupme] WARNING: groupme[Pensacola High School First Priority] invalid priority 'normal' — defaulting to low
+2026-06-02 19:50:19,299 [friday.groupme] WARNING: groupme[Henry & Keller] invalid priority 'normal' — defaulting to low
+2026-06-02 19:50:19,566 [friday.groupme] WARNING: groupme[Varsity BOYS 2026] invalid priority 'normal' — defaulting to low
+2026-06-02 19:50:19,749 [friday.groupme] WARNING: groupme[SGA first period] invalid priority 'normal' — defaulting to low
+2026-06-02 19:50:20,014 [friday.groupme] WARNING: groupme[SLU AMBASSADORS 2025-2026] invalid priority 'normal' — defaulting to low
+2026-06-02 19:50:20,197 [friday.groupme] WARNING: groupme[Mock Trial 2025-2026] invalid priority 'normal' — defaulting to low
+2026-06-02 19:50:20,374 [friday.groupme] WARNING: groupme[FBCP 10th grade 25-26’] invalid priority 'muted' — defaulting to low
+2026-06-02 19:50:20,617 [friday.groupme] WARNING: groupme[SLC 2026] invalid priority 'normal' — defaulting to low
+2026-06-02 19:50:20,805 [friday.groupme] WARNING: groupme[Escambia County Student Union] invalid priority 'normal' — defaulting to low
+2026-06-02 19:50:21,072 [friday.groupme] WARNING: groupme[SLC '26 Frivolity Chat] invalid priority 'normal' — defaulting to low
+2026-06-02 19:50:21,379 [friday.groupme] WARNING: groupme[UP Weekend White House 10B] invalid priority 'normal' — defaulting to low
+2026-06-02 19:50:21,628 [friday.groupme] WARNING: groupme[SFLC 2025] invalid priority 'normal' — defaulting to low
+2026-06-02 19:50:21,809 [friday.groupme] WARNING: groupme[Tallahassee scrimmage] invalid priority 'normal' — defaulting to low
+2026-06-02 19:50:22,061 [friday.groupme] WARNING: groupme[PHS FCA Core Team] invalid priority 'normal' — defaulting to low
+2026-06-02 19:50:22,243 [friday] INFO: GroupMe: 1 new message(s) written.
+2026-06-02 19:50:22,255 [google_genai.models] INFO: AFC is enabled with max remote calls: 10.
+2026-06-02 19:50:24,447 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:50:24,779 [apscheduler.executors.default] INFO: Running job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-06-03 00:51:24 UTC)" (scheduled at 2026-06-03 00:50:24.778154+00:00)
+2026-06-02 19:50:24,780 [apscheduler.executors.default] INFO: Job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-06-03 00:51:24 UTC)" executed successfully
+2026-06-02 19:50:28,375 [httpx] INFO: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent "HTTP/1.1 200 OK"
+2026-06-02 19:50:28,397 [friday] INFO: Tagged groupme_178044731086941310 as NORMAL
+2026-06-02 19:50:28,399 [apscheduler.executors.default] INFO: Job "poll_connectors_job (trigger: interval[0:15:00], next run at: 2026-06-03 01:05:14 UTC)" executed successfully
+2026-06-02 19:50:34,689 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:50:44,820 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:50:55,249 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:51:05,399 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:51:15,626 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:51:24,861 [apscheduler.executors.default] INFO: Running job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-06-03 00:52:24 UTC)" (scheduled at 2026-06-03 00:51:24.778154+00:00)
+2026-06-02 19:51:24,863 [apscheduler.executors.default] INFO: Job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-06-03 00:52:24 UTC)" executed successfully
+2026-06-02 19:51:25,864 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:51:36,075 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:51:46,239 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:51:56,585 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:52:06,726 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:52:16,961 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:52:24,781 [apscheduler.executors.default] INFO: Running job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-06-03 00:53:24 UTC)" (scheduled at 2026-06-03 00:52:24.778154+00:00)
+2026-06-02 19:52:24,823 [apscheduler.executors.default] INFO: Job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-06-03 00:53:24 UTC)" executed successfully
+2026-06-02 19:52:27,091 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:52:37,237 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:52:44,225 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:52:44,230 [friday.telegram] INFO: Message: Add Get Racket from Mallory to my calendar tomorrow at 9.30am.
+2026-06-02 19:52:44,239 [google_genai.models] INFO: AFC is enabled with max remote calls: 10.
+2026-06-02 19:52:47,376 [httpx] INFO: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent "HTTP/1.1 200 OK"
+2026-06-02 19:52:47,383 [google_genai.models] INFO: AFC remote call 1 is done.
+2026-06-02 19:52:54,399 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:52:56,139 [httpx] INFO: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent "HTTP/1.1 503 Service Unavailable"
+2026-06-02 19:52:56,141 [friday.core] WARNING: Gemini transient error (attempt 1): 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}} — retrying in 1.0s
+2026-06-02 19:52:57,194 [google_genai.models] INFO: AFC is enabled with max remote calls: 10.
+2026-06-02 19:53:03,661 [httpx] INFO: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent "HTTP/1.1 200 OK"
+2026-06-02 19:53:03,666 [google_genai.models] INFO: AFC remote call 1 is done.
+2026-06-02 19:53:04,579 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:53:10,007 [httpx] INFO: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent "HTTP/1.1 200 OK"
+2026-06-02 19:53:13,341 [friday.telegram] INFO: Sent: Done sir, I've added Get Racket from Mallory to your calendar tomorrow at 9:30 A
+2026-06-02 19:53:13,345 [google_genai.models] INFO: AFC remote call 2 is done.
+2026-06-02 19:53:14,800 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:53:19,554 [httpx] INFO: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent "HTTP/1.1 200 OK"
+2026-06-02 19:53:19,563 [friday.core] WARNING: Gemini returned empty text. finish_reason=FinishReason.STOP usage=cache_tokens_details=[ModalityTokenCount(
+  modality=<MediaModality.TEXT: 'TEXT'>,
+  token_count=1994
+)] cached_content_token_count=1994 candidates_token_count=None candidates_tokens_details=None prompt_token_count=3237 prompt_tokens_details=[ModalityTokenCount(
+  modality=<MediaModality.TEXT: 'TEXT'>,
+  token_count=3237
+)] thoughts_token_count=29 tool_use_prompt_token_count=None tool_use_prompt_tokens_details=None total_token_count=3266 traffic_type=None
+2026-06-02 19:53:24,782 [apscheduler.executors.default] INFO: Running job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-06-03 00:54:24 UTC)" (scheduled at 2026-06-03 00:53:24.778154+00:00)
+2026-06-02 19:53:24,784 [apscheduler.executors.default] INFO: Job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-06-03 00:54:24 UTC)" executed successfully
+2026-06-02 19:53:24,938 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:53:35,103 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:53:45,261 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:53:55,580 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:54:05,713 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:54:16,103 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:54:24,782 [apscheduler.executors.default] INFO: Running job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-06-03 00:55:24 UTC)" (scheduled at 2026-06-03 00:54:24.778154+00:00)
+2026-06-02 19:54:24,785 [apscheduler.executors.default] INFO: Job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-06-03 00:55:24 UTC)" executed successfully
+2026-06-02 19:54:26,308 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:54:36,536 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:54:46,778 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:54:56,908 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:55:07,040 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:55:17,173 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:55:24,782 [apscheduler.executors.default] INFO: Running job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-06-03 00:56:24 UTC)" (scheduled at 2026-06-03 00:55:24.778154+00:00)
+2026-06-02 19:55:24,783 [apscheduler.executors.default] INFO: Job "check_urgent_alerts_job (trigger: interval[0:01:00], next run at: 2026-06-03 00:56:24 UTC)" executed successfully
+2026-06-02 19:55:27,306 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:55:37,469 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:55:47,734 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"
+2026-06-02 19:55:57,903 [httpx] INFO: HTTP Request: POST https://api.telegram.org/bot8779588952:AAGccCfeFgPqe7QO53KTKFHCFTJbNRiT5cQ/getUpdates "HTTP/1.1 200 OK"

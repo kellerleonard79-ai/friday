@@ -15,10 +15,10 @@ import memory.state as state
 
 logger = logging.getLogger("friday.core")
 
-# Google API transient errors worth retrying. 503/504 = server overload,
-# 429 = rate limit. Everything else (400 bad request, 401 auth, etc.) is
-# our fault and retrying just wastes time.
-_GEMINI_RETRY_CODES = ("503", "504", "429")
+# Google API transient errors worth retrying. 500/503/504 = server-side
+# blip, 429 = rate limit. Everything else (400 bad request, 401 auth, etc.)
+# is our fault and retrying just wastes time.
+_GEMINI_RETRY_CODES = ("500", "503", "504", "429")
 _GEMINI_RETRY_BACKOFF_S = (1.0, 2.0)  # delays before attempts 2 and 3
 
 
@@ -151,6 +151,7 @@ class FridayAgent:
         use_tools controls whether Gemini gets the tool list. Set False for
         prompts that supply their own data explicitly (briefings, urgency tagging).
         """
+        self._last_error = None
         try:
             if self.provider == "gemini":
                 contents = []
@@ -217,4 +218,5 @@ class FridayAgent:
 
         except Exception as e:
             logger.error(f"LLM error: {e}")
+            self._last_error = str(e).splitlines()[0][:240]
             return ""

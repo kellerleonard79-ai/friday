@@ -214,8 +214,19 @@ def make_tools(conn, config, agent=None):
         # Voice/personality lives in a separate message so the functional
         # confirmation stays clean. Reloaded from disk every call — edit
         # quips.yaml and the next action picks it up without a restart.
-        from phrases import random_quip
-        handler.send(random_quip())
+        import phrases
+        try:
+            day_str = datetime.strptime(date, "%Y-%m-%d").strftime("%A %B %-d")
+        except ValueError:
+            day_str = date
+        context_parts = [f"Just added '{title}' to the calendar for {day_str}"]
+        if start_time:
+            context_parts.append(f"at {start_time}")
+        quip_context = " ".join(context_parts) + "."
+        prompt, quips = phrases.quip_prompt(quip_context)
+        raw = agent._think(prompt, use_tools=False) if agent else ""
+        quip = phrases.pick_quip(raw, quips)
+        handler.send(quip)
         # Flag the handler that the confirmation message already went out, so
         # an empty LLM follow-up isn't treated as a failure and we don't
         # double-message the user.

@@ -5,13 +5,46 @@ import yaml
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _QUIPS_FILE = os.path.join(_HERE, "quips.yaml")
 
-def random_quip() -> str:
+
+def _load_quips() -> list[str]:
     try:
         with open(_QUIPS_FILE) as f:
             data = yaml.safe_load(f)
-        quips = data.get("confirm_quips", [])
-        if quips:
-            return random.choice(quips)
+        return data.get("confirm_quips", [])
     except Exception:
-        pass
+        return ["As you wish, sir."]
+
+
+def random_quip() -> str:
+    quips = _load_quips()
+    if quips:
+        return random.choice(quips)
     return "As you wish, sir."
+
+
+def quip_prompt(context: str) -> tuple[str, list[str]]:
+    """
+    Returns (prompt_string, quips_list).
+    Caller passes prompt to _think(), gets back an integer string,
+    then calls pick_quip(response, quips_list) to resolve it.
+    """
+    quips = _load_quips()
+    numbered = "\n".join(f"{i+1}. {q}" for i, q in enumerate(quips))
+    prompt = (
+        f"{context}\n\n"
+        f"Pick the most fitting quip by number only. "
+        f"Reply with a single integer and nothing else.\n\n"
+        f"{numbered}"
+    )
+    return prompt, quips
+
+
+def pick_quip(response: str, quips: list[str]) -> str:
+    """Resolves the model's integer response to a quip string."""
+    try:
+        idx = int(response.strip()) - 1
+        if 0 <= idx < len(quips):
+            return quips[idx]
+    except (ValueError, IndexError):
+        pass
+    return random.choice(quips)

@@ -132,9 +132,14 @@ class TelegramHandler:
                 # Silence is correct. Record a synthetic note for history.
                 assistant_log = "[Added event to Apple Calendar and sent confirmation.]"
             else:
-                logger.warning("Empty LLM response — sending fallback to user")
-                await update.message.reply_text("Sorry, sir — I drew a blank. Try again?")
-                assistant_log = "Sorry, sir — I drew a blank. Try again?"
+                err = getattr(self.agent, "_last_error", None)
+                if err:
+                    msg = f"LLM error, sir: {err}"
+                else:
+                    msg = "Sorry, sir — the model returned no text. Try again?"
+                logger.warning(f"Empty LLM response — sending to user: {msg}")
+                await update.message.reply_text(msg)
+                assistant_log = msg
 
             self.conn.execute(
                 "INSERT INTO conversation_history (role, content, created_at) VALUES (?, ?, ?)",
