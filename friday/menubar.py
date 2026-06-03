@@ -36,6 +36,7 @@ _PAUSE    = f"{_DASH_URL}/api/friday/pause"
 _BRIEF    = f"{_DASH_URL}/api/friday/brief"
 _VOICE_STATUS  = f"{_DASH_URL}/api/voice/status"
 _VOICE_RESTART = f"{_DASH_URL}/api/voice/restart"
+_VOICE_WAKE    = f"{_DASH_URL}/api/voice/wake"
 _VOICE_LOG     = os.path.join(_HERE, "logs", "voice.err")
 
 
@@ -119,13 +120,17 @@ class FridayMenuBar(rumps.App):
         self._dashboard  = rumps.MenuItem("Open Dashboard", callback=self.open_dashboard)
         self._logs       = rumps.MenuItem("Open Logs",      callback=self.open_logs)
 
-        # Voice submenu: status header + restart + open voice log.
+        # Voice submenu: status header + wake mute toggle + restart + open log.
         self._voice         = rumps.MenuItem("Voice")
         self._voice_status  = rumps.MenuItem("Voice: connecting…")
         self._voice_status.set_callback(None)  # non-clickable header
+        self._voice_wake    = rumps.MenuItem("Mute Wake Word", callback=self.toggle_wake)
         self._voice_restart = rumps.MenuItem("Restart Voice", callback=self.restart_voice)
         self._voice_logs    = rumps.MenuItem("Open Voice Logs", callback=self.open_voice_logs)
-        self._voice.update([self._voice_status, None, self._voice_restart, self._voice_logs])
+        self._voice.update([self._voice_status, None, self._voice_wake,
+                            self._voice_restart, self._voice_logs])
+        # Tracks wake_enabled so the menu title flips without restarting tick.
+        self._wake_enabled: bool | None = None
 
         self._quit       = rumps.MenuItem("Quit Friday Bar", callback=rumps.quit_application)
 
@@ -232,6 +237,12 @@ class FridayMenuBar(rumps.App):
         vlabel = {"online": "Online", "listening": "Listening…",
                   "offline": "Offline", "error": "Error"}.get(vsnap["state"], vsnap["state"])
         self._voice_status.title = f"Voice: {vlabel}"
+        wake = vsnap.get("wake_enabled")
+        if wake is not None and wake != self._wake_enabled:
+            self._wake_enabled = bool(wake)
+            self._voice_wake.title = (
+                "Mute Wake Word" if self._wake_enabled else "Unmute Wake Word"
+            )
 
         # Status row: state line + a compact stats line.
         last_msg  = _fmt_clock(snap.get("last_message_at"))
@@ -309,6 +320,23 @@ class FridayMenuBar(rumps.App):
                 rumps.alert("Friday", f"Voice restart failed: HTTP {r.status_code}")
         except Exception as e:
             rumps.alert("Friday", f"Voice restart failed: {e}")
+
+    def toggle_wake(self, _):
+        """Flip voice.wake_enabled and kick the voice LaunchAgent. PTT keeps
+        working in either mode — only the wake-word trigger is affected."""
+        # Optimistic: assume currently-enabled if state unknown so the first
+        # click reads as "mute".
+        new_state = not (self._wake_enabled if self._wake_enabled is not None else True)
+        try:
+            r = requests.post(_VOICE_WAKE, json={"enabled": new_state}, timeout=5)
+            if r.status_code != 200:
+                rumps.alert("Friday", f"Wake toggle failed: HTTP {r.status_code}")
+                return
+        except Exception as e:
+            rumps.alert("Friday", f"Wake toggle failed: {e}")
+            return
+        self._wake_enabled = new_state
+        self._voice_wake.title = "Mute Wake Word" if new_state else "Unmute Wake Word"
 
     def open_voice_logs(self, _):
         if os.path.exists(_VOICE_LOG):

@@ -159,10 +159,12 @@ def main() -> None:
     # ── Morning briefing job ─────────────────────────────────────────────────
 
     async def morning_briefing_job(context) -> None:
-        is_override = getattr(context.job, "name", "") == "morning_briefing_override_job"
+        job_name = getattr(context.job, "name", "") or ""
+        is_override = job_name == "morning_briefing_override_job"
+        is_catchup  = job_name == "morning_briefing_catchup_job"
         if is_override:
             state.delete(conn, "morning_briefing_override")
-        else:
+        elif not is_catchup:
             ovr = state.get(conn, "morning_briefing_override")
             if ovr:
                 try:
@@ -200,6 +202,7 @@ def main() -> None:
         if response:
             try:
                 await context.bot.send_message(chat_id=chat_id, text=f"🌅 {response}")
+                state.set(conn, "last_morning_briefing_sent", today.isoformat())
             except Exception as e:
                 logger.error(f"Morning briefing send failed: {e}")
 
@@ -426,10 +429,12 @@ def main() -> None:
     # ── Evening briefing job ──────────────────────────────────────────────────
 
     async def briefing_job(context) -> None:
-        is_override = getattr(context.job, "name", "") == "evening_briefing_override_job"
+        job_name = getattr(context.job, "name", "") or ""
+        is_override = job_name == "evening_briefing_override_job"
+        is_catchup  = job_name == "evening_briefing_catchup_job"
         if is_override:
             state.delete(conn, "evening_briefing_override")
-        else:
+        elif not is_catchup:
             ovr = state.get(conn, "evening_briefing_override")
             if ovr:
                 try:
@@ -478,6 +483,7 @@ def main() -> None:
                     chat_id=chat_id,
                     text=f"📅 Evening Briefing — {today.strftime('%A, %B %-d')}\n\n{response}",
                 )
+                state.set(conn, "last_evening_briefing_sent", today.isoformat())
             except Exception as e:
                 logger.error(f"Evening briefing send failed: {e}")
 
@@ -540,6 +546,58 @@ def main() -> None:
         logger.info(
             f"Restored {kind} briefing override for "
             f"{ovr_dt.strftime('%Y-%m-%d %H:%M %Z')}"
+        )
+
+    # Missed-briefing catch-up: if Friday was offline when a briefing was
+    # supposed to fire, send it shortly after boot — but only within a
+    # sensible window (morning catch-up must still be morning-ish, evening
+    # catch-up must still be the same calendar day).
+    now_local_boot = datetime.datetime.now(local_tz)
+    today_boot     = now_local_boot.date()
+
+    def _override_pending_today(kind: str) -> bool:
+        ovr = state.get(conn, f"{kind}_briefing_override")
+        if not ovr:
+            return False
+        try:
+            ovr_dt = datetime.datetime.fromisoformat(ovr)
+        except ValueError:
+            return False
+        return ovr_dt.date() == today_boot and ovr_dt > now_local_boot
+
+    morning_sent_for = state.get(conn, "last_morning_briefing_sent")
+    scheduled_morning_today = now_local_boot.replace(
+        hour=mbh, minute=mbm, second=0, microsecond=0,
+    )
+    if (
+        morning_sent_for != today_boot.isoformat()
+        and now_local_boot >= scheduled_morning_today
+        and now_local_boot.hour < EVENING_WINDOW[0]
+        and not _override_pending_today("morning")
+    ):
+        app.job_queue.run_once(
+            morning_briefing_job, when=5, name="morning_briefing_catchup_job",
+        )
+        logger.info(
+            f"Morning briefing missed today (scheduled {mbt_str} {tz_name}); "
+            f"running catch-up shortly."
+        )
+
+    evening_sent_for = state.get(conn, "last_evening_briefing_sent")
+    scheduled_evening_today = now_local_boot.replace(
+        hour=bh, minute=bm, second=0, microsecond=0,
+    )
+    if (
+        evening_sent_for != today_boot.isoformat()
+        and now_local_boot >= scheduled_evening_today
+        and not _override_pending_today("evening")
+    ):
+        app.job_queue.run_once(
+            briefing_job, when=5, name="evening_briefing_catchup_job",
+        )
+        logger.info(
+            f"Evening briefing missed today (scheduled {bt_str} {tz_name}); "
+            f"running catch-up shortly."
         )
 
     logger.info(f"Morning briefing scheduled at {mbt_str} {tz_name}")

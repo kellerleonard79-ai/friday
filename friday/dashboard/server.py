@@ -386,11 +386,36 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
             logger.debug(f"voice status launchctl probe failed: {e}")
         cfg = _load_config(config_path)
         session_present = bool((cfg.get("telegram") or {}).get("telethon_session"))
+        voice_cfg = cfg.get("voice") or {}
         return {
             "agent_loaded": agent_loaded,
             "listening": _LISTENING_FLAG.exists(),
             "session_present": session_present,
+            "wake_enabled": bool(voice_cfg.get("wake_enabled", False)),
         }
+
+    @app.post("/api/voice/wake")
+    def api_voice_wake(payload: dict) -> dict:
+        """Flip voice.wake_enabled in friday_config.yaml and kick the voice
+        LaunchAgent so the change takes effect. PTT is unaffected — it works
+        in both modes."""
+        enabled = bool(payload.get("enabled"))
+        cfg = _load_config(config_path)
+        voice_cfg = cfg.setdefault("voice", {})
+        voice_cfg["wake_enabled"] = enabled
+        try:
+            _save_config_atomic(config_path, cfg)
+        except Exception as e:
+            raise HTTPException(500, f"Could not write config: {e}")
+        uid = os.getuid()
+        try:
+            subprocess.Popen(
+                ["launchctl", "kickstart", "-k", f"gui/{uid}/com.friday.voice"],
+                start_new_session=True,
+            )
+        except Exception as e:
+            raise HTTPException(500, f"Voice restart failed: {e}")
+        return {"ok": True, "wake_enabled": enabled}
 
     @app.post("/api/voice/restart")
     def api_voice_restart() -> dict:

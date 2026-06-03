@@ -73,3 +73,310 @@ Add to calendar?
 12:20:27 INFO bridge: bot → voice: Sorry, sir — I drew a blank. Try again?
 12:20:27 INFO bridge: send_and_wait: reply received (39 chars)
 12:20:27 INFO __main__: reply: 'Sorry, sir — I drew a blank. Try again?'
+12:29:20 INFO __main__: WAKE: Hey Friday (0.87)
+12:29:20 INFO __main__: ack: Yes sir?
+12:29:22 INFO audio: audio subscriber registered: record_silence
+12:29:32 INFO audio: record_until_silence: 10.08s captured, voice=True
+12:29:32 INFO __main__: audio diag: 10.08s, 161280 samples, rms=2501.2, peak=32706
+12:29:34 INFO __main__: transcript: "Yes sir. Add Mimi's surgery to June 22nd. All day."
+12:29:34 INFO __main__: bridge dispatch: "Yes sir. Add Mimi's surgery to June 22nd. All day."
+12:29:34 INFO bridge: send_and_wait: dispatching (50 chars, timeout=30s)
+12:29:34 INFO bridge: voice → bot (msg_id=355): Yes sir. Add Mimi's surgery to June 22nd. All day.
+12:29:47 INFO bridge: bot → voice: 📋 Friday
+
+Add to calendar?
+
+📌 Mimi's surgery
+📅 Monday, June 22 (all day)
+🗂  Kell
+12:29:47 INFO bridge: send_and_wait: reply received (90 chars)
+12:29:47 INFO __main__: reply: "📋 Friday\n\nAdd to calendar?\n\n📌 Mimi's surgery\n📅 Monday, June 22 (all day)\n🗂  Keller Leonard"
+12:30:03 INFO __main__: WAKE: Hey Friday (0.61)
+12:30:03 INFO __main__: ack: Yes sir?
+12:30:04 INFO audio: audio subscriber registered: record_silence
+12:30:09 INFO audio: record_until_silence: 4.72s captured, voice=True
+12:30:09 INFO __main__: audio diag: 4.72s, 75520 samples, rms=3114.0, peak=32673
+12:30:09 INFO __main__: transcript: 'What time do I work tomorrow?'
+12:30:09 INFO __main__: bridge dispatch: 'What time do I work tomorrow?'
+12:30:09 INFO bridge: send_and_wait: dispatching (29 chars, timeout=30s)
+12:30:09 INFO bridge: voice → bot (msg_id=358): What time do I work tomorrow?
+12:30:25 INFO bridge: bot → voice: According to your calendar, you work from 6:00 PM to 9:00 PM tomorrow, sir.
+12:30:25 INFO bridge: send_and_wait: reply received (75 chars)
+12:30:25 INFO __main__: reply: 'According to your calendar, you work from 6:00 PM to 9:00 PM tomorrow, sir.'
+12:30:48 INFO __main__: WAKE: Hey Friday (0.74)
+12:30:48 INFO __main__: ack: Mhm.
+12:30:49 INFO audio: audio subscriber registered: record_silence
+12:30:52 INFO audio: record_until_silence: 2.56s captured, voice=True
+12:30:52 INFO __main__: audio diag: 2.56s, 40960 samples, rms=1943.9, peak=20303
+12:30:53 INFO __main__: transcript: 'kind of sluss in today.'
+12:30:53 INFO __main__: bridge dispatch: 'kind of sluss in today.'
+12:30:53 INFO bridge: send_and_wait: dispatching (23 chars, timeout=30s)
+12:30:53 INFO bridge: voice → bot (msg_id=360): kind of sluss in today.
+12:30:56 INFO __main__: WAKE: Hey Friday (0.82)
+12:30:56 INFO __main__: trigger dropped (session active): source=wake
+12:31:01 INFO bridge: bot → voice: Sorry, sir — I drew a blank. Try again?
+12:31:01 INFO bridge: send_and_wait: reply received (39 chars)
+12:31:01 INFO __main__: reply: 'Sorry, sir — I drew a blank. Try again?'
+12:31:14 INFO __main__: WAKE: Hey Friday (0.86)
+12:31:14 INFO __main__: ack: Listening.
+12:31:15 INFO audio: audio subscriber registered: record_silence
+12:31:19 INFO audio: record_until_silence: 3.92s captured, voice=True
+12:31:19 INFO __main__: audio diag: 3.92s, 62720 samples, rms=3168.9, peak=32677
+12:31:19 INFO __main__: transcript: 'What time is my tennis lesson today?'
+12:31:19 INFO __main__: bridge dispatch: 'What time is my tennis lesson today?'
+12:31:19 INFO bridge: send_and_wait: dispatching (36 chars, timeout=30s)
+12:31:19 INFO bridge: voice → bot (msg_id=362): What time is my tennis lesson today?
+12:31:37 INFO bridge: bot → voice: According to your calendar, your tennis lesson is at 3:00 PM today, sir.
+12:31:37 INFO bridge: send_and_wait: reply received (72 chars)
+12:31:37 INFO __main__: reply: 'According to your calendar, your tennis lesson is at 3:00 PM today, sir.'
+12:31:51 INFO __main__: WAKE: Hey Friday (0.62)
+12:31:51 INFO __main__: ack: Yes sir?
+12:31:53 INFO audio: audio subscriber registered: record_silence
+12:32:23 INFO audio: record_until_silence: 30.00s captured, voice=True
+12:32:23 INFO __main__: audio diag: 30.00s, 480000 samples, rms=2380.1, peak=31307
+12:32:25 INFO __main__: transcript: "Yes sir. Oh gosh, no I don't want to talk to you. And then it uses kind of a bridge with my phone number so that when it hears me on here, it sends it also in here so that I can read what it actually "
+12:32:25 INFO __main__: bridge dispatch: "Yes sir. Oh gosh, no I don't want to talk to you. And then it uses kind of a bridge with my phone number so that when it hears me on here, it sends it also in here so that I can read what it actually "
+12:32:25 INFO bridge: send_and_wait: dispatching (312 chars, timeout=30s)
+12:32:25 INFO bridge: voice → bot (msg_id=364): Yes sir. Oh gosh, no I don't want to talk to you. And then it uses kind of a bri
+12:32:38 INFO bridge: bot → voice: Listening, sir.
+12:32:38 INFO bridge: send_and_wait: reply received (15 chars)
+12:32:38 INFO __main__: reply: 'Listening, sir.'
+13:09:14 INFO __main__: WAKE: Hey Friday (0.53)
+13:09:14 INFO __main__: ack: Yes sir?
+13:09:16 INFO audio: audio subscriber registered: record_silence
+13:09:24 INFO audio: record_until_silence: 8.80s captured, voice=True
+13:09:24 INFO __main__: audio diag: 8.80s, 140800 samples, rms=1414.5, peak=22422
+13:09:30 INFO __main__: transcript: 'Yes, of course. I need to take false positive.'
+13:09:30 INFO __main__: bridge dispatch: 'Yes, of course. I need to take false positive.'
+13:09:30 INFO bridge: send_and_wait: dispatching (46 chars, timeout=30s)
+13:09:30 INFO bridge: voice → bot (msg_id=366): Yes, of course. I need to take false positive.
+13:09:31 INFO bridge: bot → voice: Sorry, sir — I drew a blank. Try again?
+13:09:31 INFO bridge: send_and_wait: reply received (39 chars)
+13:09:31 INFO __main__: reply: 'Sorry, sir — I drew a blank. Try again?'
+13:16:06 WARNING telethon.network.connection.connection: Server closed the connection: [Errno 54] Connection reset by peer
+13:16:06 INFO telethon.network.mtprotosender: Connection closed while receiving data: [Errno 54] Connection reset by peer
+13:16:06 INFO telethon.network.mtprotosender: Closing current connection to begin reconnect...
+13:16:06 INFO telethon.network.connection.connection: <class 'ConnectionResetError'> during disconnect: [Errno 54] Connection reset by peer
+13:16:06 INFO telethon.network.mtprotosender: Connecting to 149.154.175.51:443/TcpFull...
+13:16:06 INFO telethon.network.mtprotosender: Connection to 149.154.175.51:443/TcpFull complete!
+13:16:17 INFO __main__: WAKE: Hey Friday (0.87)
+13:16:17 INFO __main__: ack: Listening.
+13:16:19 INFO audio: audio subscriber registered: record_silence
+13:16:19 INFO __main__: WAKE: Hey Friday (0.58)
+13:16:19 INFO __main__: trigger dropped (session active): source=wake
+13:16:33 INFO audio: record_until_silence: 14.00s captured, voice=True
+13:16:33 INFO __main__: audio diag: 14.00s, 224000 samples, rms=1189.5, peak=23160
+13:16:34 INFO __main__: transcript: "Okay. Did you just hear me listening? Huh? It's listening. Sure that was on your phone? Yes. It's on your phone. It's not it's listening. How do you know? Oh the microphone came up."
+13:16:34 INFO __main__: bridge dispatch: "Okay. Did you just hear me listening? Huh? It's listening. Sure that was on your phone? Yes. It's on your phone. It's not it's listening. How do you know? Oh the microphone came up."
+13:16:34 INFO bridge: send_and_wait: dispatching (181 chars, timeout=30s)
+13:16:34 INFO bridge: voice → bot (msg_id=370): Okay. Did you just hear me listening? Huh? It's listening. Sure that was on your
+13:16:37 INFO bridge: bot → voice: Sorry, sir — I drew a blank. Try again?
+13:16:37 INFO bridge: send_and_wait: reply received (39 chars)
+13:16:37 INFO __main__: reply: 'Sorry, sir — I drew a blank. Try again?'
+13:16:44 INFO __main__: WAKE: Hey Friday (0.84)
+13:16:44 INFO __main__: ack: Go ahead, sir.
+13:16:46 INFO audio: audio subscriber registered: record_silence
+13:16:49 INFO __main__: WAKE: Hey Friday (0.60)
+13:16:49 INFO __main__: trigger dropped (session active): source=wake
+13:16:51 INFO audio: record_until_silence: 5.68s captured, voice=True
+13:16:51 INFO __main__: audio diag: 5.68s, 90880 samples, rms=3138.7, peak=32734
+13:16:51 INFO __main__: transcript: 'Sir. Hey Friday.'
+13:16:51 INFO __main__: bridge dispatch: 'Sir. Hey Friday.'
+13:16:51 INFO bridge: send_and_wait: dispatching (16 chars, timeout=30s)
+13:16:52 INFO bridge: voice → bot (msg_id=372): Sir. Hey Friday.
+13:16:55 INFO __main__: WAKE: Hey Friday (0.75)
+13:16:55 INFO __main__: trigger dropped (session active): source=wake
+13:17:01 INFO __main__: WAKE: Hey Friday (0.52)
+13:17:01 INFO __main__: trigger dropped (session active): source=wake
+13:17:06 INFO bridge: bot → voice: At your service, sir.
+13:17:06 INFO bridge: send_and_wait: reply received (21 chars)
+13:17:06 INFO __main__: reply: 'At your service, sir.'
+13:17:21 INFO __main__: WAKE: Hey Friday (0.60)
+13:17:21 INFO __main__: ack: Go ahead, sir.
+13:17:23 INFO audio: audio subscriber registered: record_silence
+13:17:26 INFO audio: record_until_silence: 3.12s captured, voice=True
+13:17:26 INFO __main__: audio diag: 3.12s, 49920 samples, rms=1720.4, peak=17346
+13:17:26 INFO __main__: transcript: "What's the temperature outside?"
+13:17:26 INFO __main__: bridge dispatch: "What's the temperature outside?"
+13:17:26 INFO bridge: send_and_wait: dispatching (31 chars, timeout=30s)
+13:17:26 INFO bridge: voice → bot (msg_id=374): What's the temperature outside?
+13:17:33 INFO bridge: bot → voice: According to OpenWeatherMap, it is currently 86°F, though it feels like 97°F, si
+13:17:33 INFO bridge: send_and_wait: reply received (82 chars)
+13:17:33 INFO __main__: reply: 'According to OpenWeatherMap, it is currently 86°F, though it feels like 97°F, sir.'
+13:18:03 INFO __main__: WAKE: Hey Friday (0.53)
+13:18:03 INFO __main__: ack: Go ahead, sir.
+13:18:05 INFO audio: audio subscriber registered: record_silence
+13:22:35 WARNING telethon.network.connection.connection: Server closed the connection: 0 bytes read on a total of 8 expected bytes
+13:22:36 INFO telethon.network.mtprotosender: Connection closed while receiving data: 0 bytes read on a total of 8 expected bytes
+13:22:36 INFO telethon.network.mtprotosender: Closing current connection to begin reconnect...
+13:22:36 INFO telethon.network.mtprotosender: Connecting to 149.154.175.51:443/TcpFull...
+13:22:36 INFO telethon.network.mtprotosender: Connection to 149.154.175.51:443/TcpFull complete!
+13:28:52 WARNING telethon.network.connection.connection: Server closed the connection: [Errno 54] Connection reset by peer
+13:28:52 INFO telethon.network.mtprotosender: Connection closed while receiving data: [Errno 54] Connection reset by peer
+13:28:52 INFO telethon.network.mtprotosender: Closing current connection to begin reconnect...
+13:28:52 INFO telethon.network.connection.connection: <class 'ConnectionResetError'> during disconnect: [Errno 54] Connection reset by peer
+13:28:52 INFO telethon.network.mtprotosender: Connecting to 149.154.175.51:443/TcpFull...
+13:28:53 INFO telethon.network.mtprotosender: Connection to 149.154.175.51:443/TcpFull complete!
+13:39:50 WARNING telethon.network.connection.connection: Server closed the connection: [Errno 54] Connection reset by peer
+13:39:50 INFO telethon.network.mtprotosender: Connection closed while receiving data: [Errno 54] Connection reset by peer
+13:39:50 INFO telethon.network.mtprotosender: Closing current connection to begin reconnect...
+13:39:50 INFO telethon.network.connection.connection: <class 'ConnectionResetError'> during disconnect: [Errno 54] Connection reset by peer
+13:39:50 INFO telethon.network.mtprotosender: Connecting to 149.154.175.51:443/TcpFull...
+13:39:50 INFO telethon.network.mtprotosender: Connection to 149.154.175.51:443/TcpFull complete!
+13:43:39 WARNING telethon.network.connection.connection: Server closed the connection: 0 bytes read on a total of 8 expected bytes
+13:43:39 INFO telethon.network.mtprotosender: Connection closed while receiving data: 0 bytes read on a total of 8 expected bytes
+13:43:39 INFO telethon.network.mtprotosender: Closing current connection to begin reconnect...
+13:43:39 INFO telethon.network.mtprotosender: Connecting to 149.154.175.51:443/TcpFull...
+13:43:39 INFO telethon.network.mtprotosender: Connection to 149.154.175.51:443/TcpFull complete!
+13:59:51 WARNING telethon.network.connection.connection: Server closed the connection: [Errno 54] Connection reset by peer
+13:59:51 INFO telethon.network.mtprotosender: Connection closed while receiving data: [Errno 54] Connection reset by peer
+13:59:51 INFO telethon.network.mtprotosender: Closing current connection to begin reconnect...
+13:59:51 INFO telethon.network.connection.connection: <class 'ConnectionResetError'> during disconnect: [Errno 54] Connection reset by peer
+13:59:51 INFO telethon.network.mtprotosender: Connecting to 149.154.175.51:443/TcpFull...
+13:59:51 INFO telethon.network.mtprotosender: Connection to 149.154.175.51:443/TcpFull complete!
+14:04:59 WARNING telethon.network.connection.connection: Server closed the connection: [Errno 54] Connection reset by peer
+14:04:59 INFO telethon.network.mtprotosender: Connection closed while receiving data: [Errno 54] Connection reset by peer
+14:04:59 INFO telethon.network.mtprotosender: Closing current connection to begin reconnect...
+14:04:59 INFO telethon.network.connection.connection: <class 'ConnectionResetError'> during disconnect: [Errno 54] Connection reset by peer
+14:04:59 INFO telethon.network.mtprotosender: Connecting to 149.154.175.51:443/TcpFull...
+14:04:59 INFO telethon.network.mtprotosender: Connection to 149.154.175.51:443/TcpFull complete!
+14:09:50 WARNING telethon.network.connection.connection: Server closed the connection: [Errno 54] Connection reset by peer
+14:09:50 INFO telethon.network.mtprotosender: Connection closed while receiving data: [Errno 54] Connection reset by peer
+14:09:50 INFO telethon.network.mtprotosender: Closing current connection to begin reconnect...
+14:09:50 INFO telethon.network.connection.connection: <class 'ConnectionResetError'> during disconnect: [Errno 54] Connection reset by peer
+14:09:50 INFO telethon.network.mtprotosender: Connecting to 149.154.175.51:443/TcpFull...
+14:09:50 INFO telethon.network.mtprotosender: Connection to 149.154.175.51:443/TcpFull complete!
+14:14:00 WARNING telethon.network.connection.connection: Server closed the connection: [Errno 54] Connection reset by peer
+14:14:00 INFO telethon.network.mtprotosender: Connection closed while receiving data: [Errno 54] Connection reset by peer
+14:14:00 INFO telethon.network.mtprotosender: Closing current connection to begin reconnect...
+14:14:00 INFO telethon.network.connection.connection: <class 'ConnectionResetError'> during disconnect: [Errno 54] Connection reset by peer
+14:14:00 INFO telethon.network.mtprotosender: Connecting to 149.154.175.51:443/TcpFull...
+14:14:00 INFO telethon.network.mtprotosender: Connection to 149.154.175.51:443/TcpFull complete!
+14:18:03 WARNING telethon.network.connection.connection: Server closed the connection: [Errno 54] Connection reset by peer
+14:18:03 INFO telethon.network.mtprotosender: Connection closed while receiving data: [Errno 54] Connection reset by peer
+14:18:03 INFO telethon.network.mtprotosender: Closing current connection to begin reconnect...
+14:18:03 INFO telethon.network.connection.connection: <class 'ConnectionResetError'> during disconnect: [Errno 54] Connection reset by peer
+14:18:03 INFO telethon.network.mtprotosender: Connecting to 149.154.175.51:443/TcpFull...
+14:18:03 INFO telethon.network.mtprotosender: Connection to 149.154.175.51:443/TcpFull complete!
+14:19:36 WARNING telethon.network.connection.connection: Server closed the connection: 0 bytes read on a total of 8 expected bytes
+14:19:36 INFO telethon.network.mtprotosender: Connection closed while receiving data: 0 bytes read on a total of 8 expected bytes
+14:19:36 INFO telethon.network.mtprotosender: Closing current connection to begin reconnect...
+14:19:36 INFO telethon.network.mtprotosender: Connecting to 149.154.175.51:443/TcpFull...
+14:19:36 INFO telethon.network.mtprotosender: Connection to 149.154.175.51:443/TcpFull complete!
+14:19:41 INFO audio: record_until_silence: 19.12s captured, voice=True
+14:19:42 INFO __main__: audio diag: 19.12s, 305920 samples, rms=4802.4, peak=32764
+14:19:46 INFO __main__: transcript: "It can't search the lab. Why do they have me? What can I do? You can't think of my calendar. Hey, can you add something to Calender's calendar? I give up. You're annoying."
+14:19:46 INFO __main__: bridge dispatch: "It can't search the lab. Why do they have me? What can I do? You can't think of my calendar. Hey, can you add something to Calender's calendar? I give up. You're annoying."
+14:19:46 INFO bridge: send_and_wait: dispatching (171 chars, timeout=30s)
+14:19:46 INFO bridge: voice → bot (msg_id=376): It can't search the lab. Why do they have me? What can I do? You can't think of 
+14:19:58 INFO bridge: bot → voice: I can certainly add events to your calendar, sir. Simply tell me the details.
+14:19:58 INFO bridge: send_and_wait: reply received (77 chars)
+14:19:58 INFO __main__: reply: 'I can certainly add events to your calendar, sir. Simply tell me the details.'
+14:46:50 WARNING telethon.network.connection.connection: Server closed the connection: [Errno 54] Connection reset by peer
+14:46:50 INFO telethon.network.mtprotosender: Connection closed while receiving data: [Errno 54] Connection reset by peer
+14:46:50 INFO telethon.network.mtprotosender: Closing current connection to begin reconnect...
+14:46:50 INFO telethon.network.connection.connection: <class 'ConnectionResetError'> during disconnect: [Errno 54] Connection reset by peer
+14:46:50 INFO telethon.network.mtprotosender: Connecting to 149.154.175.51:443/TcpFull...
+14:46:50 INFO telethon.network.mtprotosender: Connection to 149.154.175.51:443/TcpFull complete!
+14:56:22 WARNING telethon.network.connection.connection: Server closed the connection: [Errno 54] Connection reset by peer
+14:56:22 INFO telethon.network.mtprotosender: Connection closed while receiving data: [Errno 54] Connection reset by peer
+14:56:22 INFO telethon.network.mtprotosender: Closing current connection to begin reconnect...
+14:56:22 INFO telethon.network.connection.connection: <class 'ConnectionResetError'> during disconnect: [Errno 54] Connection reset by peer
+14:56:22 INFO telethon.network.mtprotosender: Connecting to 149.154.175.51:443/TcpFull...
+14:56:22 INFO telethon.network.mtprotosender: Connection to 149.154.175.51:443/TcpFull complete!
+15:38:05 WARNING telethon.network.connection.connection: Server closed the connection: [Errno 54] Connection reset by peer
+15:38:05 INFO telethon.network.mtprotosender: Connection closed while receiving data: [Errno 54] Connection reset by peer
+15:38:05 INFO telethon.network.mtprotosender: Closing current connection to begin reconnect...
+15:38:05 INFO telethon.network.connection.connection: <class 'ConnectionResetError'> during disconnect: [Errno 54] Connection reset by peer
+15:38:05 INFO telethon.network.mtprotosender: Connecting to 149.154.175.51:443/TcpFull...
+15:38:05 INFO telethon.network.mtprotosender: Connection to 149.154.175.51:443/TcpFull complete!
+15:38:06 WARNING telethon.network.mtprotostate: Server resent the older message 7646900158977625089, ignoring
+16:00:32 WARNING telethon.network.connection.connection: Server closed the connection: [Errno 54] Connection reset by peer
+16:00:32 INFO telethon.network.mtprotosender: Connection closed while receiving data: [Errno 54] Connection reset by peer
+16:00:32 INFO telethon.network.mtprotosender: Closing current connection to begin reconnect...
+16:00:32 INFO telethon.network.connection.connection: <class 'ConnectionResetError'> during disconnect: [Errno 54] Connection reset by peer
+16:00:32 INFO telethon.network.mtprotosender: Connecting to 149.154.175.51:443/TcpFull...
+16:00:32 INFO telethon.network.mtprotosender: Connection to 149.154.175.51:443/TcpFull complete!
+16:24:02 WARNING telethon.network.connection.connection: Server closed the connection: [Errno 54] Connection reset by peer
+16:24:02 INFO telethon.network.mtprotosender: Connection closed while receiving data: [Errno 54] Connection reset by peer
+16:24:02 INFO telethon.network.mtprotosender: Closing current connection to begin reconnect...
+16:24:02 INFO telethon.network.connection.connection: <class 'ConnectionResetError'> during disconnect: [Errno 54] Connection reset by peer
+16:24:02 INFO telethon.network.mtprotosender: Connecting to 149.154.175.51:443/TcpFull...
+16:24:02 INFO telethon.network.mtprotosender: Connection to 149.154.175.51:443/TcpFull complete!
+16:27:54 WARNING telethon.network.connection.connection: Server closed the connection: [Errno 54] Connection reset by peer
+16:27:54 INFO telethon.network.mtprotosender: Connection closed while receiving data: [Errno 54] Connection reset by peer
+16:27:54 INFO telethon.network.mtprotosender: Closing current connection to begin reconnect...
+16:27:54 INFO telethon.network.connection.connection: <class 'ConnectionResetError'> during disconnect: [Errno 54] Connection reset by peer
+16:27:54 INFO telethon.network.mtprotosender: Connecting to 149.154.175.51:443/TcpFull...
+16:27:54 INFO telethon.network.mtprotosender: Connection to 149.154.175.51:443/TcpFull complete!
+17:34:43 WARNING telethon.network.connection.connection: Server closed the connection: [Errno 54] Connection reset by peer
+17:34:43 INFO telethon.network.mtprotosender: Connection closed while receiving data: [Errno 54] Connection reset by peer
+17:34:43 INFO telethon.network.mtprotosender: Closing current connection to begin reconnect...
+17:34:43 INFO telethon.network.connection.connection: <class 'ConnectionResetError'> during disconnect: [Errno 54] Connection reset by peer
+17:34:44 INFO telethon.network.mtprotosender: Connecting to 149.154.175.51:443/TcpFull...
+17:34:44 INFO telethon.network.mtprotosender: Connection to 149.154.175.51:443/TcpFull complete!
+18:24:59 WARNING telethon.network.connection.connection: Server closed the connection: [Errno 54] Connection reset by peer
+18:24:59 INFO telethon.network.mtprotosender: Connection closed while receiving data: [Errno 54] Connection reset by peer
+18:24:59 INFO telethon.network.mtprotosender: Closing current connection to begin reconnect...
+18:24:59 INFO telethon.network.connection.connection: <class 'ConnectionResetError'> during disconnect: [Errno 54] Connection reset by peer
+18:24:59 INFO telethon.network.mtprotosender: Connecting to 149.154.175.51:443/TcpFull...
+18:24:59 INFO telethon.network.mtprotosender: Connection to 149.154.175.51:443/TcpFull complete!
+18:45:36 WARNING telethon.network.connection.connection: Server closed the connection: [Errno 54] Connection reset by peer
+18:45:36 INFO telethon.network.mtprotosender: Connection closed while receiving data: [Errno 54] Connection reset by peer
+18:45:36 INFO telethon.network.mtprotosender: Closing current connection to begin reconnect...
+18:45:36 INFO telethon.network.connection.connection: <class 'ConnectionResetError'> during disconnect: [Errno 54] Connection reset by peer
+18:45:36 INFO telethon.network.mtprotosender: Connecting to 149.154.175.51:443/TcpFull...
+18:45:36 INFO telethon.network.mtprotosender: Connection to 149.154.175.51:443/TcpFull complete!
+18:51:07 WARNING telethon.network.connection.connection: Server closed the connection: [Errno 54] Connection reset by peer
+18:51:07 INFO telethon.network.mtprotosender: Connection closed while receiving data: [Errno 54] Connection reset by peer
+18:51:07 INFO telethon.network.mtprotosender: Closing current connection to begin reconnect...
+18:51:07 INFO telethon.network.connection.connection: <class 'ConnectionResetError'> during disconnect: [Errno 54] Connection reset by peer
+18:51:07 INFO telethon.network.mtprotosender: Connecting to 149.154.175.51:443/TcpFull...
+18:51:07 INFO telethon.network.mtprotosender: Connection to 149.154.175.51:443/TcpFull complete!
+18:52:42 INFO __main__: signal 15 received, shutting down
+18:52:42 INFO telethon.network.mtprotosender: Disconnecting from 149.154.175.51:443/TcpFull...
+18:52:42 INFO telethon.network.mtprotosender: Disconnection from 149.154.175.51:443/TcpFull complete!
+18:52:42 WARNING bridge: bridge disconnect error: Event loop is closed
+/Users/keller/friday/friday/voice/bridge.py:94: RuntimeWarning: coroutine 'TelegramBridge._async_disconnect' was never awaited
+  _LOGGER.warning("bridge disconnect error: %s", e)
+RuntimeWarning: Enable tracemalloc to get the object allocation traceback
+18:52:48 INFO wakeword: skipping single-token wake phrase 'Friday' (solo_trigger_enabled=False)
+18:52:48 WARNING wakeword: no model available for phrases ['Friday you up', 'Friday status'] — they will never fire. Train custom models or alias them to hey_jarvis.
+18:52:48 INFO wakeword: WakeDetector loading models: ['/Users/keller/friday/friday/voice/models/hey_friday.onnx']
+18:52:48 INFO wakeword: WakeDetector ready. Phrase→label map: {'Hey Friday': 'hey_friday'}
+18:52:50 INFO __main__: mic probe: 16640 samples drained, peak=165 (signal OK)
+18:52:50 INFO audio: audio stream opened at 16000 Hz
+18:52:51 INFO __main__: loading whisper model 'base'...
+18:52:51 INFO __main__: whisper ready in 0.8s
+18:52:51 INFO __main__: clap detector disabled (voice.clap_enabled=false)
+18:52:51 INFO telethon.network.mtprotosender: Connecting to 149.154.175.51:443/TcpFull...
+18:52:51 INFO telethon.network.mtprotosender: Connection to 149.154.175.51:443/TcpFull complete!
+18:52:52 INFO bridge: Telethon client authenticated (StringSession)
+18:52:52 INFO bridge: bot entity resolved: KellerFridaySecretaryBot
+18:52:52 INFO ptt: PTT listener started on key=Key.alt_r
+18:52:52 INFO audio: audio subscriber registered: wake
+18:52:52 INFO __main__: F.R.I.D.A.Y. Voice — online. Triggers: wake, PTT=right_option
+18:52:59 INFO __main__: signal 15 received, shutting down
+18:52:59 INFO telethon.network.mtprotosender: Disconnecting from 149.154.175.51:443/TcpFull...
+18:52:59 INFO telethon.network.mtprotosender: Disconnection from 149.154.175.51:443/TcpFull complete!
+18:52:59 WARNING bridge: bridge disconnect error: Event loop is closed
+/Users/keller/friday/friday/voice/bridge.py:94: RuntimeWarning: coroutine 'TelegramBridge._async_disconnect' was never awaited
+  _LOGGER.warning("bridge disconnect error: %s", e)
+RuntimeWarning: Enable tracemalloc to get the object allocation traceback
+18:53:05 INFO __main__: mic probe: 16640 samples drained, peak=220 (signal OK)
+18:53:06 INFO __main__: loading whisper model 'base'...
+18:53:06 INFO __main__: whisper ready in 0.8s
+18:53:06 INFO __main__: clap detector disabled (voice.clap_enabled=false)
+18:53:06 INFO telethon.network.mtprotosender: Connecting to 149.154.175.51:443/TcpFull...
+18:53:07 INFO telethon.network.mtprotosender: Connection to 149.154.175.51:443/TcpFull complete!
+18:53:07 INFO bridge: Telethon client authenticated (StringSession)
+18:53:07 INFO bridge: bot entity resolved: KellerFridaySecretaryBot
+18:53:07 INFO ptt: PTT listener started on key=Key.alt_r
+18:53:07 INFO __main__: wake detector disabled (voice.wake_enabled=false)
+18:53:07 INFO __main__: F.R.I.D.A.Y. Voice — online. Triggers: PTT=right_option
+18:56:30 INFO audio: audio stream opened at 16000 Hz
+18:56:30 INFO audio: audio subscriber registered: record_ptt
+18:56:30 INFO audio: record_while_held: 0.48s captured
+18:56:30 INFO __main__: audio diag: 0.48s, 7680 samples, rms=5.3, peak=77
+18:56:31 INFO __main__: PTT press dropped (session active)
+18:56:31 INFO __main__: transcript: ''
