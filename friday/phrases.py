@@ -32,7 +32,10 @@ def quip_prompt(context: str) -> tuple[str, list[str]]:
     numbered = "\n".join(f"{i+1}. {q}" for i, q in enumerate(quips))
     prompt = (
         f"{context}\n\n"
-        f"Pick the most fitting quip by number only. "
+        f"Pick the quip that best fits this specific event. "
+        f"Avoid contradictions — e.g. a 'touch grass' quip is wrong for an "
+        f"outdoor event, a 'sleep schedule' or 'all-nighter' quip is wrong "
+        f"for a daytime event, an 'academic' quip is wrong for an errand. "
         f"Reply with a single integer and nothing else.\n\n"
         f"{numbered}"
     )

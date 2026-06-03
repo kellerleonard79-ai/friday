@@ -532,3 +532,47 @@ Add to calendar?
 19:53:13 INFO bridge: bot → voice: Done sir, I've added Get Racket from Mallory to your calendar tomorrow at 9:30 A
 19:53:13 INFO bridge: send_and_wait: reply received (82 chars)
 19:53:13 INFO __main__: reply: "Done sir, I've added Get Racket from Mallory to your calendar tomorrow at 9:30 AM."
+20:01:14 INFO audio: audio stream opened at 16000 Hz
+20:01:14 INFO audio: audio subscriber registered: record_ptt
+20:01:19 INFO audio: record_while_held: 5.84s captured
+20:01:19 INFO __main__: audio diag: 5.84s, 93440 samples, rms=1978.2, peak=20859
+20:01:20 INFO __main__: transcript: 'Add Get Racket from Mallory to my calendar tomorrow at 9.30am.'
+20:01:20 INFO __main__: bridge dispatch: 'Add Get Racket from Mallory to my calendar tomorrow at 9.30am.'
+20:01:20 INFO bridge: send_and_wait: dispatching (62 chars, timeout=30s)
+20:01:20 INFO bridge: voice → bot (msg_id=410): Add Get Racket from Mallory to my calendar tomorrow at 9.30am.
+20:01:44 INFO bridge: bot → voice: Get Racket from Mallory added for tomorrow at 9:30 AM.
+20:01:44 INFO bridge: send_and_wait: reply received (54 chars)
+20:01:44 INFO __main__: reply: 'Get Racket from Mallory added for tomorrow at 9:30 AM.'
+20:07:48 INFO audio: audio stream opened at 16000 Hz
+20:07:48 INFO audio: audio subscriber registered: record_ptt
+20:07:53 INFO audio: record_while_held: 5.20s captured
+20:07:53 INFO __main__: audio diag: 5.20s, 83200 samples, rms=2332.8, peak=32460
+20:07:53 INFO __main__: transcript: 'Add Git Racket from Mallory to my calendar tomorrow at 9.30am.'
+20:07:53 INFO __main__: bridge dispatch: 'Add Git Racket from Mallory to my calendar tomorrow at 9.30am.'
+20:07:53 INFO bridge: send_and_wait: dispatching (62 chars, timeout=30s)
+20:07:54 INFO bridge: voice → bot (msg_id=413): Add Git Racket from Mallory to my calendar tomorrow at 9.30am.
+20:08:10 INFO bridge: bot → voice: Git Racket from Mallory added for tomorrow at 9:30 AM.
+20:08:10 INFO bridge: send_and_wait: reply received (54 chars)
+20:08:10 INFO __main__: reply: 'Git Racket from Mallory added for tomorrow at 9:30 AM.'
+20:13:13 INFO audio: audio stream opened at 16000 Hz
+20:13:13 INFO audio: audio subscriber registered: record_ptt
+20:13:19 INFO audio: record_while_held: 6.16s captured
+20:13:19 INFO __main__: audio diag: 6.16s, 98560 samples, rms=2345.3, peak=32537
+20:13:20 INFO __main__: transcript: 'Add Get Racket from Mallory to my calendar tomorrow at 9.30am.'
+20:13:20 INFO __main__: bridge dispatch: 'Add Get Racket from Mallory to my calendar tomorrow at 9.30am.'
+20:13:20 INFO bridge: send_and_wait: dispatching (62 chars, timeout=30s)
+20:13:20 INFO bridge: voice → bot (msg_id=416): Add Get Racket from Mallory to my calendar tomorrow at 9.30am.
+20:13:29 INFO bridge: bot → voice: Get Racket from Mallory added for tomorrow at 9:30 AM.
+20:13:29 INFO bridge: send_and_wait: reply received (54 chars)
+20:13:29 INFO __main__: reply: 'Get Racket from Mallory added for tomorrow at 9:30 AM.'
+20:25:32 INFO audio: audio stream opened at 16000 Hz
+20:25:32 INFO audio: audio subscriber registered: record_ptt
+20:25:38 INFO audio: record_while_held: 6.00s captured
+20:25:38 INFO __main__: audio diag: 6.00s, 96000 samples, rms=1578.4, peak=28606
+20:25:40 INFO __main__: transcript: 'Add a Git Racket from Mallory to my calendar tomorrow at 9.30am.'
+20:25:40 INFO __main__: bridge dispatch: 'Add a Git Racket from Mallory to my calendar tomorrow at 9.30am.'
+20:25:40 INFO bridge: send_and_wait: dispatching (64 chars, timeout=30s)
+20:25:40 INFO bridge: voice → bot (msg_id=427): Add a Git Racket from Mallory to my calendar tomorrow at 9.30am.
+20:25:47 INFO bridge: bot → voice: Get Racket from Mallory added for tomorrow at 9:30 AM. Your wish is my... mild i
+20:25:47 INFO bridge: send_and_wait: reply received (93 chars)
+20:25:47 INFO __main__: reply: 'Get Racket from Mallory added for tomorrow at 9:30 AM. Your wish is my... mild inconvenience.'

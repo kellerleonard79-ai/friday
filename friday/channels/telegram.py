@@ -115,6 +115,7 @@ class TelegramHandler:
 
             loop = asyncio.get_running_loop()
             self.agent._last_action_emitted = None  # reset before the call
+            self.agent._last_calendar_confirmation = None
             response = await loop.run_in_executor(None, self.agent._think, text, history)
             action_emitted = getattr(self.agent, "_last_action_emitted", None)
 
@@ -128,9 +129,11 @@ class TelegramHandler:
                 await update.message.reply_text(response)
                 assistant_log = response
             elif action_emitted == "calendar_added":
-                # auto_write already sent the user a confirmation message.
-                # Silence is correct. Record a synthetic note for history.
-                assistant_log = "[Added event to Apple Calendar and sent confirmation.]"
+                # auto_write already sent the user a confirmation message —
+                # store that exact text so future LLM turns see a natural
+                # assistant reply pattern instead of a synthetic marker they
+                # might echo back verbatim.
+                assistant_log = getattr(self.agent, "_last_calendar_confirmation", "") or ""
             else:
                 err = getattr(self.agent, "_last_error", None)
                 if err:

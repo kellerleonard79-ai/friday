@@ -139,12 +139,35 @@ def _resolve_calendar(requested: str | None, default: str | None) -> str | None:
 
 # ── Event payload helpers ─────────────────────────────────────────────────────
 
+_TITLE_STOPWORDS = {"a", "an", "the", "and", "or", "but", "of", "in", "on",
+                    "at", "to", "for", "with", "by", "vs", "via"}
+
+
+def _normalize_title(title: str) -> str:
+    """Backstop for the LLM's title-casing rule (see AGENTS.md): if the title
+    is entirely lowercase or entirely uppercase, render it in Title Case.
+    Mixed-case titles are left alone so deliberate casing like 'iPhone' or
+    'FBLA' survives. Stopwords stay lowercase unless they're the first word."""
+    if not title or any(c.isupper() for c in title) and any(c.islower() for c in title):
+        return title
+    words = title.split()
+    out = []
+    for i, w in enumerate(words):
+        lw = w.lower()
+        if i > 0 and lw in _TITLE_STOPWORDS:
+            out.append(lw)
+        else:
+            out.append(lw[:1].upper() + lw[1:])
+    return " ".join(out)
+
+
 def _parse_event(event: dict) -> tuple[str, datetime, datetime, bool]:
     """(title, start, end, all_day). Raises ValueError on bad input.
     Honors start_time/end_time as a single-day range; falls back to 1h
     duration when only start_time is given; treats no times as all-day.
     Overnight ranges (end <= start) are rejected for now."""
-    title = (event.get("title") or "").strip()
+    title = _normalize_title((event.get("title") or "").strip())
+    event["title"] = title
     if not title:
         raise ValueError("event.title required")
     date_str = (event.get("date") or "").strip()
@@ -222,6 +245,21 @@ def _friendly_time(time_str: str) -> str:
     return f"{h12}:{m:02d} {period}"
 
 
+def format_confirmation(event: dict, quip: str = "") -> str:
+    """One-line confirmation Friday sends after a successful add. Public so
+    callers can store the exact text in conversation_history without rebuilding
+    it — past history rows shape the LLM's future output, so the row must
+    match what the user actually saw."""
+    title = (event.get("title") or "").strip()
+    when_phrase = _confirmation_date(event.get("date", ""))
+    start = (event.get("start_time") or event.get("time") or "").strip()
+    time_phrase = f" at {_friendly_time(start)}" if start else ""
+    msg = f"{title} added for {when_phrase}{time_phrase}."
+    if quip:
+        msg = f"{msg} {quip}"
+    return msg
+
+
 def _format_when(event: dict) -> str:
     """Render the time component for a draft card."""
     start = (event.get("start_time") or event.get("time") or "").strip()
@@ -235,11 +273,13 @@ def _format_when(event: dict) -> str:
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def auto_write(event: dict, telegram=None, default_calendar: str | None = None) -> str | None:
+def auto_write(event: dict, telegram=None, default_calendar: str | None = None,
+               quip: str = "") -> str | None:
     """Immediate write, no approval gate. Returns Apple UID or None.
     Sends a Telegram confirmation/failure note only if telegram is provided.
     default_calendar is the fallback when event['calendar'] is missing or
-    doesn't exist on the system."""
+    doesn't exist on the system. quip, if provided, is appended to the
+    success confirmation so personality ships in the same message."""
     try:
         title, start, end, all_day = _parse_event(event)
     except ValueError as e:
@@ -271,10 +311,7 @@ def auto_write(event: dict, telegram=None, default_calendar: str | None = None) 
         return None
 
     if telegram:
-        when_phrase = _confirmation_date(event.get("date", ""))
-        start = (event.get("start_time") or event.get("time") or "").strip()
-        time_phrase = f" at {_friendly_time(start)}" if start else ""
-        telegram.send(f"{title} added for {when_phrase}{time_phrase}.")
+        telegram.send(format_confirmation(event, quip))
     return uid
 
 

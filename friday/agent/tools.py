@@ -167,9 +167,10 @@ def make_tools(conn, config, agent=None):
         notes: str = "",
     ) -> dict:
         """Write a new event to the user's Apple Calendar immediately, with no
-        approval gate. Friday sends the user a one-line confirmation
-        ("Done sir, I've added X to your calendar tomorrow at 8:00 AM.") on
-        success — you do NOT need to describe the event again afterward.
+        approval gate. Friday sends the user a one-line confirmation with a
+        personality quip appended ("Dentist added for tomorrow at 2:00 PM.
+        Your wish is my... mild inconvenience.") on success — you do NOT
+        need to describe the event again afterward.
 
         Use this for work shifts, appointments, meetings — anything the user
         says they have coming up. Always call get_now() first to resolve
@@ -177,6 +178,16 @@ def make_tools(conn, config, agent=None):
 
         Args:
             title:      Short event title, e.g. "Work — Nation" or "Dentist".
+                        REQUIRED before calling: (1) sanity-check the words —
+                        if a word looks like a transcription error or typo
+                        ("git apples", "by milk", "dock tor"), correct it to
+                        the obvious intended word ("Get Apples", "Buy Milk",
+                        "Doctor"). When the intended word is genuinely
+                        ambiguous, ask the user instead of guessing.
+                        (2) Title Case the result — capitalize the first
+                        letter of every significant word. Never pass an
+                        all-lowercase or all-uppercase title. Preserve
+                        intentional internal casing (iPhone, FBLA).
             date:       ISO YYYY-MM-DD.
             start_time: 24-hour HH:MM (e.g. "07:00", "14:30"). Convert any
                         phrasing ("7 AM", "noon", "two thirty PM") to HH:MM
@@ -203,17 +214,9 @@ def make_tools(conn, config, agent=None):
             event["calendar"] = calendar
         if notes:
             event["notes"] = notes
-        default_cal = (config.get("agent") or {}).get("default_calendar")
-        uid = cal_action.auto_write(
-            event, telegram=handler, default_calendar=default_cal,
-        )
-        if not uid:
-            # auto_write already sent the user a failure note in this case.
-            return {"status": "error",
-                    "message": "Calendar write failed — see logs"}
-        # Voice/personality lives in a separate message so the functional
-        # confirmation stays clean. Reloaded from disk every call — edit
-        # quips.yaml and the next action picks it up without a restart.
+        # Pick the quip first so the confirmation ships as a single message.
+        # Reloaded from disk every call — edit quips.yaml and the next action
+        # picks it up without a restart.
         import phrases
         try:
             day_str = datetime.strptime(date, "%Y-%m-%d").strftime("%A %B %-d")
@@ -226,16 +229,28 @@ def make_tools(conn, config, agent=None):
         prompt, quips = phrases.quip_prompt(quip_context)
         raw = agent._think(prompt, use_tools=False) if agent else ""
         quip = phrases.pick_quip(raw, quips)
-        handler.send(quip)
+        default_cal = (config.get("agent") or {}).get("default_calendar")
+        uid = cal_action.auto_write(
+            event, telegram=handler, default_calendar=default_cal, quip=quip,
+        )
+        if not uid:
+            # auto_write already sent the user a failure note in this case.
+            return {"status": "error",
+                    "message": "Calendar write failed — see logs"}
         # Flag the handler that the confirmation message already went out, so
         # an empty LLM follow-up isn't treated as a failure and we don't
-        # double-message the user.
+        # double-message the user. Stash the exact text we sent so the
+        # Telegram layer can write it into conversation_history — past rows
+        # train the LLM's future output, so the row must match what shipped.
         if agent is not None:
             agent._last_action_emitted = "calendar_added"
+            agent._last_calendar_confirmation = cal_action.format_confirmation(
+                event, quip,
+            )
         return {
             "status": "added",
             "apple_event_uid": uid,
-            "user_already_sees": "a one-line confirmation message from Friday naming the event, day, and time",
+            "user_already_sees": "a one-line confirmation message from Friday naming the event, day, and time, with a quip appended",
             "next_action": "Do not produce any further output for this turn. Friday has already replied.",
         }
 
