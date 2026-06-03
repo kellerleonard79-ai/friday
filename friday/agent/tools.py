@@ -158,7 +158,7 @@ def make_tools(conn, config, agent=None):
             "timezone": tz_name,
         }
 
-    def propose_calendar_event(
+    def add_calendar_event(
         title: str,
         date: str,
         start_time: str = "",
@@ -166,9 +166,10 @@ def make_tools(conn, config, agent=None):
         calendar: str = "",
         notes: str = "",
     ) -> dict:
-        """Propose a new event for the user's Apple Calendar. Sends an approval
-        card via Telegram with ✅ Confirm / ✏️ Edit / ❌ Cancel buttons. The
-        event is NOT written until the user taps Confirm.
+        """Write a new event to the user's Apple Calendar immediately, with no
+        approval gate. Friday sends the user a one-line confirmation
+        ("Done sir, I've added X to your calendar tomorrow at 8:00 AM.") on
+        success — you do NOT need to describe the event again afterward.
 
         Use this for work shifts, appointments, meetings — anything the user
         says they have coming up. Always call get_now() first to resolve
@@ -189,9 +190,9 @@ def make_tools(conn, config, agent=None):
             notes:      Optional free-text notes.
         """
         handler = getattr(agent, "telegram_handler", None) if agent else None
-        if handler is None or conn is None:
+        if handler is None:
             return {"status": "error",
-                    "message": "Calendar gate not available"}
+                    "message": "Calendar writer not available"}
         from actions import calendar as cal_action
         event = {"title": title, "date": date}
         if start_time:
@@ -203,23 +204,30 @@ def make_tools(conn, config, agent=None):
         if notes:
             event["notes"] = notes
         default_cal = (config.get("agent") or {}).get("default_calendar")
-        pending_key = cal_action.gated_write(
-            event, conn, handler, default_calendar=default_cal,
+        uid = cal_action.auto_write(
+            event, telegram=handler, default_calendar=default_cal,
         )
-        if not pending_key:
+        if not uid:
+            # auto_write already sent the user a failure note in this case.
             return {"status": "error",
-                    "message": "Failed to draft event — see logs"}
-        # Flag the handler that a side-effecting card already went out, so an
-        # empty LLM follow-up isn't treated as a failure.
+                    "message": "Calendar write failed — see logs"}
+        # Voice/personality lives in a separate message so the functional
+        # confirmation stays clean. Reloaded from disk every call — edit
+        # quips.yaml and the next action picks it up without a restart.
+        from phrases import random_quip
+        handler.send(random_quip())
+        # Flag the handler that the confirmation message already went out, so
+        # an empty LLM follow-up isn't treated as a failure and we don't
+        # double-message the user.
         if agent is not None:
-            agent._last_action_emitted = "calendar_proposal"
+            agent._last_action_emitted = "calendar_added"
         return {
-            "status": "pending",
-            "pending_key": pending_key,
-            "user_already_sees": "interactive approval card with title, date, time range, calendar, and Confirm/Edit/Cancel buttons",
-            "next_action": "Reply with an empty string. Do NOT describe the proposal again — the card is the response.",
+            "status": "added",
+            "apple_event_uid": uid,
+            "user_already_sees": "a one-line confirmation message from Friday naming the event, day, and time",
+            "next_action": "Do not produce any further output for this turn. Friday has already replied.",
         }
 
     return [get_now, get_schedule, get_weather,
             get_pending_canvas, reschedule_briefing,
-            propose_calendar_event]
+            add_calendar_event]

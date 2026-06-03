@@ -407,3 +407,95 @@ Add to calendar?
 📅 Thursday, June 18 at 09:3
 19:01:47 INFO bridge: send_and_wait: reply received (99 chars)
 19:01:47 INFO __main__: reply: '📋 Friday\n\nAdd to calendar?\n\n📌 Oil Change Appointment\n📅 Thursday, June 18 at 09:30\n🗂  Keller Leonard'
+19:15:53 INFO audio: audio stream opened at 16000 Hz
+19:15:53 INFO audio: audio subscriber registered: record_ptt
+19:15:56 INFO audio: record_while_held: 3.44s captured
+19:15:56 INFO __main__: audio diag: 3.44s, 55040 samples, rms=1465.3, peak=14861
+19:15:59 INFO __main__: transcript: 'This is a test. Please respond.'
+19:15:59 INFO __main__: bridge dispatch: 'This is a test. Please respond.'
+19:15:59 INFO bridge: send_and_wait: dispatching (31 chars, timeout=30s)
+19:15:59 INFO bridge: voice → bot (msg_id=386): This is a test. Please respond.
+19:16:03 INFO __main__: PTT press dropped (session active)
+19:16:04 INFO bridge: bot → voice: At your service, sir.
+19:16:04 INFO bridge: send_and_wait: reply received (21 chars)
+19:16:04 INFO __main__: reply: 'At your service, sir.'
+19:16:22 INFO audio: audio stream opened at 16000 Hz
+19:16:22 INFO audio: audio subscriber registered: record_ptt
+19:16:29 INFO audio: record_while_held: 7.52s captured
+19:16:29 INFO __main__: audio diag: 7.52s, 120320 samples, rms=2423.7, peak=22787
+19:16:30 INFO __main__: transcript: 'Add oil change appointment to my calendar on Thursday, June 18th at 9.30am.'
+19:16:30 INFO __main__: bridge dispatch: 'Add oil change appointment to my calendar on Thursday, June 18th at 9.30am.'
+19:16:30 INFO bridge: send_and_wait: dispatching (75 chars, timeout=30s)
+19:16:30 INFO bridge: voice → bot (msg_id=388): Add oil change appointment to my calendar on Thursday, June 18th at 9.30am.
+19:16:46 INFO bridge: bot → voice: 📋 Friday
+
+Add to calendar?
+
+📌 Oil Change Appointment
+📅 Thursday, June 18 at 09:3
+19:16:47 INFO bridge: send_and_wait: reply received (99 chars)
+19:16:47 INFO __main__: reply: '📋 Friday\n\nAdd to calendar?\n\n📌 Oil Change Appointment\n📅 Thursday, June 18 at 09:30\n🗂  Keller Leonard'
+19:24:51 INFO audio: audio stream opened at 16000 Hz
+19:24:51 INFO audio: audio subscriber registered: record_ptt
+19:24:57 INFO audio: record_while_held: 6.08s captured
+19:24:57 INFO __main__: audio diag: 6.08s, 97280 samples, rms=1376.6, peak=30299
+19:24:59 INFO __main__: transcript: 'a little. Add tennis with camp to my calendar tomorrow at 230 p.m.'
+19:24:59 INFO __main__: bridge dispatch: 'a little. Add tennis with camp to my calendar tomorrow at 230 p.m.'
+19:24:59 INFO bridge: send_and_wait: dispatching (66 chars, timeout=30s)
+19:24:59 INFO bridge: voice → bot (msg_id=393): a little. Add tennis with camp to my calendar tomorrow at 230 p.m.
+19:25:07 INFO bridge: bot → voice: 📋 Friday
+
+Add to calendar?
+
+📌 tennis with camp
+📅 Wednesday, June 3 at 14:30
+🗂  K
+19:25:07 INFO bridge: send_and_wait: reply received (93 chars)
+19:25:07 INFO __main__: reply: '📋 Friday\n\nAdd to calendar?\n\n📌 tennis with camp\n📅 Wednesday, June 3 at 14:30\n🗂  Keller Leonard'
+19:28:16 INFO __main__: signal 15 received, shutting down
+19:28:16 INFO telethon.network.mtprotosender: Disconnecting from 149.154.175.51:443/TcpFull...
+19:28:16 INFO telethon.network.mtprotosender: Disconnection from 149.154.175.51:443/TcpFull complete!
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/asyncio/base_events.py:716: RuntimeWarning: coroutine 'TelegramBridge._async_disconnect' was never awaited
+  self._ready.clear()
+RuntimeWarning: Enable tracemalloc to get the object allocation traceback
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/multiprocessing/resource_tracker.py:255: UserWarning: resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown
+  warnings.warn('resource_tracker: There appear to be %d '
+19:28:28 INFO __main__: mic probe: 16640 samples drained, peak=122 (signal OK)
+19:28:29 INFO __main__: loading whisper model 'base'...
+19:28:30 INFO __main__: whisper ready in 0.8s
+19:28:30 INFO __main__: clap detector disabled (voice.clap_enabled=false)
+19:28:30 INFO telethon.network.mtprotosender: Connecting to 149.154.175.51:443/TcpFull...
+19:28:30 INFO telethon.network.mtprotosender: Connection to 149.154.175.51:443/TcpFull complete!
+19:28:30 INFO bridge: Telethon client authenticated (StringSession)
+19:28:30 INFO bridge: bot entity resolved: KellerFridaySecretaryBot
+19:28:30 INFO ptt: PTT listener started on key=Key.alt_r
+19:28:30 INFO __main__: wake detector disabled (voice.wake_enabled=false)
+19:28:30 INFO __main__: F.R.I.D.A.Y. Voice — online. Triggers: PTT=right_option
+19:29:16 INFO audio: audio stream opened at 16000 Hz
+19:29:16 INFO audio: audio subscriber registered: record_ptt
+19:29:22 INFO audio: record_while_held: 6.24s captured
+19:29:22 INFO __main__: audio diag: 6.24s, 99840 samples, rms=1234.0, peak=15675
+19:29:24 INFO __main__: transcript: 'Add tennis with camp to my calendar at 230 p.m. tomorrow.'
+19:29:24 INFO __main__: bridge dispatch: 'Add tennis with camp to my calendar at 230 p.m. tomorrow.'
+19:29:24 INFO bridge: send_and_wait: dispatching (57 chars, timeout=30s)
+19:29:25 INFO bridge: voice → bot (msg_id=396): Add tennis with camp to my calendar at 230 p.m. tomorrow.
+19:29:33 INFO bridge: bot → voice: 📋 Friday
+
+Add to calendar?
+
+📌 Tennis with camp
+📅 Wednesday, June 3 at 14:30
+🗂  K
+19:29:33 INFO bridge: send_and_wait: reply received (93 chars)
+19:29:33 INFO __main__: reply: '📋 Friday\n\nAdd to calendar?\n\n📌 Tennis with camp\n📅 Wednesday, June 3 at 14:30\n🗂  Keller Leonard'
+19:35:51 INFO audio: audio stream opened at 16000 Hz
+19:35:51 INFO audio: audio subscriber registered: record_ptt
+19:35:57 INFO audio: record_while_held: 6.16s captured
+19:35:57 INFO __main__: audio diag: 6.16s, 98560 samples, rms=2244.6, peak=32534
+19:35:57 INFO __main__: transcript: 'Add tennis tomorrow with camp at 230 p.m.'
+19:35:57 INFO __main__: bridge dispatch: 'Add tennis tomorrow with camp at 230 p.m.'
+19:35:57 INFO bridge: send_and_wait: dispatching (41 chars, timeout=30s)
+19:35:58 INFO bridge: voice → bot (msg_id=400): Add tennis tomorrow with camp at 230 p.m.
+19:36:07 INFO bridge: bot → voice: Done sir, I've added Tennis with Camp to your calendar tomorrow at 2:30 PM.
+19:36:07 INFO bridge: send_and_wait: reply received (75 chars)
+19:36:07 INFO __main__: reply: "Done sir, I've added Tennis with Camp to your calendar tomorrow at 2:30 PM."

@@ -180,6 +180,48 @@ def _friendly_date(date_str: str) -> str:
         return date_str
 
 
+def _friendly_date_phrase(date_str: str) -> str:
+    """Spoken-form date for confirmations: 'today', 'tomorrow', or
+    'on Tuesday, June 3' for anything further out."""
+    try:
+        d = date_cls.fromisoformat(date_str)
+    except ValueError:
+        return date_str
+    today = date_cls.today()
+    if d == today:
+        return "today"
+    if d == today + timedelta(days=1):
+        return "tomorrow"
+    return d.strftime("on %A, %B %-d")
+
+
+def _confirmation_date(date_str: str) -> str:
+    """'today' / 'tomorrow' / 'Thursday, June 18' — bare, no preposition."""
+    try:
+        d = date_cls.fromisoformat(date_str)
+    except ValueError:
+        return date_str
+    today = date_cls.today()
+    if d == today:
+        return "today"
+    if d == today + timedelta(days=1):
+        return "tomorrow"
+    return d.strftime("%A, %B %-d")
+
+
+def _friendly_time(time_str: str) -> str:
+    """24h 'HH:MM' → '8:00 AM' / '12:00 PM'. Returns the input on parse failure."""
+    if not time_str:
+        return ""
+    try:
+        h, m = (int(x) for x in time_str.split(":", 1))
+    except ValueError:
+        return time_str
+    period = "AM" if h < 12 else "PM"
+    h12 = h % 12 or 12
+    return f"{h12}:{m:02d} {period}"
+
+
 def _format_when(event: dict) -> str:
     """Render the time component for a draft card."""
     start = (event.get("start_time") or event.get("time") or "").strip()
@@ -229,10 +271,10 @@ def auto_write(event: dict, telegram=None, default_calendar: str | None = None) 
         return None
 
     if telegram:
-        telegram.send(
-            f"Done sir, I've added {title} to your calendar on "
-            f"{_friendly_date(event.get('date', ''))}."
-        )
+        when_phrase = _confirmation_date(event.get("date", ""))
+        start = (event.get("start_time") or event.get("time") or "").strip()
+        time_phrase = f" at {_friendly_time(start)}" if start else ""
+        telegram.send(f"{title} added for {when_phrase}{time_phrase}.")
     return uid
 
 

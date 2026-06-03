@@ -56,6 +56,25 @@ _BLOCKQUOTE = re.compile(r"^\s*>+\s*", re.MULTILINE)
 _HRULE = re.compile(r"^\s*[-*_]{3,}\s*$", re.MULTILINE)
 _MULTI_BLANK = re.compile(r"\n{3,}")
 
+# Emoji stripping for TTS: macOS `say` will otherwise verbalize codepoint names
+# ("memo", "pushpin", "check mark"). Visual emoji in Telegram messages — the
+# approval-card icons 📌 📅 🗂 📝, the confirm/cancel buttons ✅ ❌, etc. —
+# stay in chat; we only filter them out of the speech path. Covers the BMP
+# misc-symbols/dingbats blocks plus the Supplementary Multilingual Plane
+# pictograph ranges, with an optional trailing variation selector.
+_EMOJI = re.compile(
+    "["
+    "\U0001F300-\U0001FAFF"
+    "\U0001F1E6-\U0001F1FF"
+    "\U00002600-\U000027BF"
+    "\U00002300-\U000023FF"
+    "\U00002B00-\U00002BFF"
+    "]"
+    "[\U0000FE0E\U0000FE0F]?",
+)
+_EXTRA_SPACES = re.compile(r" {2,}")
+_LEADING_SPACE_ON_LINE = re.compile(r"\n +")
+
 
 def strip_markdown(text: str) -> str:
     text = _CODE_FENCE.sub(lambda m: m.group(1), text)
@@ -68,6 +87,9 @@ def strip_markdown(text: str) -> str:
     text = _NUMBERED.sub("", text)
     text = _BLOCKQUOTE.sub("", text)
     text = _HRULE.sub("", text)
+    text = _EMOJI.sub("", text)
+    text = _EXTRA_SPACES.sub(" ", text)
+    text = _LEADING_SPACE_ON_LINE.sub("\n", text)
     text = _MULTI_BLANK.sub("\n\n", text)
     return text.strip()
 

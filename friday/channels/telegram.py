@@ -127,10 +127,10 @@ class TelegramHandler:
             if response:
                 await update.message.reply_text(response)
                 assistant_log = response
-            elif action_emitted == "calendar_proposal":
-                # The card already went out via gated_write. Silence is correct.
-                # Record a synthetic note so future turns know what happened.
-                assistant_log = "[Sent calendar approval card — awaiting user response.]"
+            elif action_emitted == "calendar_added":
+                # auto_write already sent the user a confirmation message.
+                # Silence is correct. Record a synthetic note for history.
+                assistant_log = "[Added event to Apple Calendar and sent confirmation.]"
             else:
                 logger.warning("Empty LLM response — sending fallback to user")
                 await update.message.reply_text("Sorry, sir — I drew a blank. Try again?")

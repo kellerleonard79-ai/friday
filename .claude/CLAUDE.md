@@ -4,7 +4,7 @@
  
 Friday is a personal AI secretary running on an always-on Mac. It ingests information from multiple sources (Canvas, GroupMe, and eventually Gmail), manages Apple Calendar, delivers proactive briefings and urgent alerts via Telegram, and drafts replies for user review. The user interacts with Friday exclusively through Telegram.
  
-Friday is **not** a simple chatbot. It is a structured, event-driven agent with a tool layer, memory layer, approval-gated actions, and a proactive alert system.
+Friday is **not** a simple chatbot. It is a structured, event-driven agent with a tool layer, memory layer, and a proactive alert system.
  
 ---
  
@@ -15,8 +15,7 @@ Friday is **not** a simple chatbot. It is a structured, event-driven agent with 
 - **The semaphore lives at the entry point.** `asyncio.Semaphore(1)` is placed at the very top of the Telegram message handler — before SQLite queries, before context assembly, before anything. Messages wait in line from the first byte. It is never placed only around the LLM call.
 - **The LLM is the single decision maker for all ingested data.** Deterministic code handles the mechanical parts — fetching, parsing API responses into raw records, writing to SQLite. The LLM processes everything after that: deciding urgency, filtering announcements, parsing natural language input, and formatting all output. It is never bypassed for "simple" structured data.
 - **Apple Calendar is the event store.** Due dates, work shifts, appointments, and any other calendar-type data live in Apple Calendar — not SQLite. SQLite tracks operational state only.
-- **SQLite is the operational backbone.** No `state.json`. No vector store. No RAG. No Redis. SQLite tracks: runtime key-value state, conversation history, raw ingested events buffer, pending approvals, and last_seen cursors. The `system_state` table replaces `state.json` entirely.
-- **Approval gates on all writes.** Every action that modifies the outside world must go through `send_permission_request` and wait for explicit user confirmation. Exception: Canvas due dates may be written to Apple Calendar automatically without a gate (unambiguous structured data).
+- **SQLite is the operational backbone.** No `state.json`. No vector store. No RAG. No Redis. SQLite tracks: runtime key-value state, conversation history, raw ingested events buffer, and last_seen cursors. The `system_state` table replaces `state.json` entirely.
 - **No iMessage in the automated pipeline.** iMessage is not polled, not read programmatically, and not drafted to. It is out of scope for all phases.
 ---
  

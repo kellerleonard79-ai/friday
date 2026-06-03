@@ -174,6 +174,14 @@ class FridayAgent:
                     tokens_out=getattr(usage, "candidates_token_count", 0) or 0,
                 )
                 text = (resp.text or "").strip()
+                # Gemma sometimes emits an empty Markdown fence (```\n```) as its
+                # post-tool reply instead of empty text, even when the tool
+                # result tells it to stay silent (see propose_calendar_event in
+                # agent/tools.py). That fence renders as six literal backticks
+                # in Telegram. Treat any backtick-only response as empty so the
+                # caller's empty-response branch handles it correctly.
+                if text and not text.replace("`", "").strip():
+                    text = ""
                 if not text:
                     finish = None
                     try:
