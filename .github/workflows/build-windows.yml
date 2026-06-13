@@ -23,13 +23,19 @@ jobs:
       # Optional: bundle the Google OAuth client from a repo secret so the
       # friend's wizard never asks for a file. Configure the secret
       # GOOGLE_CLIENT_SECRET_JSON with the full client_secret.json contents.
+      # The empty-check lives inside the script because the `secrets` context
+      # is not allowed in a step-level `if:` expression.
       - name: Write Google client secret
-        if: ${{ secrets.GOOGLE_CLIENT_SECRET_JSON != '' }}
         shell: pwsh
         env:
           CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET_JSON }}
         run: |
-          $env:CLIENT_SECRET | Out-File -Encoding utf8 packaging/windows/google_client_secret.json
+          if ($env:CLIENT_SECRET) {
+            $env:CLIENT_SECRET | Out-File -Encoding utf8 -NoNewline packaging/windows/google_client_secret.json
+            Write-Host "Bundled Google client secret."
+          } else {
+            Write-Host "No GOOGLE_CLIENT_SECRET_JSON secret set — wizard will ask the user for the file."
+          }
 
       - name: Generate icon
         run: python packaging/windows/make_icon.py
