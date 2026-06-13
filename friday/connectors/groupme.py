@@ -185,8 +185,8 @@ def _poll_one(api_token: str, gid: str, name: str, priority: str,
                 ])
             body = "\n".join(body_lines)[:2000]
 
-            # calendar_synced=1 — GroupMe never writes to Apple Calendar, so we
-            # pre-flag these rows out of canvas.sync_to_apple_calendar's query.
+            # calendar_synced=1 — GroupMe never writes to the calendar, so we
+            # pre-flag these rows out of canvas.sync_to_calendar's query.
             conn.execute(
                 """INSERT INTO events
                    (id, source, title, body, due_at, urgency, processed,

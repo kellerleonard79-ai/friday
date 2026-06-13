@@ -15,9 +15,12 @@ import asyncio
 import logging
 import os
 import shutil
+import signal
 import sqlite3
 import subprocess
+import sys
 import tempfile
+import threading
 from collections import deque
 from datetime import datetime
 from pathlib import Path
@@ -31,17 +34,19 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import compat
 import memory.state as state
+import paths
 
 logger = logging.getLogger("friday.dashboard")
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
-_STATIC_DIR = Path(__file__).parent / "static"
-_LOG_PATH   = Path(__file__).resolve().parent.parent / "logs" / "friday.log"
-_VOICE_LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "voice.err"
+_STATIC_DIR = paths.resource_path("dashboard", "static")
+_LOG_PATH   = paths.log_dir() / "friday.log"
+_VOICE_LOG_PATH = paths.log_dir() / "voice.err"
 # voice/listen.py touches this for the duration of every PTT/wake session.
-_LISTENING_FLAG = Path("/tmp/friday_listening")
+_LISTENING_FLAG = compat.listening_flag_path()
 
 # Sensitive keys masked by default. dot-paths into friday_config.yaml.
 _SECRET_PATHS: tuple[str, ...] = (
@@ -356,6 +361,18 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
 
     @app.post("/api/friday/restart")
     def api_friday_restart() -> dict:
+        if compat.IS_WINDOWS:
+            # The tray supervisor (tray.py) relaunches the core whenever it
+            # exits, so a restart is just a graceful shutdown. raise_signal
+            # delivers SIGINT to the main thread, which PTB's run_polling
+            # handles as a clean stop.
+            try:
+                threading.Timer(
+                    0.3, lambda: signal.raise_signal(signal.SIGINT)
+                ).start()
+                return {"ok": True}
+            except Exception as e:
+                raise HTTPException(500, f"Restart failed: {e}")
         uid = os.getuid()
         try:
             subprocess.Popen(
@@ -372,6 +389,14 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
         LaunchAgent). agent_loaded reflects whether launchd has the job in a
         running state; listening reflects the transient PTT/wake-session flag
         voice/listen.py touches at /tmp/friday_listening."""
+        if compat.IS_WINDOWS:
+            # No voice satellite on Windows — report a clean "not running".
+            return {
+                "agent_loaded": False,
+                "listening": False,
+                "session_present": False,
+                "wake_enabled": False,
+            }
         uid = os.getuid()
         agent_loaded = False
         try:
@@ -399,6 +424,8 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
         """Flip voice.wake_enabled in friday_config.yaml and kick the voice
         LaunchAgent so the change takes effect. PTT is unaffected — it works
         in both modes."""
+        if compat.IS_WINDOWS:
+            raise HTTPException(400, "Voice is not available on Windows.")
         enabled = bool(payload.get("enabled"))
         cfg = _load_config(config_path)
         voice_cfg = cfg.setdefault("voice", {})
@@ -419,6 +446,8 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
 
     @app.post("/api/voice/restart")
     def api_voice_restart() -> dict:
+        if compat.IS_WINDOWS:
+            raise HTTPException(400, "Voice is not available on Windows.")
         uid = os.getuid()
         try:
             subprocess.Popen(

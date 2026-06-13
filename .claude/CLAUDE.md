@@ -422,3 +422,34 @@ dialog — this is by design and does not mean the always-on stream is running.
 If a process appears running via `launchctl print` but the menubar reports voice offline,
 the menubar polls `/api/voice/status` every few seconds and may have cached an earlier
 failed boot. Wait ~10 seconds or restart via the menubar's "Restart Voice" item.
+## Windows Port (friend's build)
+
+The same codebase runs on Windows, packaged as `FridaySetup.exe` (Inno Setup wrapping a
+PyInstaller onedir build). Architecture differences are isolated behind small seams:
+
+- **Calendar backend dispatch** (`calendars/backend.py`): config `calendar.backend`
+  selects `apple` (JXA, the existing code, now in `calendars/apple.py`) or `google`
+  (`calendars/google_cal.py`, Google Calendar API + OAuth installed-app flow). Default
+  is google on win32, apple elsewhere. All reads/writes — tools, briefings, Canvas due
+  dates, gated writes — go through this dispatcher. On the google backend, gcal_sync is
+  skipped (Google already IS the event store) and missing calendars are auto-created.
+- **Paths** (`paths.py`): mutable state (config, db, logs, Google token) lives in
+  `%APPDATA%\Friday` on Windows/frozen builds, in the package dir on macOS. Bundled
+  read-only resources (AGENTS.md, quips.yaml, dashboard static) resolve via
+  `paths.resource_path()` (PyInstaller `_MEIPASS`-aware).
+- **compat.py**: `compat.strftime()` translates glibc `%-d`/`%-I` to Windows `%#d`;
+  always use it for format strings with `%-`. Also `IS_WINDOWS` and the listening-flag
+  temp path.
+- **Process model**: `tray.py` (pystray) is the Windows entry point — it supervises the
+  core (`Friday.exe --core`) and auto-restarts it on exit. The dashboard's
+  `/api/friday/restart` on Windows just raises SIGINT in-process; the tray brings it
+  back. Quit sets a flag so the exit is final. No launchd, no services.
+- **run_polling on Windows must NOT receive stop_signals** — Proactor loops have no
+  `add_signal_handler`; friday.py only passes them on non-Windows.
+- **First run**: `setup_wizard.py` (Tkinter) collects Telegram token (+ chat-id
+  auto-detect), Gemini key, Google OAuth + calendar pickers, optional Canvas/weather.
+- **Packaging**: `packaging/windows/` (spec, installer.iss, build.ps1, BUILD_WINDOWS.md)
+  and `.github/workflows/build-windows.yml` (CI build, artifact `FridaySetup.exe`).
+  The Google OAuth desktop client JSON is created once by the maintainer (friend added
+  as test user) and bundled at build time; see BUILD_WINDOWS.md.
+- **Out of scope on Windows**: voice, menubar.py/rumps, iMessage (still banned everywhere).

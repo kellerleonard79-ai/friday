@@ -8,6 +8,8 @@ Returns the model's prose, or "" on failure (caller decides whether to send).
 
 from datetime import date, datetime, timedelta
 
+import compat
+
 
 def _local(iso: str) -> datetime | None:
     try:
@@ -19,7 +21,7 @@ def _local(iso: str) -> datetime | None:
 def _fmt_evt(evt: dict) -> str:
     """One line per event: '9:00 AM — Title (Calendar)[, Location]'."""
     dt = _local(evt.get("start_iso", ""))
-    when = dt.strftime("%-I:%M %p") if dt else "??:??"
+    when = compat.strftime(dt, "%-I:%M %p") if dt else "??:??"
     title = evt.get("title", "(untitled)")
     line = f"{when} — {title} ({evt.get('calendar', '?')})"
     if evt.get("location"):
@@ -30,7 +32,7 @@ def _fmt_evt(evt: dict) -> str:
 def _fmt_upcoming(evt: dict, today: date) -> str:
     """'Mon Jun 1 — Title'. The LLM phrases proximity naturally from the date."""
     dt = _local(evt.get("start_iso", ""))
-    day_label = dt.strftime("%a %b %-d") if dt else "??"
+    day_label = compat.strftime(dt, "%a %b %-d") if dt else "??"
     title = evt.get("title", "(untitled)")
     return f"{day_label} — {title}"
 
@@ -41,7 +43,7 @@ def _fmt_canvas(row: tuple) -> str:
     when = ""
     if due_at:
         dt = _local(due_at)
-        when = f" (due {dt.strftime('%a %b %-d, %-I:%M %p')})" if dt else f" (due {due_at})"
+        when = f" (due {compat.strftime(dt, '%a %b %-d, %-I:%M %p')})" if dt else f" (due {due_at})"
     return f"[{urgency}] {title}{when}"
 
 
@@ -69,7 +71,7 @@ def _canvas_block(rows: list[tuple]) -> str:
 def compose_morning(agent, today_evts: list[dict], upcoming_evts: list[dict],
                     weather_str: str) -> str:
     today = date.today()
-    today_label = today.strftime("%A, %B %-d")
+    today_label = compat.strftime(today, "%A, %B %-d")
     weather_line = f"Weather: {weather_str}" if weather_str else "Weather: (unavailable)"
 
     prompt = (
@@ -93,7 +95,7 @@ def compose_evening(agent, tomorrow_evts: list[dict], upcoming_evts: list[dict],
                     canvas_pending: list[tuple], weather_str: str) -> str:
     today = date.today()
     tomorrow = today + timedelta(days=1)
-    tomorrow_label = tomorrow.strftime("%A, %B %-d")
+    tomorrow_label = compat.strftime(tomorrow, "%A, %B %-d")
     weather_line = f"Current weather: {weather_str}" if weather_str else ""
 
     prompt = (
@@ -123,8 +125,8 @@ def compose_on_demand(agent, today_evts: list[dict], tomorrow_evts: list[dict],
     prompt = (
         f"The user asked for a briefing. Give him a concise current snapshot.\n\n"
         f"{weather_line}\n\n"
-        f"Today ({today.strftime('%A, %B %-d')}):\n{_events_block(today_evts)}\n\n"
-        f"Tomorrow ({tomorrow.strftime('%A, %B %-d')}):\n{_events_block(tomorrow_evts)}\n\n"
+        f"Today ({compat.strftime(today, '%A, %B %-d')}):\n{_events_block(today_evts)}\n\n"
+        f"Tomorrow ({compat.strftime(tomorrow, '%A, %B %-d')}):\n{_events_block(tomorrow_evts)}\n\n"
         f"Upcoming this week:\n{_upcoming_block(upcoming_evts, today)}\n\n"
         f"Pending Canvas items (SOON or URGENT):\n{_canvas_block(canvas_pending)}\n\n"
         f"Today's date is {today.isoformat()} ({today.strftime('%A')}).\n\n"

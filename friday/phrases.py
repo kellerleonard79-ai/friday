@@ -1,9 +1,9 @@
 import random
-import os
 import yaml
 
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_QUIPS_FILE = os.path.join(_HERE, "quips.yaml")
+import paths
+
+_QUIPS_FILE = str(paths.resource_path("quips.yaml"))
 
 
 def _load_quips() -> list[str]:

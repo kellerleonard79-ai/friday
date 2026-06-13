@@ -1,6 +1,7 @@
 """
 actions/calendar.py
-Write events to a named Apple Calendar via JXA (osascript -l JavaScript).
+Write events to the user's calendar (Apple on macOS, Google on Windows —
+see calendars/backend.py for the dispatch).
 
 Two public modes:
     auto_write(event, telegram=None)    — write immediately, no approval gate.
@@ -16,7 +17,7 @@ Canonical event dict:
         "date":       "YYYY-MM-DD",
         "start_time": "HH:MM"   (optional — omit for all-day),
         "end_time":   "HH:MM"   (optional — defaults to start_time + 1h),
-        "calendar":   str       (optional — falls back to default Apple Calendar),
+        "calendar":   str       (optional — falls back to default calendar),
         "notes":      str       (optional),
     }
 
@@ -25,114 +26,31 @@ Legacy "time" is still accepted as a synonym for start_time (back-compat).
 import json
 import logging
 import sqlite3
-import subprocess
 import uuid
 from datetime import date as date_cls, datetime, timedelta
 
-logger = logging.getLogger("friday.applecal.write")
-_TIMEOUT_S = 15
+import compat
+from calendars import backend as cal_backend
+
+logger = logging.getLogger("friday.calendar.write")
 _DEFAULT_DURATION = timedelta(hours=1)
 
-
-# ── Low-level JXA write (stable; used by connectors/gcal_sync.py) ─────────────
-
-def write_event(calendar_name: str, title: str, start: datetime,
-                end: datetime, location: str = "", description: str = "",
-                all_day: bool = False) -> str | None:
-    """Create an event in the named Apple Calendar. Returns Apple UID or None
-    on failure. No dedup — caller's responsibility."""
-    payload = {
-        "calendar":    calendar_name,
-        "summary":     title,
-        "location":    location,
-        "description": description,
-        "allDay":      bool(all_day),
-    }
-    start_ms = int(start.timestamp() * 1000)
-    end_ms   = int(end.timestamp() * 1000)
-    script = f"""
-const Calendar = Application('Calendar');
-const data = {json.dumps(payload)};
-const targets = Calendar.calendars.whose({{name: data.calendar}})();
-if (targets.length === 0) {{
-  JSON.stringify({{error: "calendar not found: " + data.calendar}});
-}} else {{
-  try {{
-    const e = Calendar.Event({{
-      summary:     data.summary,
-      startDate:   new Date({start_ms}),
-      endDate:     new Date({end_ms}),
-      location:    data.location,
-      description: data.description,
-      alldayEvent: data.allDay
-    }});
-    targets[0].events.push(e);
-    JSON.stringify({{uid: e.uid()}});
-  }} catch (err) {{
-    JSON.stringify({{error: err.toString()}});
-  }}
-}}
-"""
-    try:
-        result = subprocess.run(
-            ["osascript", "-l", "JavaScript", "-e", script],
-            capture_output=True, text=True, timeout=_TIMEOUT_S,
-        )
-    except subprocess.TimeoutExpired:
-        logger.warning(f"Apple Calendar write timed out for {title!r}")
-        return None
-    if result.returncode != 0:
-        logger.error(f"Apple Calendar write failed: {result.stderr.strip()[:200]}")
-        return None
-    try:
-        out = json.loads(result.stdout.strip())
-    except json.JSONDecodeError:
-        logger.error(f"Apple Calendar write — bad JSON: {result.stdout[:200]}")
-        return None
-    if "error" in out:
-        logger.error(f"Apple Calendar write error: {out['error']}")
-        return None
-    return out.get("uid")
+# Back-compat alias — the low-level write moved to the backend dispatcher.
+write_event = cal_backend.write_event
 
 
-# ── Calendar resolution ───────────────────────────────────────────────────────
-
-def _run_jxa(script: str) -> dict | None:
-    try:
-        result = subprocess.run(
-            ["osascript", "-l", "JavaScript", "-e", script],
-            capture_output=True, text=True, timeout=_TIMEOUT_S,
-        )
-    except subprocess.TimeoutExpired:
-        return None
-    if result.returncode != 0:
-        return None
-    try:
-        return json.loads(result.stdout.strip())
-    except json.JSONDecodeError:
-        return None
-
-
-def _calendar_exists(name: str) -> bool:
-    out = _run_jxa(f"""
-const Calendar = Application('Calendar');
-const t = Calendar.calendars.whose({{name: {json.dumps(name)}}})();
-JSON.stringify({{exists: t.length > 0}});
-""")
-    return bool((out or {}).get("exists"))
-
-
-# macOS Calendar has no scriptable "default calendar" via JXA, so the fallback
-# name has to be supplied explicitly (typically agent.default_calendar in config).
+# The calendar app has no scriptable "default calendar" concept we can rely
+# on, so the fallback name has to be supplied explicitly (typically
+# agent.default_calendar in config).
 def _resolve_calendar(requested: str | None, default: str | None) -> str | None:
-    if requested and _calendar_exists(requested):
+    if requested and cal_backend.calendar_exists(requested):
         return requested
-    if default and _calendar_exists(default):
+    if default and cal_backend.calendar_exists(default):
         if requested:
             logger.info(f"Calendar {requested!r} not found — using configured default {default!r}.")
         return default
     logger.error(
-        f"No usable Apple Calendar — requested {requested!r}, default {default!r}."
+        f"No usable calendar — requested {requested!r}, default {default!r}."
     )
     return None
 
@@ -198,7 +116,7 @@ def _parse_event(event: dict) -> tuple[str, datetime, datetime, bool]:
 
 def _friendly_date(date_str: str) -> str:
     try:
-        return date_cls.fromisoformat(date_str).strftime("%A, %B %-d")
+        return compat.strftime(date_cls.fromisoformat(date_str), "%A, %B %-d")
     except Exception:
         return date_str
 
@@ -215,7 +133,7 @@ def _friendly_date_phrase(date_str: str) -> str:
         return "today"
     if d == today + timedelta(days=1):
         return "tomorrow"
-    return d.strftime("on %A, %B %-d")
+    return compat.strftime(d, "on %A, %B %-d")
 
 
 def _confirmation_date(date_str: str) -> str:
@@ -229,7 +147,7 @@ def _confirmation_date(date_str: str) -> str:
         return "today"
     if d == today + timedelta(days=1):
         return "tomorrow"
-    return d.strftime("%A, %B %-d")
+    return compat.strftime(d, "%A, %B %-d")
 
 
 def _friendly_time(time_str: str) -> str:
@@ -292,7 +210,7 @@ def auto_write(event: dict, telegram=None, default_calendar: str | None = None,
     if not cal:
         logger.error("auto_write — no usable calendar available")
         if telegram:
-            telegram.send(f"Couldn't add {title!r}, sir — no Apple Calendar available.")
+            telegram.send(f"Couldn't add {title!r}, sir — no calendar available.")
         return None
 
     notes = (event.get("notes") or "").strip()
@@ -330,7 +248,7 @@ def gated_write(event: dict, conn: sqlite3.Connection, telegram,
 
     resolved = _resolve_calendar(event.get("calendar"), default_calendar)
     if not resolved:
-        telegram.send(f"Couldn't draft {title!r}, sir — no Apple Calendar available.")
+        telegram.send(f"Couldn't draft {title!r}, sir — no calendar available.")
         return None
     event = dict(event)
     event["calendar"] = resolved  # pin so confirm_pending writes to the same place

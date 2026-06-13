@@ -13,8 +13,10 @@ import logging
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import compat
 import memory.state as state
-from connectors import apple_calendar, weather
+from calendars import backend as calendar_backend
+from connectors import weather
 
 logger = logging.getLogger("friday.tools")
 
@@ -31,8 +33,9 @@ def make_tools(conn, config, agent=None):
     local_tz = ZoneInfo(tz_name)
 
     def _to_local(iso_utc: str) -> str:
-        """Apple Calendar's JXA emits UTC ISO strings ('...Z'). Convert to the
-        user's local timezone so the LLM doesn't misread them as local."""
+        """Calendar backends emit ISO strings (UTC '...Z' from Apple/JXA,
+        offset-aware RFC3339 from Google). Convert to the user's local
+        timezone so the LLM doesn't misread them as local."""
         if not iso_utc:
             return ""
         try:
@@ -51,11 +54,11 @@ def make_tools(conn, config, agent=None):
             "date":        now.date().isoformat(),
             "day_of_week": now.strftime("%A"),
             "timezone":    tz_name,
-            "human":       now.strftime("%A, %B %-d %Y, %-I:%M %p %Z"),
+            "human":       compat.strftime(now, "%A, %B %-d %Y, %-I:%M %p %Z"),
         }
 
     def get_schedule(start_date: str, end_date: str) -> dict:
-        """Return events from the user's Apple Calendar with start times in
+        """Return events from the user's calendar with start times in
         [start_date, end_date). Both dates must be ISO YYYY-MM-DD; end_date is
         exclusive. Only whitelisted calendars are included. Use this for any
         schedule, calendar, appointment, or 'what am I doing' question.
@@ -68,7 +71,7 @@ def make_tools(conn, config, agent=None):
             e = date.fromisoformat(end_date)
         except ValueError as err:
             return {"error": f"Invalid date format: {err}", "events": []}
-        raw = apple_calendar.events_in_window(config, s, e)
+        raw = calendar_backend.events_in_window(config, s, e)
         events = [{
             "title":    ev.get("title", ""),
             "start":    _to_local(ev.get("start_iso", "")),
@@ -154,7 +157,7 @@ def make_tools(conn, config, agent=None):
         return {
             "status": "ok",
             "type": briefing_type,
-            "scheduled_for_local": target.strftime("%A, %B %-d at %-I:%M %p %Z"),
+            "scheduled_for_local": compat.strftime(target, "%A, %B %-d at %-I:%M %p %Z"),
             "timezone": tz_name,
         }
 
@@ -166,7 +169,7 @@ def make_tools(conn, config, agent=None):
         calendar: str = "",
         notes: str = "",
     ) -> dict:
-        """Write a new event to the user's Apple Calendar immediately, with no
+        """Write a new event to the user's calendar immediately, with no
         approval gate. Friday sends the user a one-line confirmation with a
         personality quip appended ("Dentist added for tomorrow at 2:00 PM.
         Your wish is my... mild inconvenience.") on success — you do NOT
@@ -196,7 +199,7 @@ def make_tools(conn, config, agent=None):
                         omit to default to a 1-hour duration. Must be after
                         start_time on the same day (overnight ranges not yet
                         supported).
-            calendar:   Optional Apple Calendar name. Omit to use the user's
+            calendar:   Optional calendar name. Omit to use the user's
                         configured default calendar.
             notes:      Optional free-text notes.
         """
@@ -219,7 +222,7 @@ def make_tools(conn, config, agent=None):
         # picks it up without a restart.
         import phrases
         try:
-            day_str = datetime.strptime(date, "%Y-%m-%d").strftime("%A %B %-d")
+            day_str = compat.strftime(datetime.strptime(date, "%Y-%m-%d"), "%A %B %-d")
         except ValueError:
             day_str = date
         context_parts = [f"Just added '{title}' to the calendar for {day_str}"]

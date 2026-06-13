@@ -103,9 +103,9 @@ def fetch(cfg: dict, conn: sqlite3.Connection) -> int:
     return count
 
 
-def sync_to_apple_calendar(config: dict, conn: sqlite3.Connection) -> int:
+def sync_to_calendar(config: dict, conn: sqlite3.Connection) -> int:
     """Write unsynced Canvas events with a future due_at to the 'Canvas'
-    Apple Calendar (auto_write handles the default-calendar fallback).
+    calendar (auto_write handles the default-calendar fallback).
     Idempotent via events.calendar_synced. Returns count of new writes."""
     agent_cfg = config.get("agent") or {}
     tz_name   = agent_cfg.get("timezone", "America/Chicago")

@@ -11,7 +11,7 @@ from datetime import date, datetime, time, timezone
 import requests
 from icalendar import Calendar
 
-from actions import calendar as apple_writer
+from calendars import backend as cal_backend
 
 logger = logging.getLogger("friday.gcal_sync")
 
@@ -72,7 +72,7 @@ def _sync_one(name: str, url: str, conn: sqlite3.Connection) -> int:
             location    = str(component.get("LOCATION", "")).strip()
             description = str(component.get("DESCRIPTION", "")).strip()[:2000]
 
-            apple_uid = apple_writer.write_event(
+            apple_uid = cal_backend.write_event(
                 calendar_name=name, title=title,
                 start=start_dt, end=end_dt,
                 location=location, description=description,

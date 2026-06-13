@@ -19,15 +19,14 @@ from zoneinfo import ZoneInfo
 import yaml
 from telegram.ext import Application, MessageHandler, CallbackQueryHandler, filters
 
-_HERE = os.path.dirname(os.path.abspath(__file__))
-
-os.makedirs(os.path.join(_HERE, "logs"), exist_ok=True)
+import compat
+import paths
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     handlers=[
-        logging.FileHandler(os.path.join(_HERE, "logs", "friday.log")),
+        logging.FileHandler(str(paths.log_dir() / "friday.log")),
     ],
 )
 logger = logging.getLogger("friday")
@@ -36,19 +35,19 @@ from agent.core import FridayAgent
 from channels.telegram import TelegramHandler
 from memory.db import Database
 import memory.state as state
+from calendars import backend as calendar_backend
 from connectors import weather as weather_connector
 from connectors import canvas as canvas_connector
 from connectors import gcal_sync
 from connectors import groupme as groupme_connector
-from connectors import apple_calendar as apple_cal
 from agent import briefings
 from actions import calendar as apple_writer
 from dashboard import server as dashboard_server
 
 
 def load_config() -> dict:
-    path = os.path.join(_HERE, "friday_config.yaml")
-    if not os.path.exists(path):
+    path = paths.config_path()
+    if not path.exists():
         logger.critical(f"Config not found: {path}")
         sys.exit(1)
     with open(path) as f:
@@ -79,11 +78,10 @@ def main() -> None:
 
     config = load_config()
     check_environment(config)
+    calendar_backend.init(config)
 
-    memory_cfg  = config.get("memory", {})
-    db_path     = os.path.join(_HERE, memory_cfg.get("db_path", "memory/friday_memory.db"))
-    db          = Database(db_path)
-    conn        = db.connection()
+    db   = Database(str(paths.db_path(config)))
+    conn = db.connection()
 
     agent   = FridayAgent(config, conn=conn)
     handler = TelegramHandler(config, agent, conn)
@@ -122,7 +120,7 @@ def main() -> None:
 
         # Dashboard web server — runs inside this same asyncio loop. No threads,
         # no second event loop. Honors the single-loop rule in CLAUDE.md.
-        config_path = Path(_HERE) / "friday_config.yaml"
+        config_path = paths.config_path()
         try:
             server = await dashboard_server.start_server(config_path, conn)
             task = asyncio.create_task(server.serve(), name="dashboard_server")
@@ -188,10 +186,10 @@ def main() -> None:
         today = datetime.date.today()
         loop = asyncio.get_running_loop()
         today_evts = await loop.run_in_executor(
-            None, apple_cal.events_for_day, config, today
+            None, calendar_backend.events_for_day, config, today
         )
         upcoming_evts = await loop.run_in_executor(
-            None, apple_cal.events_in_window, config, today, today + datetime.timedelta(days=7)
+            None, calendar_backend.events_in_window, config, today, today + datetime.timedelta(days=7)
         )
         wx = await loop.run_in_executor(
             None, weather_connector.respond, config.get("weather", {}), ""
@@ -374,15 +372,17 @@ def main() -> None:
                 else:
                     logger.info("Canvas: no new events.")
                 synced = await loop.run_in_executor(
-                    None, canvas_connector.sync_to_apple_calendar, config, conn,
+                    None, canvas_connector.sync_to_calendar, config, conn,
                 )
                 if synced:
-                    logger.info(f"Canvas: {synced} due date(s) written to Apple Calendar.")
+                    logger.info(f"Canvas: {synced} due date(s) written to calendar.")
             except Exception as e:
                 logger.error(f"Canvas poll failed: {e}")
 
         gcal_cfg = config.get("gcal_sync") or {}
-        if gcal_cfg.get("calendars"):
+        # gcal_sync mirrors Google → Apple; meaningless when Google Calendar
+        # already IS the event store (Windows / google backend).
+        if gcal_cfg.get("calendars") and calendar_backend.backend_name(config) == "apple":
             try:
                 count = await loop.run_in_executor(
                     None, gcal_sync.fetch, config, conn
@@ -459,10 +459,10 @@ def main() -> None:
         tomorrow = today + datetime.timedelta(days=1)
         loop = asyncio.get_running_loop()
         tomorrow_evts = await loop.run_in_executor(
-            None, apple_cal.events_for_day, config, tomorrow
+            None, calendar_backend.events_for_day, config, tomorrow
         )
         upcoming_evts = await loop.run_in_executor(
-            None, apple_cal.events_in_window, config, tomorrow,
+            None, calendar_backend.events_in_window, config, tomorrow,
             tomorrow + datetime.timedelta(days=7),
         )
         canvas_pending = conn.execute(
@@ -481,7 +481,7 @@ def main() -> None:
             try:
                 await context.bot.send_message(
                     chat_id=chat_id,
-                    text=f"📅 Evening Briefing — {today.strftime('%A, %B %-d')}\n\n{response}",
+                    text=f"📅 Evening Briefing — {compat.strftime(today, '%A, %B %-d')}\n\n{response}",
                 )
                 state.set(conn, "last_evening_briefing_sent", today.isoformat())
             except Exception as e:
@@ -604,10 +604,14 @@ def main() -> None:
     logger.info(f"Evening briefing scheduled at {bt_str} {tz_name}")
     logger.info("Running. Ctrl+C to stop.")
 
-    app.run_polling(
-        drop_pending_updates=False,
-        stop_signals=(signal.SIGINT, signal.SIGTERM),
-    )
+    # Windows: asyncio's Proactor loop has no add_signal_handler, so passing
+    # explicit stop_signals would crash PTB at startup. Omit them — PTB then
+    # falls back to KeyboardInterrupt, which is exactly what the dashboard's
+    # restart endpoint raises via signal.raise_signal(SIGINT).
+    run_kwargs = {"drop_pending_updates": False}
+    if not compat.IS_WINDOWS:
+        run_kwargs["stop_signals"] = (signal.SIGINT, signal.SIGTERM)
+    app.run_polling(**run_kwargs)
 
 
 if __name__ == "__main__":

@@ -30,7 +30,8 @@ _SNARK_DIRECTIVES = {
 
 
 def _load_persona_base() -> str:
-    agents_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "AGENTS.md")
+    import paths
+    agents_path = str(paths.resource_path("AGENTS.md"))
     try:
         with open(agents_path) as f:
             return f.read().strip()

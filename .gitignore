@@ -23,3 +23,14 @@ friday/voice/trainer_src/
 friday/voice/training/
 friday/voice/friday_voice.session*
 friday/voice/__pycache__/
+
+# Windows packaging artifacts — never commit credentials or build output.
+packaging/windows/google_client_secret.json
+packaging/windows/friday.ico
+packaging/windows/Output/
+dist/
+build/
+.build-venv/
+
+# Runtime logs — contain live tokens, never track.
+friday/logs/
