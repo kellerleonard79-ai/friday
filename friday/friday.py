@@ -468,6 +468,12 @@ def main() -> None:
         if rows:
             conn.commit()
 
+        # Briefing catch-up rides this 60s job, not the 15-min poll: the
+        # user-facing post-wake latency target is ≤60s, and the 15-min poll
+        # itself gets misfire-skipped after long sleeps. The helper is cheap and
+        # idempotent (sent-key lock), so calling it every minute is safe.
+        _check_and_run_missed_briefings(context.job_queue)
+
     # ── Evening briefing job ──────────────────────────────────────────────────
 
     async def briefing_job(context) -> None:
@@ -599,7 +605,9 @@ def main() -> None:
             job_queue.run_once(runner, when=1, name=f"{kind}_briefing_catchup_job")
 
         if not acted:
-            logger.info("No missed briefings")
+            # DEBUG, not INFO: this fires on the 60s carrier, so an INFO line
+            # here would emit ~1,440 no-op lines/day and drown the log.
+            logger.debug("No missed briefings")
 
     # ── Nightly activity-table cleanup ────────────────────────────────────────
     # Trims the activity-capture tables (llm_exchanges, tool_calls, briefings_sent,
