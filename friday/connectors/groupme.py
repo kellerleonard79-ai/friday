@@ -191,6 +191,9 @@ def _poll_one(api_token: str, gid: str, name: str, priority: str,
 
             # calendar_synced=1 — GroupMe never writes to the calendar, so we
             # pre-flag these rows out of canvas.sync_to_calendar's query.
+            # TODO: events table can produce duplicate rows for the same GroupMe
+            # message (visible as repeated entries in the dashboard Today feed) —
+            # fix at write time here (dedup on message id before INSERT).
             conn.execute(
                 """INSERT INTO events
                    (id, source, title, body, due_at, urgency, processed,

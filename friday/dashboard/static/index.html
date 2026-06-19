@@ -17,7 +17,7 @@
     <div class="logo">F.R.I.D.A.Y.</div>
     <div class="logo-sub">CONTROL CONSOLE</div>
     <nav>
-      <a class="nav-item" data-route="status">Status</a>
+      <a class="nav-item" data-route="today">Today</a>
       <a class="nav-item" data-route="ai">AI Model</a>
       <a class="nav-item" data-route="persona">Persona</a>
       <a class="nav-item" data-route="integrations">Integrations</a>
@@ -36,12 +36,12 @@
 
   <!-- ─── Page templates ────────────────────────────────────────────────── -->
 
-  <template id="page-status">
+  <template id="page-today">
     <header class="page-header">
-      <h1>SYSTEM STATUS</h1>
+      <h1>TODAY</h1>
     </header>
 
-    <section class="panel status-hero">
+    <section class="panel today-hero">
       <div class="hero-indicator">
         <div class="pulse" id="hero-pulse"></div>
         <div class="hero-text" id="hero-status">— — —</div>
@@ -51,36 +51,59 @@
         <button class="btn btn-outline" data-action="pause" id="pause-btn">Pause</button>
         <button class="btn btn-teal" data-action="restart">Restart</button>
       </div>
+      <div class="next-panel">
+        <div class="next-line">
+          <span class="next-label">NEXT BRIEFING</span>
+          <span class="next-value" id="next-briefing">—</span>
+        </div>
+        <div class="next-line">
+          <span class="next-label">PENDING APPROVALS</span>
+          <span class="next-value" id="next-pending">0</span>
+        </div>
+      </div>
     </section>
 
-    <section class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-label">LLM CALLS</div>
-        <div class="stat-value" id="stat-think">—</div>
+    <section class="panel feed-panel">
+      <h2>ACTIVITY</h2>
+      <div class="activity-feed" id="activity-feed">
+        <div class="feed-empty">Loading…</div>
       </div>
-      <div class="stat-card">
-        <div class="stat-label">TOKENS IN</div>
-        <div class="stat-value" id="stat-tin">—</div>
+    </section>
+
+    <section class="panel">
+      <h2>WHAT'S NEXT</h2>
+      <div class="whats-next" id="whats-next"></div>
+    </section>
+
+    <section class="panel hidden" id="pending-panel">
+      <h2>PENDING APPROVALS</h2>
+      <div id="pending-list"></div>
+    </section>
+
+    <section class="panel collapsible" id="llm-panel">
+      <div class="collapsible-head" id="llm-toggle">
+        <h2>LAST LLM EXCHANGE</h2>
+        <span class="chevron" id="llm-chevron">▸</span>
       </div>
-      <div class="stat-card">
-        <div class="stat-label">TOKENS OUT</div>
-        <div class="stat-value" id="stat-tout">—</div>
+      <div class="collapsible-body hidden" id="llm-body"></div>
+    </section>
+
+    <section class="stat-strip" id="today-stats">
+      <div class="stat-mini">
+        <span class="stat-mini-label">LLM CALLS</span>
+        <span class="stat-mini-val" id="ts-calls">—</span>
       </div>
-      <div class="stat-card">
-        <div class="stat-label">UPTIME</div>
-        <div class="stat-value" id="stat-uptime">—</div>
+      <div class="stat-mini">
+        <span class="stat-mini-label">TOKENS IN</span>
+        <span class="stat-mini-val" id="ts-tin">—</span>
       </div>
-      <div class="stat-card span-2">
-        <div class="stat-label">LAST MESSAGE</div>
-        <div class="stat-value mono" id="stat-last">—</div>
+      <div class="stat-mini">
+        <span class="stat-mini-label">TOKENS OUT</span>
+        <span class="stat-mini-val" id="ts-tout">—</span>
       </div>
-      <div class="stat-card">
-        <div class="stat-label">NEXT MORNING</div>
-        <div class="stat-value" id="stat-morning">—</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">NEXT EVENING</div>
-        <div class="stat-value" id="stat-evening">—</div>
+      <div class="stat-mini">
+        <span class="stat-mini-label">COST TODAY</span>
+        <span class="stat-mini-val" id="ts-cost">—</span>
       </div>
     </section>
   </template>
