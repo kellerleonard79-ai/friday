@@ -797,6 +797,8 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
             "activity_feed": _build_activity_feed(conn, limit=100),
             "whats_next": _whats_next(conn, config_path),
             "today_stats": _today_stats(conn, config_path),
+            "last_message_at": state.get(conn, "last_message_at"),
+            "last_message_preview": state.get(conn, "last_message_preview"),
         }
 
     @app.get("/api/llm/last")
@@ -832,6 +834,22 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
             "triggered_by": trig, "prompt": prompt, "response": response,
             "tool_calls": tools,
         }
+
+    @app.get("/api/calendar/sync-status")
+    def api_calendar_sync_status() -> dict:
+        """Most-recent Google → Apple sync time per calendar, from synced_events.
+        Powers the .last-sync slot on each Calendar-tab row."""
+        last_sync: dict[str, str] = {}
+        try:
+            for name, ts in conn.execute(
+                "SELECT calendar_name, MAX(synced_at) FROM synced_events "
+                "GROUP BY calendar_name"
+            ).fetchall():
+                if name:
+                    last_sync[name] = ts
+        except Exception as e:
+            logger.debug(f"sync-status query failed: {e}")
+        return {"last_sync": last_sync}
 
     @app.get("/api/pending-approvals")
     def api_pending_approvals() -> dict:

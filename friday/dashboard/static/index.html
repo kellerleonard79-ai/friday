@@ -60,6 +60,10 @@
           <span class="next-label">PENDING APPROVALS</span>
           <span class="next-value" id="next-pending">0</span>
         </div>
+        <div class="next-line">
+          <span class="next-label">LAST MESSAGE FROM YOU</span>
+          <span class="next-value" id="next-last-msg">—</span>
+        </div>
       </div>
     </section>
 
@@ -175,15 +179,20 @@
       </div>
     </section>
 
-    <section class="panel" id="panel-jarvis">
-      <h2>APPROVED PHRASES</h2>
-      <div id="jarvis-phrases"></div>
-    </section>
-
     <section class="panel">
       <label class="field-label">CUSTOM INSTRUCTIONS</label>
       <textarea class="input" id="custom-instructions" rows="6"
         placeholder="Additional persona notes appended to AGENTS.md..."></textarea>
+    </section>
+
+    <section class="panel" id="panel-jarvis">
+      <details class="phrases-details">
+        <summary class="phrases-summary">
+          <span class="chevron phrases-chevron">▸</span>
+          <span id="phrases-count">Approved Phrases</span>
+        </summary>
+        <div id="jarvis-phrases"></div>
+      </details>
     </section>
   </template>
 
@@ -402,20 +411,8 @@
 
     <section class="panel">
       <div class="about-row"><span class="field-label">VERSION</span><span class="mono">F.R.I.D.A.Y. v0.7</span></div>
-      <div class="about-row"><span class="field-label">SERVER</span><span class="mono">http://127.0.0.1:5174</span></div>
-    </section>
-
-    <section class="panel">
-      <h2>PHASE STATUS</h2>
-      <ul class="phase-list">
-        <li class="done">Phase 1 — Foundation</li>
-        <li class="done">Phase 2 — Read-only integrations</li>
-        <li class="done">Phase 3 — Briefings &amp; alerts</li>
-        <li class="done">Phase 4 — Calendar writing &amp; GroupMe</li>
-        <li>Phase 5 — Drafting &amp; sending</li>
-        <li>Phase 6 — Voice interface</li>
-        <li>Phase 7 — Hardening &amp; polish</li>
-      </ul>
+      <div class="about-row"><span class="field-label">SERVER</span><span class="mono" id="about-server">http://127.0.0.1:5174</span></div>
+      <div class="about-row hidden" id="about-update-row"><span class="field-label">LAST UPDATE</span><span class="mono" id="about-update">—</span></div>
     </section>
 
     <section class="panel">

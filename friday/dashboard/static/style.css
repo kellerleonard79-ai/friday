@@ -670,6 +670,25 @@ select.input {
   color: var(--text);
 }
 
+/* Collapsible "Approved Phrases (N)" header — styled to match a panel h2. */
+.phrases-details > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  color: var(--orange);
+  user-select: none;
+}
+.phrases-details > summary::-webkit-details-marker { display: none; }
+.phrases-details > summary::marker { content: ''; }
+.phrases-details[open] > summary { margin-bottom: 12px; }
+.phrases-chevron { font-size: 16px; letter-spacing: 0; }
+
 /* ── GroupMe cards ─────────────────────────────────────────────────────── */
 
 .group-cards {
@@ -726,7 +745,19 @@ select.input {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   letter-spacing: 0.1em;
+  white-space: nowrap;
 }
+.gcal-row .last-sync.never { color: var(--muted); }
+
+/* Masked iCal URL field + reveal toggle (mirrors secret-token handling). */
+.gcal-url { display: flex; gap: 6px; align-items: center; min-width: 0; }
+.gcal-url-input { flex: 1; min-width: 0; }
+.gcal-url-input[readonly] {
+  color: var(--muted-2);
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.04em;
+}
+.gcal-reveal { flex: 0 0 auto; font-size: 14px; }
 
 .icon-btn {
   background: transparent;

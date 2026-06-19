@@ -227,6 +227,12 @@ function renderToday() {
     pcEl.textContent = pc;
     pcEl.classList.toggle('has-pending', pc > 0);
 
+    const lmEl = document.getElementById('next-last-msg');
+    if (lmEl) {
+      lmEl.textContent = d.last_message_at ? fmtRelative(d.last_message_at) : 'no messages yet';
+      lmEl.title = d.last_message_preview || '';
+    }
+
     renderFeed(d.activity_feed || []);
     renderWhatsNext(d.whats_next || {});
     renderPending(d);
@@ -479,6 +485,35 @@ function fmtDate(iso) {
   } catch { return iso || ''; }
 }
 
+function fmtRelative(iso) {
+  try {
+    const d = new Date(iso);
+    if (isNaN(d)) return '—';
+    const secs = Math.round((Date.now() - d.getTime()) / 1000);
+    if (secs < 0) return 'just now';
+    if (secs < 45) return 'just now';
+    if (secs < 90) return 'a minute ago';
+    const mins = Math.round(secs / 60);
+    if (mins < 60) return `${mins} minutes ago`;
+    const hrs = Math.round(mins / 60);
+    if (hrs < 24) return hrs === 1 ? 'an hour ago' : `${hrs} hours ago`;
+    const days = Math.round(hrs / 24);
+    if (days < 30) return days === 1 ? 'yesterday' : `${days} days ago`;
+    const months = Math.round(days / 30);
+    if (months < 12) return months === 1 ? 'a month ago' : `${months} months ago`;
+    const years = Math.round(months / 12);
+    return years === 1 ? 'a year ago' : `${years} years ago`;
+  } catch { return '—'; }
+}
+
+// Mask a secret-ish URL the way tokens are masked: keep the first 20 and last 8
+// chars, dot out the middle. Short URLs are returned unchanged.
+function maskUrl(url) {
+  const s = String(url || '');
+  if (s.length <= 28) return s;
+  return s.slice(0, 20) + '••••••••' + s.slice(-8);
+}
+
 function fmtNum(n) {
   if (n == null) return '—';
   const v = parseInt(n, 10);
@@ -624,6 +659,12 @@ function renderPersona() {
 
   const container = document.getElementById('jarvis-phrases');
   container.innerHTML = '';
+  const countLabel = document.getElementById('phrases-count');
+  const updateCount = () => {
+    const total = Object.keys(p.jarvis_phrases).length;
+    const on = Object.values(p.jarvis_phrases).filter(Boolean).length;
+    countLabel.textContent = `Approved Phrases (${on}/${total})`;
+  };
   for (const phrase of Object.keys(p.jarvis_phrases)) {
     const row = document.createElement('div');
     row.className = 'phrase-row';
@@ -635,9 +676,20 @@ function renderPersona() {
     cb.checked = !!p.jarvis_phrases[phrase];
     cb.onchange = async () => {
       p.jarvis_phrases[phrase] = cb.checked;
+      updateCount();
       await saveConfig();
     };
     container.appendChild(row);
+  }
+  updateCount();
+
+  // Reflect the <details> open state in the summary chevron.
+  const details = document.querySelector('.phrases-details');
+  const chevron = details && details.querySelector('.phrases-chevron');
+  if (details && chevron) {
+    const sync = () => { chevron.textContent = details.open ? '▾' : '▸'; };
+    details.addEventListener('toggle', sync);
+    sync();
   }
   togglePhrases();
 
@@ -780,9 +832,16 @@ function renderGroupCards(remote) {
 
 // ── Calendar ───────────────────────────────────────────────────────────
 
+let GCAL_SYNC_STATUS = {};   // calendar name → most-recent sync ISO timestamp
+
 function renderCalendar() {
   bindInput(document.getElementById('default-calendar'), 'agent.default_calendar');
   renderGcalRows();
+  // Pull last-sync timestamps, then re-render so the .last-sync slots populate.
+  api.get('/api/calendar/sync-status').then((r) => {
+    GCAL_SYNC_STATUS = (r && r.last_sync) || {};
+    renderGcalRows();
+  }).catch(() => {});
   document.getElementById('gcal-add').onclick = async () => {
     const list = (CONFIG.gcal_sync = CONFIG.gcal_sync || {});
     list.calendars = list.calendars || [];
@@ -799,16 +858,43 @@ function renderGcalRows() {
   list.forEach((cal, idx) => {
     const row = document.createElement('div');
     row.className = 'gcal-row';
+    const synced = GCAL_SYNC_STATUS[cal.name];
     row.innerHTML = `
       <input class="input" placeholder="Calendar name" value="${escapeAttr(cal.name || '')}">
-      <input class="input" placeholder="https://calendar.google.com/calendar/ical/..." value="${escapeAttr(cal.ical_url || '')}">
-      <span class="last-sync"></span>
+      <div class="gcal-url">
+        <input class="input gcal-url-input" placeholder="https://calendar.google.com/calendar/ical/..." readonly>
+        <button class="icon-btn gcal-reveal" title="Show / hide URL">👁</button>
+      </div>
+      <span class="last-sync${synced ? '' : ' never'}" title="Most recent Google → Apple sync">${
+        synced ? `synced ${escapeHtml(fmtRelative(synced))}` : 'never synced'
+      }</span>
       <button class="icon-btn" title="Remove">×</button>
     `;
-    const [nameEl, urlEl] = row.querySelectorAll('.input');
+    const nameEl = row.querySelector('input.input:not(.gcal-url-input)');
+    const urlEl = row.querySelector('.gcal-url-input');
+
+    // URL is masked + readonly by default; the eye toggles a revealed, editable
+    // state (matching how secret tokens are handled elsewhere).
+    let revealed = false;
+    const paint = () => {
+      urlEl.value = revealed ? (cal.ical_url || '') : maskUrl(cal.ical_url || '');
+      urlEl.readOnly = !revealed;
+    };
+    paint();
+    row.querySelector('.gcal-reveal').onclick = () => {
+      // Persist any in-progress edit before hiding so it isn't lost.
+      if (revealed) cal.ical_url = urlEl.value;
+      revealed = !revealed;
+      paint();
+    };
+
     nameEl.onblur = async () => { cal.name = nameEl.value; await saveConfig(); };
-    urlEl.onblur = async () => { cal.ical_url = urlEl.value; await saveConfig(); };
-    row.querySelector('.icon-btn').onclick = async () => {
+    urlEl.onblur = async () => {
+      if (!revealed) return;            // never persist the masked display value
+      cal.ical_url = urlEl.value;
+      await saveConfig();
+    };
+    row.querySelector('button.icon-btn[title="Remove"]').onclick = async () => {
       list.splice(idx, 1);
       renderGcalRows();
       await saveConfig();
@@ -918,6 +1004,18 @@ function renderVoice() {
 // ── About ──────────────────────────────────────────────────────────────
 
 function renderAbout() {
+  // Server URL + last-update from live status (last update = when the running
+  // process last started, i.e. the last restart/redeploy of the agent).
+  document.getElementById('about-server').textContent = location.origin;
+  api.get('/api/status').then((s) => {
+    const row = document.getElementById('about-update-row');
+    const val = document.getElementById('about-update');
+    if (s && s.started_at) {
+      val.textContent = `${fmtDate(s.started_at)} (${fmtRelative(s.started_at)})`;
+      row.classList.remove('hidden');
+    }
+  }).catch(() => {});
+
   document.getElementById('about-restart').onclick = async () => {
     try { await api.post('/api/friday/restart'); flash('RESTARTING'); }
     catch { flash('FAILED', true); }
