@@ -12,6 +12,7 @@ running agent uses. Config writes are atomic (tmp + rename).
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import shutil
@@ -22,14 +23,14 @@ import sys
 import tempfile
 import threading
 from collections import deque
-from datetime import datetime
+from datetime import date, datetime, time as dtime, timedelta
 from pathlib import Path
 from typing import Any
 
 import requests
 import uvicorn
 import yaml
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -212,6 +213,233 @@ def _sync_briefing_times(cfg: dict) -> None:
         agent_cfg["morning_briefing_time"] = morning
     if evening:
         agent_cfg["briefing_time"] = evening
+
+
+# ── Today surface: activity feed, stats, what's-next ─────────────────────────
+# All timestamps in the activity tables are local-naive ISO strings, so the
+# day boundary is a simple lexicographic compare against today's midnight.
+
+def _today_start_iso() -> str:
+    return datetime.combine(date.today(), dtime.min).isoformat()
+
+
+def _kind_for_tool(tool_name: str) -> str:
+    return "CAL+" if tool_name == "add_calendar_event" else "TOOL"
+
+
+def _build_activity_feed(conn: sqlite3.Connection, limit: int = 100) -> list[dict]:
+    """Unified chronological (newest-first) list of everything Friday did today,
+    drawn from briefings_sent, tool_calls, urgent_alerts_sent, conversation_history,
+    and freshly-ingested events. Each entry: timestamp, kind, summary, details."""
+    since = _today_start_iso()
+    feed: list[dict] = []
+
+    def _add(ts, kind, summary, details=""):
+        feed.append({"timestamp": ts, "kind": kind,
+                     "summary": summary, "details": details or ""})
+
+    # Briefings sent
+    try:
+        for ts, slot, body_full, kind in conn.execute(
+            "SELECT timestamp, slot, body_full, on_time_vs_catchup FROM briefings_sent "
+            "WHERE timestamp >= ? ORDER BY timestamp", (since,)
+        ).fetchall():
+            label = f"{(slot or '').capitalize()} briefing sent"
+            if kind == "catchup":
+                label += " (catch-up)"
+            elif kind == "override":
+                label += " (rescheduled)"
+            _add(ts, "BRIEF", label, body_full)
+    except Exception as e:
+        logger.debug(f"feed briefings failed: {e}")
+
+    # Tool calls (calendar writes surface as [CAL+])
+    try:
+        for ts, name, args_json, result_preview, dur in conn.execute(
+            "SELECT timestamp, tool_name, args_json, result_preview, duration_ms "
+            "FROM tool_calls WHERE timestamp >= ? ORDER BY timestamp", (since,)
+        ).fetchall():
+            kind = _kind_for_tool(name)
+            summary = f"{name} ({dur}ms)"
+            if name == "add_calendar_event":
+                try:
+                    a = json.loads(args_json or "{}")
+                    title = a.get("title", "event")
+                    when = a.get("date", "")
+                    cal = a.get("calendar") or "default calendar"
+                    summary = f'Added: "{title}"' + (f" on {when}" if when else "") + f" → {cal}"
+                except Exception:
+                    summary = "Calendar event added"
+            details = f"args: {args_json}\nresult: {result_preview}"
+            _add(ts, kind, summary, details)
+    except Exception as e:
+        logger.debug(f"feed tool_calls failed: {e}")
+
+    # Urgent alerts fired
+    try:
+        for ts, source, body_preview in conn.execute(
+            "SELECT timestamp, source, body_preview FROM urgent_alerts_sent "
+            "WHERE timestamp >= ? ORDER BY timestamp", (since,)
+        ).fetchall():
+            first_line = (body_preview or "").split("\n")[0][:90]
+            _add(ts, "ALERT", f"{source}: {first_line}", body_preview)
+    except Exception as e:
+        logger.debug(f"feed urgent_alerts failed: {e}")
+
+    # Conversation turns
+    try:
+        for role, content, ts in conn.execute(
+            "SELECT role, content, created_at FROM conversation_history "
+            "WHERE created_at >= ? ORDER BY created_at", (since,)
+        ).fetchall():
+            who = "You" if role == "user" else "Friday"
+            preview = " ".join((content or "").split())[:90]
+            _add(ts, "MSG", f"{who}: {preview}", content)
+    except Exception as e:
+        logger.debug(f"feed conversation failed: {e}")
+
+    # Freshly ingested events (Canvas due dates, GroupMe messages)
+    try:
+        for source, title, urgency, created_at in conn.execute(
+            "SELECT source, title, urgency, created_at FROM events "
+            "WHERE created_at >= ? ORDER BY created_at", (since,)
+        ).fetchall():
+            kind = "GROUPME" if source == "groupme" else (source or "EVENT").upper()
+            tag = f"[{urgency}] " if urgency and urgency != "NORMAL" else ""
+            _add(created_at, kind, f"{tag}{title}", "")
+    except Exception as e:
+        logger.debug(f"feed events failed: {e}")
+
+    feed.sort(key=lambda e: e["timestamp"], reverse=True)
+    return feed[:limit]
+
+
+def _today_stats(conn: sqlite3.Connection, config_path: Path) -> dict:
+    """Per-day LLM usage computed from llm_exchanges rows, plus a cost/quota
+    estimate from the current model. Free-tier Gemini models report % of daily
+    request quota; everything else reports tokens only."""
+    since = _today_start_iso()
+    calls = tin = tout = 0
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*), COALESCE(SUM(tokens_in),0), COALESCE(SUM(tokens_out),0) "
+            "FROM llm_exchanges WHERE timestamp >= ?", (since,)
+        ).fetchone()
+        calls, tin, tout = int(row[0]), int(row[1]), int(row[2])
+    except Exception as e:
+        logger.debug(f"today_stats query failed: {e}")
+
+    model = state.get(conn, "model") or ""
+    provider = state.get(conn, "provider") or ""
+    cost: dict[str, Any] = {"model": model, "provider": provider, "dollars": None,
+                            "free_tier": False, "rpd": None, "pct_of_daily_quota": None}
+    tier = _GEMINI_TIERS.get(model)
+    if provider == "gemini" and tier and tier.get("recommended_free") and tier.get("rpd"):
+        rpd = tier["rpd"]
+        cost["free_tier"] = True
+        cost["rpd"] = rpd
+        cost["pct_of_daily_quota"] = round(calls / rpd * 100, 1) if rpd else None
+    return {"llm_calls": calls, "tokens_in": tin, "tokens_out": tout, "cost": cost}
+
+
+def _next_briefing(config_path: Path) -> dict | None:
+    """Next upcoming briefing (morning or evening) from the notifications times."""
+    cfg = _load_config(config_path)
+    notif = cfg.get("notifications") or {}
+    now = datetime.now()
+    candidates = []
+    for slot in ("morning_briefing", "evening_briefing"):
+        block = notif.get(slot) or {}
+        if not block.get("enabled", True):
+            continue
+        t = block.get("time")
+        if not t:
+            continue
+        try:
+            hh, mm = (int(x) for x in str(t).split(":"))
+        except ValueError:
+            continue
+        fire = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        if fire <= now:
+            fire += timedelta(days=1)
+        candidates.append((fire, slot.replace("_briefing", ""), t))
+    if not candidates:
+        return None
+    fire, slot, t = min(candidates, key=lambda c: c[0])
+    return {"slot": slot, "time": t, "in_minutes": int((fire - now).total_seconds() // 60)}
+
+
+def _whats_next(conn: sqlite3.Connection, config_path: Path) -> dict:
+    """Read-only forward look: today's remaining calendar events, the next
+    briefing, and pending Canvas URGENT/SOON items."""
+    cfg = _load_config(config_path)
+    remaining = []
+    try:
+        from calendars import backend as calendar_backend
+        now = datetime.now().astimezone()
+        for ev in calendar_backend.events_for_day(cfg, date.today()):
+            start = ev.get("start_iso", "")
+            try:
+                dt = datetime.fromisoformat(start.replace("Z", "+00:00")).astimezone()
+            except (ValueError, AttributeError):
+                dt = None
+            if dt and dt < now:
+                continue
+            remaining.append({
+                "time": compat.strftime(dt, "%-I:%M %p") if dt else "",
+                "title": ev.get("title", "(untitled)"),
+                "calendar": ev.get("calendar", ""),
+            })
+    except Exception as e:
+        logger.debug(f"whats_next calendar failed: {e}")
+
+    canvas = []
+    try:
+        for title, due_at, urgency in conn.execute(
+            "SELECT title, due_at, urgency FROM events "
+            "WHERE source='canvas' AND urgency IN ('URGENT','SOON') AND notified=0 "
+            "ORDER BY due_at"
+        ).fetchall():
+            canvas.append({"title": title, "due_at": due_at, "urgency": urgency})
+    except Exception as e:
+        logger.debug(f"whats_next canvas failed: {e}")
+
+    return {
+        "remaining_events": remaining,
+        "next_briefing": _next_briefing(config_path),
+        "canvas_pending": canvas,
+    }
+
+
+def _pending_approvals(conn: sqlite3.Connection) -> list[dict]:
+    """Pending approval rows with the full draft text decoded from payload JSON."""
+    out = []
+    try:
+        rows = conn.execute(
+            "SELECT id, action_type, payload, created_at FROM pending_actions "
+            "WHERE status='pending' ORDER BY created_at DESC"
+        ).fetchall()
+    except Exception as e:
+        logger.debug(f"pending_approvals query failed: {e}")
+        return out
+    for pid, action_type, payload, created_at in rows:
+        try:
+            data = json.loads(payload) if payload else {}
+        except json.JSONDecodeError:
+            data = {"raw": payload}
+        draft = data
+        if action_type == "calendar_add" and isinstance(data, dict):
+            draft = {
+                "title": data.get("title", ""),
+                "date": data.get("date", ""),
+                "start_time": data.get("start_time") or data.get("time", ""),
+                "end_time": data.get("end_time", ""),
+                "calendar": data.get("calendar", ""),
+                "notes": data.get("notes", ""),
+            }
+        out.append({"id": pid, "action_type": action_type,
+                    "created_at": created_at, "draft": draft})
+    return out
 
 
 # ── App factory ──────────────────────────────────────────────────────────────
@@ -532,6 +760,121 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
             return {"ok": True}
         except Exception as e:
             return {"ok": False, "error": str(e)}
+
+    # ── Today surface ─────────────────────────────────────────────────────────
+
+    @app.get("/api/today")
+    def api_today() -> dict:
+        """Single bundle powering the Today tab: status, next briefing, pending
+        count, activity feed (today, newest-first, capped at 100), what's-next,
+        and per-day stats. Polled every 5s by the dashboard."""
+        pending = _pending_approvals(conn)
+        return {
+            "status": state.get(conn, "status"),
+            "paused": state.get(conn, "paused") == "true",
+            "pending_approvals_count": len(pending),
+            "next_briefing": _next_briefing(config_path),
+            "activity_feed": _build_activity_feed(conn, limit=100),
+            "whats_next": _whats_next(conn, config_path),
+            "today_stats": _today_stats(conn, config_path),
+        }
+
+    @app.get("/api/llm/last")
+    def api_llm_last() -> dict:
+        """Most recent LLM exchange in full (prompt, response, tokens, duration,
+        model) plus the tool calls that ran inside it. Fetched on-demand when the
+        developer panel expands — not part of the 5s Today poll."""
+        row = conn.execute(
+            "SELECT id, timestamp, model, tokens_in, tokens_out, duration_ms, "
+            "triggered_by, full_prompt, full_response FROM llm_exchanges "
+            "ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if not row:
+            return {"present": False}
+        (ex_id, ts, model, tin, tout, dur, trig, prompt, response) = row
+        # Tool calls for this exchange ran during generate_content, so their
+        # rows were written after the previous exchange and before this one.
+        prev = conn.execute(
+            "SELECT timestamp FROM llm_exchanges WHERE id < ? ORDER BY id DESC LIMIT 1",
+            (ex_id,)
+        ).fetchone()
+        prev_ts = prev[0] if prev else ""
+        tool_rows = conn.execute(
+            "SELECT timestamp, tool_name, args_json, result_preview, duration_ms "
+            "FROM tool_calls WHERE timestamp <= ? AND timestamp > ? ORDER BY timestamp",
+            (ts, prev_ts)
+        ).fetchall()
+        tools = [{"timestamp": t[0], "tool_name": t[1], "args_json": t[2],
+                  "result_preview": t[3], "duration_ms": t[4]} for t in tool_rows]
+        return {
+            "present": True, "timestamp": ts, "model": model,
+            "tokens_in": tin, "tokens_out": tout, "duration_ms": dur,
+            "triggered_by": trig, "prompt": prompt, "response": response,
+            "tool_calls": tools,
+        }
+
+    @app.get("/api/pending-approvals")
+    def api_pending_approvals() -> dict:
+        return {"pending": _pending_approvals(conn)}
+
+    @app.post("/api/pending-approvals/{pid}/{verb}")
+    def api_pending_approval_action(
+        pid: str, verb: str, body: dict = Body(default={})
+    ) -> dict:
+        """Confirm / edit / cancel a pending action through the SAME pipeline
+        Telegram uses (actions/calendar.py). Runs in FastAPI's threadpool, so the
+        synchronous calendar write does not block the event loop."""
+        if verb not in ("confirm", "edit", "cancel"):
+            raise HTTPException(400, "verb must be confirm, edit, or cancel")
+        row = conn.execute(
+            "SELECT action_type, payload, status FROM pending_actions WHERE id = ?",
+            (pid,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "Unknown or expired approval.")
+        action_type, payload, status = row
+        if status != "pending":
+            raise HTTPException(409, f"Already {status}.")
+
+        # A lightweight TelegramHandler (send-only) mirrors the confirmation the
+        # user would have seen had they tapped the inline button in Telegram.
+        cfg = _load_config(config_path)
+        from channels.telegram import TelegramHandler
+        tg = TelegramHandler(cfg, agent=None, conn=conn)
+
+        if action_type != "calendar_add":
+            raise HTTPException(400, f"Unsupported action type: {action_type}")
+        from actions import calendar as cal_action
+
+        if verb == "edit":
+            edited = (body or {}).get("edited_body")
+            if not edited:
+                raise HTTPException(400, "edit requires edited_body.")
+            try:
+                event = json.loads(payload) if payload else {}
+            except json.JSONDecodeError:
+                event = {}
+            # edited_body may be a full JSON event object, or a plain new title.
+            try:
+                parsed = json.loads(edited)
+                if isinstance(parsed, dict):
+                    event.update(parsed)
+                else:
+                    event["title"] = str(edited)
+            except (json.JSONDecodeError, TypeError):
+                event["title"] = str(edited)
+            conn.execute("UPDATE pending_actions SET payload = ? WHERE id = ?",
+                         (json.dumps(event), pid))
+            conn.commit()
+            return {"ok": True, "status": "pending",
+                    "draft": _pending_approvals(conn)}
+
+        if verb == "confirm":
+            ok = cal_action.confirm_pending(pid, conn, tg)
+            return {"ok": bool(ok), "status": "confirmed" if ok else "failed"}
+
+        cal_action.cancel_pending(pid, conn, tg)
+        return {"ok": True, "status": "cancelled"}
 
     @app.post("/api/test/canvas")
     def api_test_canvas() -> dict:

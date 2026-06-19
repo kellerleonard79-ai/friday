@@ -424,7 +424,7 @@ def compose_morning(agent, bundle: dict) -> str:
         f"  - One short weather note if notable.\n"
         f"  - If today has no events, say so plainly and pivot to the week ahead."
     )
-    return agent._think(prompt, use_tools=False)
+    return agent._think(prompt, use_tools=False, triggered_by="briefing_morning")
 
 
 def compose_evening(agent, bundle: dict) -> str:
@@ -460,7 +460,7 @@ def compose_evening(agent, bundle: dict) -> str:
         f"\"in N days\". Surface anything close-in or any pending Canvas URGENT/SOON.\n"
         f"  - End with a brief, professional sign-off (e.g. \"Rest well, sir.\")."
     )
-    return agent._think(prompt, use_tools=False)
+    return agent._think(prompt, use_tools=False, triggered_by="briefing_evening")
 
 
 def compose_on_demand(agent, today_evts: list[dict], tomorrow_evts: list[dict],
@@ -483,4 +483,4 @@ def compose_on_demand(agent, today_evts: list[dict], tomorrow_evts: list[dict],
         f"<weekday>\" rather than \"in N days\". Include any pending Canvas urgency. "
         f"If everything is empty, say so plainly."
     )
-    return agent._think(prompt, use_tools=False)
+    return agent._think(prompt, use_tools=False, triggered_by="briefing_on_demand")

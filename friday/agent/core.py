@@ -11,6 +11,7 @@ import requests
 from google import genai
 from google.genai import types
 
+import memory.activity as activity
 import memory.state as state
 
 logger = logging.getLogger("friday.core")
@@ -92,6 +93,10 @@ class FridayAgent:
         self.provider = config.get("provider", "ollama")
         self._config  = config
         self._conn    = conn
+        # Source label the tool wrappers stamp onto tool_calls rows. Set per
+        # call in _think (tools only run on the use_tools=True chat path, which
+        # the semaphore serializes, so a plain attribute is race-safe here).
+        self._tool_triggered_by = "unknown"
 
         if self.provider == "gemini":
             gemini_cfg = config.get("gemini", {})
@@ -156,13 +161,22 @@ class FridayAgent:
                 attempt += 1
 
     def _think(self, prompt: str, history: list | None = None,
-               use_tools: bool = True) -> str:
+               use_tools: bool = True, triggered_by: str = "unknown") -> str:
         """Synchronous LLM call. Always run via run_in_executor inside async handlers.
 
         use_tools controls whether Gemini gets the tool list. Set False for
         prompts that supply their own data explicitly (briefings, urgency tagging).
+
+        triggered_by labels the source of the call (user_message, briefing_morning,
+        briefing_evening, poll, ...) — it is persisted on the llm_exchanges row and
+        stamped onto any tool_calls this exchange spawns. Instrumentation only;
+        it never changes what the model sees or does.
         """
         self._last_error = None
+        # Tools only ever run on the chat path; stamp the source so the tool
+        # wrappers (agent/tools.py) can attribute their rows to this call.
+        self._tool_triggered_by = triggered_by
+        start_t = time.monotonic()
         try:
             if self.provider == "gemini":
                 contents = []
@@ -181,10 +195,9 @@ class FridayAgent:
                     config=types.GenerateContentConfig(**cfg_kwargs),
                 )
                 usage = getattr(resp, "usage_metadata", None)
-                self._record_call(
-                    tokens_in=getattr(usage, "prompt_token_count", 0) or 0,
-                    tokens_out=getattr(usage, "candidates_token_count", 0) or 0,
-                )
+                tin  = getattr(usage, "prompt_token_count", 0) or 0
+                tout = getattr(usage, "candidates_token_count", 0) or 0
+                self._record_call(tokens_in=tin, tokens_out=tout)
                 text = (resp.text or "").strip()
                 # Gemma sometimes emits an empty Markdown fence (```\n```) as its
                 # post-tool reply instead of empty text, even when the tool
@@ -203,6 +216,12 @@ class FridayAgent:
                     logger.warning(
                         f"Gemini returned empty text. finish_reason={finish} usage={usage}"
                     )
+                activity.record_llm_exchange(
+                    self._conn, model=self.model_name, prompt=prompt, response=text,
+                    tokens_in=tin, tokens_out=tout,
+                    duration_ms=int((time.monotonic() - start_t) * 1000),
+                    triggered_by=triggered_by,
+                )
                 return text
 
             else:  # ollama
@@ -221,13 +240,25 @@ class FridayAgent:
                 )
                 r.raise_for_status()
                 data = r.json()
-                self._record_call(
-                    tokens_in=data.get("prompt_eval_count", 0) or 0,
-                    tokens_out=data.get("eval_count", 0) or 0,
+                tin  = data.get("prompt_eval_count", 0) or 0
+                tout = data.get("eval_count", 0) or 0
+                self._record_call(tokens_in=tin, tokens_out=tout)
+                text = data.get("message", {}).get("content", "").strip()
+                activity.record_llm_exchange(
+                    self._conn, model=self.model_name, prompt=prompt, response=text,
+                    tokens_in=tin, tokens_out=tout,
+                    duration_ms=int((time.monotonic() - start_t) * 1000),
+                    triggered_by=triggered_by,
                 )
-                return data.get("message", {}).get("content", "").strip()
+                return text
 
         except Exception as e:
             logger.error(f"LLM error: {e}")
             self._last_error = str(e).splitlines()[0][:240]
+            activity.record_llm_exchange(
+                self._conn, model=self.model_name, prompt=prompt,
+                response=f"[error] {self._last_error}", tokens_in=0, tokens_out=0,
+                duration_ms=int((time.monotonic() - start_t) * 1000),
+                triggered_by=triggered_by,
+            )
             return ""

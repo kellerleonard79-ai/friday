@@ -34,6 +34,7 @@ logger = logging.getLogger("friday")
 from agent.core import FridayAgent
 from channels.telegram import TelegramHandler
 from memory.db import Database
+import memory.activity as activity
 import memory.state as state
 from calendars import backend as calendar_backend
 from connectors import canvas as canvas_connector
@@ -166,6 +167,26 @@ def main() -> None:
             pass
         conn.close()
 
+    # ── Briefing activity recorder ────────────────────────────────────────────
+    # Records every briefing that actually shipped (body + how late it was) for
+    # the dashboard Today feed. Derives on_time/catchup/override from the job
+    # name and age from the configured slot time. Best-effort — wrapped so a
+    # logging failure can never break the send path.
+    def _record_briefing_sent(slot: str, body: str, job_name: str,
+                              sched_h: int, sched_m: int) -> None:
+        if job_name.endswith("catchup_job"):
+            kind = "catchup"
+        elif job_name.endswith("override_job"):
+            kind = "override"
+        else:
+            kind = "on_time"
+        now_local = datetime.datetime.now(local_tz)
+        scheduled = now_local.replace(hour=sched_h, minute=sched_m,
+                                      second=0, microsecond=0)
+        age_min = max(0, int((now_local - scheduled).total_seconds() // 60))
+        activity.record_briefing(conn, slot=slot, body=body,
+                                 on_time_vs_catchup=kind, age_minutes=age_min)
+
     # ── Morning briefing job ─────────────────────────────────────────────────
 
     async def morning_briefing_job(context) -> None:
@@ -212,6 +233,7 @@ def main() -> None:
                 # emoji here — prepending another opener would double the greeting.
                 await context.bot.send_message(chat_id=chat_id, text=response)
                 state.set(conn, "last_morning_briefing_sent", today.isoformat())
+                _record_briefing_sent("morning", response, job_name, mbh, mbm)
             except Exception as e:
                 logger.error(f"Morning briefing send failed: {e}")
 
@@ -247,7 +269,7 @@ def main() -> None:
                 f"{criteria}"
             )
             urgency = await loop.run_in_executor(
-                None, lambda: agent._think(prompt, use_tools=False)
+                None, lambda: agent._think(prompt, use_tools=False, triggered_by="poll")
             )
             urgency = urgency.strip().upper()
             if urgency not in ("URGENT", "SOON", "NORMAL"):
@@ -308,7 +330,7 @@ def main() -> None:
                 f"- notes: short, include any location mentioned\n"
             )
             raw = await loop.run_in_executor(
-                None, lambda p=prompt: agent._think(p, use_tools=False)
+                None, lambda p=prompt: agent._think(p, use_tools=False, triggered_by="poll")
             )
             raw = (raw or "").strip()
             # Mark scanned regardless of outcome so we never retry the same row
@@ -437,6 +459,10 @@ def main() -> None:
             try:
                 await context.bot.send_message(chat_id=chat_id, text=text)
                 conn.execute("UPDATE events SET notified=1 WHERE id=?", (event_id,))
+                activity.record_urgent_alert(
+                    conn, source=source or "", source_ref=event_id,
+                    body=f"{title}\n{body or ''}".strip(),
+                )
             except Exception as e:
                 logger.error(f"Urgent alert send failed: {e}")
         if rows:
@@ -488,6 +514,7 @@ def main() -> None:
                     text=f"Good evening, sir.\n\n{response}",
                 )
                 state.set(conn, "last_evening_briefing_sent", today.isoformat())
+                _record_briefing_sent("evening", response, job_name, bh, bm)
             except Exception as e:
                 logger.error(f"Evening briefing send failed: {e}")
 
@@ -574,6 +601,13 @@ def main() -> None:
         if not acted:
             logger.info("No missed briefings")
 
+    # ── Nightly activity-table cleanup ────────────────────────────────────────
+    # Trims the activity-capture tables (llm_exchanges, tool_calls, briefings_sent,
+    # urgent_alerts_sent) to the last 30 days so they don't grow without bound.
+    async def cleanup_activity_job(context) -> None:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, activity.cleanup_old_activity, conn, 30)
+
     # ── Build and run application ─────────────────────────────────────────────
 
     app = (
@@ -603,6 +637,10 @@ def main() -> None:
     )
     app.job_queue.run_repeating(poll_connectors_job,    interval=900, first=60)
     app.job_queue.run_repeating(check_urgent_alerts_job, interval=60,  first=10)
+    app.job_queue.run_daily(
+        cleanup_activity_job,
+        time=datetime.time(3, 0, tzinfo=local_tz),
+    )
 
     # Restore any pending briefing override that survived a restart. The
     # system_state row persists across restarts, but the in-memory one-shot

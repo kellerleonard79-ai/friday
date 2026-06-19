@@ -57,6 +57,60 @@ CREATE TABLE IF NOT EXISTS synced_events (
     apple_event_id   TEXT,
     synced_at        TEXT
 );
+
+-- ── Activity capture (powers the dashboard "Today" surface) ──────────────────
+-- These four tables record what Friday actually DID, as opposed to the
+-- operational flags (events.processed/notified, system_state counters) that
+-- only record that something happened. A nightly cleanup job trims each to the
+-- last 30 days. All writes are best-effort (memory/activity.py) — instrumentation
+-- never raises into the hot path.
+
+-- Every LLM call (chat, briefing, urgency tagging, quip) writes one row here.
+-- Per-day stats and /api/llm/last are computed from these rows — no rollup table.
+CREATE TABLE IF NOT EXISTS llm_exchanges (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp        TEXT,
+    model            TEXT,
+    prompt_preview   TEXT,
+    response_preview TEXT,
+    tokens_in        INTEGER,
+    tokens_out       INTEGER,
+    duration_ms      INTEGER,
+    triggered_by     TEXT,    -- user_message | briefing_* | poll | ...
+    full_prompt      TEXT,
+    full_response    TEXT
+);
+
+-- Every Gemini function-call invocation (wrapped in agent/tools.py).
+CREATE TABLE IF NOT EXISTS tool_calls (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp      TEXT,
+    tool_name      TEXT,
+    args_json      TEXT,
+    result_preview TEXT,
+    duration_ms    INTEGER,
+    triggered_by   TEXT
+);
+
+-- Every briefing actually sent (morning/evening), with the full body.
+CREATE TABLE IF NOT EXISTS briefings_sent (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp          TEXT,
+    slot               TEXT,    -- 'morning' | 'evening' | 'on_demand'
+    body_preview       TEXT,
+    body_full          TEXT,
+    on_time_vs_catchup TEXT,    -- 'on_time' | 'catchup' | 'override'
+    age_minutes        INTEGER
+);
+
+-- Every urgent interrupt actually fired.
+CREATE TABLE IF NOT EXISTS urgent_alerts_sent (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp    TEXT,
+    source       TEXT,    -- 'groupme' | 'canvas' | ...
+    source_ref   TEXT,    -- events.id that triggered it
+    body_preview TEXT
+);
 """
 
 
@@ -88,6 +142,14 @@ class Database:
             # pass to retroactively scan every historical groupme message.
             self._conn.execute("UPDATE events SET event_extracted = 1")
             logger.info("Migration: added events.event_extracted column (existing rows backfilled)")
+
+        # pending_actions.resolved_at: when a row left 'pending' (confirmed /
+        # cancelled / failed). NULL for existing rows — we can't reconstruct a
+        # historical resolution time, so the activity feed treats them as undated.
+        pa_cols = {r[1] for r in self._conn.execute("PRAGMA table_info(pending_actions)")}
+        if "resolved_at" not in pa_cols:
+            self._conn.execute("ALTER TABLE pending_actions ADD COLUMN resolved_at TEXT")
+            logger.info("Migration: added pending_actions.resolved_at column")
 
     def connection(self) -> sqlite3.Connection:
         return self._conn

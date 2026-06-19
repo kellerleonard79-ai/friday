@@ -127,7 +127,9 @@ class TelegramHandler:
             loop = asyncio.get_running_loop()
             self.agent._last_action_emitted = None  # reset before the call
             self.agent._last_calendar_confirmation = None
-            response = await loop.run_in_executor(None, self.agent._think, text, history)
+            response = await loop.run_in_executor(
+                None, self.agent._think, text, history, True, "user_message"
+            )
             action_emitted = getattr(self.agent, "_last_action_emitted", None)
 
             now_iso = datetime.now().isoformat()

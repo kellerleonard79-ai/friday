@@ -9,11 +9,16 @@ Each tool:
   - Returns a JSON-serializable dict — never raises
 """
 
+import functools
+import inspect
+import json
 import logging
+import time
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import compat
+import memory.activity as activity
 import memory.state as state
 from calendars import backend as calendar_backend
 from connectors import weather
@@ -31,6 +36,39 @@ def make_tools(conn, config, agent=None):
 
     tz_name = (config.get("agent") or {}).get("timezone", "America/Chicago")
     local_tz = ZoneInfo(tz_name)
+
+    def _instrument(fn):
+        """Wrap a tool callable so every invocation writes a tool_calls row
+        (name, args, result preview, duration, triggered_by). functools.wraps
+        preserves __name__/__doc__/__annotations__/__wrapped__ so google-genai's
+        signature- and annotation-based schema inference is unaffected. Recording
+        is best-effort and never alters the tool's return value."""
+        sig = inspect.signature(fn)
+
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            start = time.monotonic()
+            result = fn(*args, **kwargs)
+            try:
+                try:
+                    bound = sig.bind(*args, **kwargs)
+                    bound.apply_defaults()
+                    args_dict = dict(bound.arguments)
+                except TypeError:
+                    args_dict = {"args": list(args), "kwargs": kwargs}
+                activity.record_tool_call(
+                    conn,
+                    tool_name=fn.__name__,
+                    args_json=json.dumps(args_dict, default=str)[:1000],
+                    result_preview=json.dumps(result, default=str),
+                    duration_ms=int((time.monotonic() - start) * 1000),
+                    triggered_by=getattr(agent, "_tool_triggered_by", "unknown"),
+                )
+            except Exception as e:
+                logger.debug(f"tool instrumentation failed for {fn.__name__}: {e}")
+            return result
+
+        return wrapper
 
     def _to_local(iso_utc: str) -> str:
         """Calendar backends emit ISO strings (UTC '...Z' from Apple/JXA,
@@ -230,7 +268,7 @@ def make_tools(conn, config, agent=None):
             context_parts.append(f"at {start_time}")
         quip_context = " ".join(context_parts) + "."
         prompt, quips = phrases.quip_prompt(quip_context)
-        raw = agent._think(prompt, use_tools=False) if agent else ""
+        raw = agent._think(prompt, use_tools=False, triggered_by="user_message") if agent else ""
         quip = phrases.pick_quip(raw, quips)
         default_cal = (config.get("agent") or {}).get("default_calendar")
         uid = cal_action.auto_write(
@@ -257,6 +295,8 @@ def make_tools(conn, config, agent=None):
             "next_action": "Do not produce any further output for this turn. Friday has already replied.",
         }
 
-    return [get_now, get_schedule, get_weather,
-            get_pending_canvas, reschedule_briefing,
-            add_calendar_event]
+    return [_instrument(fn) for fn in (
+        get_now, get_schedule, get_weather,
+        get_pending_canvas, reschedule_briefing,
+        add_calendar_event,
+    )]

@@ -301,8 +301,8 @@ def confirm_pending(pending_key: str, conn: sqlite3.Connection, telegram) -> boo
 
     uid = auto_write(event, telegram=telegram)
     conn.execute(
-        "UPDATE pending_actions SET status = ? WHERE id = ?",
-        ("confirmed" if uid else "failed", pending_key),
+        "UPDATE pending_actions SET status = ?, resolved_at = ? WHERE id = ?",
+        ("confirmed" if uid else "failed", datetime.now().isoformat(), pending_key),
     )
     conn.commit()
     return bool(uid)
@@ -319,8 +319,8 @@ def cancel_pending(pending_key: str, conn: sqlite3.Connection, telegram) -> None
     if status != "pending":
         return
     conn.execute(
-        "UPDATE pending_actions SET status = 'cancelled' WHERE id = ?",
-        (pending_key,),
+        "UPDATE pending_actions SET status = 'cancelled', resolved_at = ? WHERE id = ?",
+        (datetime.now().isoformat(), pending_key),
     )
     conn.commit()
     try:
