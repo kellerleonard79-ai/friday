@@ -44,6 +44,14 @@ from wakeword import WakeDetector  # noqa: E402
 
 _LOGGER = logging.getLogger(__name__)
 
+# Voice satellite feature map (standalone — never imports Friday's core):
+#   • Three trigger paths, each independently toggleable in config:
+#       wake word ("Hey Friday" via openWakeWord) | double-clap | push-to-talk
+#   • Boot-time mic TCC probe that validates real signal (zeros == denied)
+#   • Per-session state machine: offline check → ack phrase → record
+#     (silence-terminated or held) → Whisper transcribe → Telegram bridge →
+#     speak reply (only if external audio / always_speak)
+#   • /tmp/friday_listening flag toggled per session (menubar/dashboard read it)
 LISTENING_FLAG = Path("/tmp/friday_listening")
 
 

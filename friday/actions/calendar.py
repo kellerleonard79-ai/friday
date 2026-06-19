@@ -267,12 +267,12 @@ def gated_write(event: dict, conn: sqlite3.Connection, telegram,
     notes    = (event.get("notes") or "").strip()
     draft = (
         f"Add to calendar?\n\n"
-        f"📌 {title}\n"
-        f"📅 {when}{_format_when(event)}\n"
-        f"🗂  {cal_name}"
+        f"{title}\n"
+        f"When: {when}{_format_when(event)}\n"
+        f"Calendar: {cal_name}"
     )
     if notes:
-        draft += f"\n📝 {notes}"
+        draft += f"\nNotes: {notes}"
     telegram.send_permission_request(draft, pending_key)
     return pending_key
 

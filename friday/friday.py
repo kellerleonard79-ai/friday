@@ -70,6 +70,19 @@ def check_environment(config: dict) -> None:
         sys.exit(1)
 
 
+# ── Feature map (everything main() wires up) ──────────────────────────────────
+#   • Config load + env validation + calendar-backend selection
+#   • SQLite DB open, FridayAgent (LLM), TelegramHandler (semaphore entry point)
+#   • Dashboard web server started inside this same asyncio loop
+#   • Scheduled jobs registered on PTB JobQueue:
+#       run_daily    → morning_briefing_job   (08:00-ish, tz-window guarded)
+#       run_daily    → briefing_job (evening)  (21:45-ish, tz-window guarded)
+#       run_repeating→ poll_connectors_job     (15 min: Canvas, gcal_sync,
+#                                                GroupMe, then LLM tagging +
+#                                                GroupMe event extraction)
+#       run_repeating→ check_urgent_alerts_job  (1 min: fire URGENT interrupts)
+#   • One-shot briefing overrides (reschedule tool) + missed-briefing catch-up
+#   • run_polling owns the only event loop (no second scheduler, no threads)
 def main() -> None:
     logger.info("=" * 50)
     logger.info("  Project Friday — Starting up")
@@ -131,7 +144,7 @@ def main() -> None:
 
         await app.bot.send_message(
             chat_id=chat_id,
-            text=f"⚡ Friday online — {config.get('provider', 'ollama')} / {agent.model_name}",
+            text=f"Friday online — {config.get('provider', 'ollama')} / {agent.model_name}",
         )
         logger.info("Startup complete.")
 
@@ -149,7 +162,7 @@ def main() -> None:
             except (asyncio.TimeoutError, Exception):
                 pass
         try:
-            await app.bot.send_message(chat_id=chat_id, text="Friday going offline. 🔴")
+            await app.bot.send_message(chat_id=chat_id, text="Friday going offline.")
         except Exception:
             pass
         conn.close()
@@ -199,7 +212,10 @@ def main() -> None:
         )
         if response:
             try:
-                await context.bot.send_message(chat_id=chat_id, text=f"🌅 {response}")
+                # The morning composer's prompt already makes the body open with
+                # "Good morning, sir. Here is your day:", so we only strip the
+                # emoji here — prepending another opener would double the greeting.
+                await context.bot.send_message(chat_id=chat_id, text=response)
                 state.set(conn, "last_morning_briefing_sent", today.isoformat())
             except Exception as e:
                 logger.error(f"Morning briefing send failed: {e}")
@@ -406,6 +422,11 @@ def main() -> None:
         await process_untagged_events(loop)
         await extract_groupme_events(loop)
 
+        # Safety net: fire any briefing missed while the Mac slept through its
+        # scheduled time. This is the first poll to run after wake, so it is
+        # where a launchd-kept-alive process recovers a dropped cron briefing.
+        _check_and_run_missed_briefings(context.job_queue)
+
     # ── Check urgent alerts job ───────────────────────────────────────────────
 
     async def check_urgent_alerts_job(context) -> None:
@@ -481,11 +502,94 @@ def main() -> None:
             try:
                 await context.bot.send_message(
                     chat_id=chat_id,
-                    text=f"📅 Evening Briefing — {compat.strftime(today, '%A, %B %-d')}\n\n{response}",
+                    text=f"Good evening, sir.\n\n{response}",
                 )
                 state.set(conn, "last_evening_briefing_sent", today.isoformat())
             except Exception as e:
                 logger.error(f"Evening briefing send failed: {e}")
+
+    # ── Missed-briefing catch-up (poll-driven safety net) ─────────────────────
+    # APScheduler drops cron jobs whose run time was missed beyond their grace
+    # period, and launchd KeepAlive keeps this same process alive across the
+    # Mac's sleep/wake — so the old startup-only catch-up never re-ran on wake
+    # and briefings were silently lost (last_evening_briefing_sent stuck days
+    # behind). This helper runs on every poll tick (and once at startup) to fire
+    # a still-timely missed briefing late, or skip it once it has gone stale.
+    #
+    # last_<kind>_briefing_sent is the idempotency lock: it is set to today
+    # synchronously here, BEFORE the briefing job is queued, so repeat calls in
+    # the same day are no-ops. The on-time window (run time .. +60s) is left to
+    # the run_daily job, which owns it and sets the same lock on success.
+    #
+    # Scenario trace (see requirement 7):
+    #   A. On-time fire — run_daily fires at the scheduled time and sets
+    #      last_*_briefing_sent=today. Next poll: sent==today → skip. A poll
+    #      landing in the first 60s (before run_daily finishes) sees age_min<1
+    #      → skip, so it never races run_daily. No double-send.
+    #   B. Wake 30 min late — run_daily misfired while asleep. First poll after
+    #      wake: sent!=today, age_min=30 (1..max), no override → "Catching up",
+    #      lock taken, briefing job queued → fires ~1s later. One briefing.
+    #   C. Wake next morning after sleeping through the evening — the evening
+    #      slot is scheduled for *today* 20:00, which is in the future at 07:00
+    #      (age_min<1) → skip; yesterday's missed evening briefing is not
+    #      resurrected. A morning briefing woken to well past its time (e.g.
+    #      09:30 vs a 07:00 slot, 150>max) → "Skipping stale", lock set so it
+    #      will not retrigger for the rest of the day.
+    #   D. Two polls in a row after a late wake — the first sets the lock before
+    #      queueing; the second sees sent==today → skip. Fires exactly once.
+    def _check_and_run_missed_briefings(job_queue) -> None:
+        now_local = datetime.datetime.now(local_tz)
+        today     = now_local.date()
+        agent_cfg = config.get("agent") or {}
+        try:
+            max_min = int(agent_cfg.get("briefing_catchup_max_minutes", 120))
+        except (TypeError, ValueError):
+            max_min = 120
+
+        def _override_active_today(kind: str) -> bool:
+            """True if a still-future override for today owns this slot."""
+            ovr = state.get(conn, f"{kind}_briefing_override")
+            if not ovr:
+                return False
+            try:
+                ovr_dt = datetime.datetime.fromisoformat(ovr)
+            except ValueError:
+                return False
+            return ovr_dt.date() == today and ovr_dt > now_local
+
+        acted = False
+        for kind, runner, sched_h, sched_m, sent_key in (
+            ("morning", morning_briefing_job, mbh, mbm, "last_morning_briefing_sent"),
+            ("evening", briefing_job,         bh,  bm,  "last_evening_briefing_sent"),
+        ):
+            if state.get(conn, sent_key) == today.isoformat():
+                continue  # already sent today (on-time or an earlier catch-up)
+            scheduled = now_local.replace(
+                hour=sched_h, minute=sched_m, second=0, microsecond=0,
+            )
+            age_min = int((now_local - scheduled).total_seconds() // 60)
+            if age_min < 1:
+                # Not due yet, or within the on-time minute owned by run_daily.
+                continue
+            if _override_active_today(kind):
+                continue
+            acted = True
+            if age_min > max_min:
+                logger.info(
+                    f"Skipping stale {kind} briefing, {age_min} minutes late "
+                    f"(max {max_min})"
+                )
+                # Mark sent so we don't re-evaluate this slot on every poll today.
+                state.set(conn, sent_key, today.isoformat())
+                continue
+            logger.info(f"Catching up {kind} briefing, {age_min} minutes late")
+            # Take the lock before queueing so a second call can't double-fire;
+            # the runner re-sets it on a successful send too.
+            state.set(conn, sent_key, today.isoformat())
+            job_queue.run_once(runner, when=1, name=f"{kind}_briefing_catchup_job")
+
+        if not acted:
+            logger.info("No missed briefings")
 
     # ── Build and run application ─────────────────────────────────────────────
 
@@ -548,57 +652,9 @@ def main() -> None:
             f"{ovr_dt.strftime('%Y-%m-%d %H:%M %Z')}"
         )
 
-    # Missed-briefing catch-up: if Friday was offline when a briefing was
-    # supposed to fire, send it shortly after boot — but only within a
-    # sensible window (morning catch-up must still be morning-ish, evening
-    # catch-up must still be the same calendar day).
-    now_local_boot = datetime.datetime.now(local_tz)
-    today_boot     = now_local_boot.date()
-
-    def _override_pending_today(kind: str) -> bool:
-        ovr = state.get(conn, f"{kind}_briefing_override")
-        if not ovr:
-            return False
-        try:
-            ovr_dt = datetime.datetime.fromisoformat(ovr)
-        except ValueError:
-            return False
-        return ovr_dt.date() == today_boot and ovr_dt > now_local_boot
-
-    morning_sent_for = state.get(conn, "last_morning_briefing_sent")
-    scheduled_morning_today = now_local_boot.replace(
-        hour=mbh, minute=mbm, second=0, microsecond=0,
-    )
-    if (
-        morning_sent_for != today_boot.isoformat()
-        and now_local_boot >= scheduled_morning_today
-        and now_local_boot.hour < EVENING_WINDOW[0]
-        and not _override_pending_today("morning")
-    ):
-        app.job_queue.run_once(
-            morning_briefing_job, when=5, name="morning_briefing_catchup_job",
-        )
-        logger.info(
-            f"Morning briefing missed today (scheduled {mbt_str} {tz_name}); "
-            f"running catch-up shortly."
-        )
-
-    evening_sent_for = state.get(conn, "last_evening_briefing_sent")
-    scheduled_evening_today = now_local_boot.replace(
-        hour=bh, minute=bm, second=0, microsecond=0,
-    )
-    if (
-        evening_sent_for != today_boot.isoformat()
-        and now_local_boot >= scheduled_evening_today
-        and not _override_pending_today("evening")
-    ):
-        app.job_queue.run_once(
-            briefing_job, when=5, name="evening_briefing_catchup_job",
-        )
-        logger.info(
-            f"Evening briefing missed today (scheduled {bt_str} {tz_name}); "
-            f"running catch-up shortly."
-        )
+    # Missed-briefing catch-up at startup. Same helper the poll job uses, so
+    # boot and wake-from-sleep recover a dropped briefing identically.
+    _check_and_run_missed_briefings(app.job_queue)
 
     logger.info(f"Morning briefing scheduled at {mbt_str} {tz_name}")
     logger.info(f"Evening briefing scheduled at {bt_str} {tz_name}")

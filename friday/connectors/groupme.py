@@ -11,6 +11,10 @@ import requests
 
 logger = logging.getLogger("friday.groupme")
 
+# Features: per-group polling with priority tiers (high/normal/muted), lazy
+# name→id resolution, no-backfill first poll (cursor primed to newest), and a
+# [priority=...] tag prepended to each body so the LLM's later urgency pass and
+# event-extraction pass can weight the message correctly.
 _API_BASE  = "https://api.groupme.com/v3"
 _TIMEOUT_S = 15
 _PAGE_SIZE = 100

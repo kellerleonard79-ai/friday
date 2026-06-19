@@ -216,6 +216,19 @@ def _sync_briefing_times(cfg: dict) -> None:
 
 # ── App factory ──────────────────────────────────────────────────────────────
 
+# ── Endpoint index ────────────────────────────────────────────────────────────
+#   GET  /                       → dashboard SPA (index.html)
+#   GET  /api/status             → live state, uptime, token/call stats
+#   GET/POST /api/config         → read (secrets masked) / write (atomic) config
+#   GET  /api/groupme/groups     → list account's GroupMe groups (for the picker)
+#   GET  /api/gemini/models      → list Gemini models + free-tier quota hints
+#   POST /api/friday/restart     → kickstart agent (launchd) / SIGINT (Windows tray)
+#   POST /api/friday/pause       → pause/resume (+ timed paused_until)
+#   POST /api/friday/brief       → trigger an on-demand "brief me"
+#   GET  /api/voice/status       → voice LaunchAgent state + listening flag
+#   POST /api/voice/{wake,restart}, GET /api/voice/logs → voice controls/logs
+#   GET  /api/logs               → tail friday.log
+#   POST /api/test/{telegram,canvas} → connectivity self-tests
 def create_app(config_path: Path, conn: sqlite3.Connection,
                started_at: datetime) -> FastAPI:
     app = FastAPI(title="F.R.I.D.A.Y. Dashboard", docs_url=None, redoc_url=None)

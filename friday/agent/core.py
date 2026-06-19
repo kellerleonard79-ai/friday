@@ -15,6 +15,16 @@ import memory.state as state
 
 logger = logging.getLogger("friday.core")
 
+# Features in this module:
+#   • Dual provider support — Gemini (with function-calling tools) or local
+#     Ollama — selected by config['provider'].
+#   • Persona assembly: AGENTS.md base prose + a config-driven block (preset,
+#     snark level, approved JARVIS phrases, custom instructions).
+#   • Transient-error retry/backoff for Gemini (500/503/504/429).
+#   • Token/call stats persisted to system_state for the dashboard/menubar.
+#   • _think() is the single synchronous LLM entry point; callers run it in an
+#     executor from the async handlers.
+
 # Google API transient errors worth retrying. 500/503/504 = server-side
 # blip, 429 = rate limit. Everything else (400 bad request, 401 auth, etc.)
 # is our fault and retrying just wastes time.

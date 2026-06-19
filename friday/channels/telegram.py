@@ -21,6 +21,17 @@ import memory.state as state
 logger = logging.getLogger("friday.telegram")
 
 _API_BASE = "https://api.telegram.org/bot{token}/{method}"
+
+# Features handled here:
+#   • on_message  — the single serialized entry point for ALL user text. The
+#     semaphore below is acquired first thing so messages queue in arrival
+#     order before any DB/LLM work. Also enforces the pause gate (incl. timed
+#     auto-resume), rolling conversation_history, and the calendar-add
+#     "confirmation already sent" special case.
+#   • on_callback — inline-button taps for the approval-gate cards
+#     (confirm/cancel → actions/calendar.py). 'edit' is reserved for Phase 5.
+#   • send / send_permission_request — synchronous outbound helpers.
+# RULE (CLAUDE.md): this semaphore must stay at the top of on_message. Never move it.
 _semaphore = asyncio.Semaphore(1)
 
 
@@ -62,7 +73,7 @@ class TelegramHandler:
         try:
             r = requests.post(url, json={
                 "chat_id": self.chat_id,
-                "text": f"📋 Friday\n\n{draft}",
+                "text": f"Friday\n\n{draft}",
                 "reply_markup": keyboard.to_dict(),
             }, timeout=10)
             return r.status_code == 200
