@@ -79,6 +79,22 @@ class PauseRequest(BaseModel):
     until: str | None = None  # ISO datetime; menubar uses this for timed pauses
 
 
+_NO_CACHE = "no-cache, no-store, must-revalidate"
+
+
+class _NoCacheStatic(StaticFiles):
+    """StaticFiles that disables conditional/304 caching so edited assets are
+    always re-fetched. Localhost dashboard — no bandwidth concern."""
+
+    def is_not_modified(self, response_headers, request_headers) -> bool:
+        return False
+
+    async def get_response(self, path, scope):
+        resp = await super().get_response(path, scope)
+        resp.headers["Cache-Control"] = _NO_CACHE
+        return resp
+
+
 # ── Config I/O ───────────────────────────────────────────────────────────────
 
 _DEFAULT_PERSONA = {
@@ -469,15 +485,19 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
     except Exception as e:
         logger.debug(f"favicon generation skipped: {e}")
 
-    # Static files at /static/*
+    # Static files at /static/* — served no-cache so a freshly edited app.js /
+    # style.css is always picked up. This is a localhost-only dashboard, so the
+    # revalidation cost is irrelevant, and it prevents stale-asset blank pages
+    # (a cached index.html paired with new routing, or vice-versa).
     if _STATIC_DIR.exists():
-        app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+        app.mount("/static", _NoCacheStatic(directory=str(_STATIC_DIR)), name="static")
 
     # ── Routes ────────────────────────────────────────────────────────────────
 
     @app.get("/")
     def index() -> FileResponse:
-        return FileResponse(str(_STATIC_DIR / "index.html"))
+        return FileResponse(str(_STATIC_DIR / "index.html"),
+                            headers={"Cache-Control": _NO_CACHE})
 
     @app.get("/api/status")
     def api_status() -> dict:

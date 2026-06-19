@@ -108,6 +108,13 @@ function navigate(route) {
     a.classList.toggle('active', a.dataset.route === route);
   });
   const tpl = document.getElementById(`page-${route}`);
+  if (!tpl) {
+    // Stale-cache guard: a cached old index.html may lack a newer template.
+    // Force one fresh reload instead of throwing and blanking the page.
+    PAGE.innerHTML = '<div class="panel"><div class="hint">Updating dashboard…</div></div>';
+    location.reload();
+    return;
+  }
   PAGE.innerHTML = '';
   PAGE.appendChild(tpl.content.cloneNode(true));
   // Force reflow so fade-in animation replays
