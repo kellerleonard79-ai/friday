@@ -36,7 +36,6 @@ from channels.telegram import TelegramHandler
 from memory.db import Database
 import memory.state as state
 from calendars import backend as calendar_backend
-from connectors import weather as weather_connector
 from connectors import canvas as canvas_connector
 from connectors import gcal_sync
 from connectors import groupme as groupme_connector
@@ -198,17 +197,13 @@ def main() -> None:
                 return
         today = datetime.date.today()
         loop = asyncio.get_running_loop()
-        today_evts = await loop.run_in_executor(
-            None, calendar_backend.events_for_day, config, today
-        )
-        upcoming_evts = await loop.run_in_executor(
-            None, calendar_backend.events_in_window, config, today, today + datetime.timedelta(days=7)
-        )
-        wx = await loop.run_in_executor(
-            None, weather_connector.respond, config.get("weather", {}), ""
+        # Pre-fetch a known-complete dataset (calendar/canvas/weather/groupme)
+        # so the composer works from injected context instead of tool calls.
+        bundle = await loop.run_in_executor(
+            None, briefings.bundle_briefing_context, "morning", config, conn
         )
         response = await loop.run_in_executor(
-            None, briefings.compose_morning, agent, today_evts, upcoming_evts, wx
+            None, briefings.compose_morning, agent, bundle
         )
         if response:
             try:
@@ -477,26 +472,14 @@ def main() -> None:
                 )
                 return
         today = datetime.date.today()
-        tomorrow = today + datetime.timedelta(days=1)
         loop = asyncio.get_running_loop()
-        tomorrow_evts = await loop.run_in_executor(
-            None, calendar_backend.events_for_day, config, tomorrow
-        )
-        upcoming_evts = await loop.run_in_executor(
-            None, calendar_backend.events_in_window, config, tomorrow,
-            tomorrow + datetime.timedelta(days=7),
-        )
-        canvas_pending = conn.execute(
-            "SELECT title, due_at, urgency FROM events "
-            "WHERE source='canvas' AND urgency IN ('URGENT','SOON') AND notified=0 "
-            "ORDER BY due_at"
-        ).fetchall()
-        wx = await loop.run_in_executor(
-            None, weather_connector.respond, config.get("weather", {}), ""
+        # Pre-fetch a known-complete dataset (calendar/canvas/weather/groupme)
+        # so the composer works from injected context instead of tool calls.
+        bundle = await loop.run_in_executor(
+            None, briefings.bundle_briefing_context, "evening", config, conn
         )
         response = await loop.run_in_executor(
-            None, briefings.compose_evening,
-            agent, tomorrow_evts, upcoming_evts, canvas_pending, wx,
+            None, briefings.compose_evening, agent, bundle
         )
         if response:
             try:
