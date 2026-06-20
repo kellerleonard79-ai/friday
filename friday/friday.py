@@ -217,6 +217,15 @@ def main() -> None:
                 )
                 return
         today = datetime.date.today()
+        # Claim the slot BEFORE the slow compose, not after the send. The 60s
+        # catch-up net checks last_morning_briefing_sent every minute; if we
+        # only locked after sending, a compose taking >60s would let the net
+        # queue a second briefing while this one is still composing (duplicate).
+        # is_catchup already holds the lock from _check_and_run_missed_briefings.
+        if not is_catchup:
+            if state.get(conn, "last_morning_briefing_sent") == today.isoformat():
+                return  # already sent today
+            state.set(conn, "last_morning_briefing_sent", today.isoformat())
         loop = asyncio.get_running_loop()
         # Pre-fetch a known-complete dataset (calendar/canvas/weather/groupme)
         # so the composer works from injected context instead of tool calls.
@@ -232,10 +241,14 @@ def main() -> None:
                 # "Good morning, sir. Here is your day:", so we only strip the
                 # emoji here — prepending another opener would double the greeting.
                 await context.bot.send_message(chat_id=chat_id, text=response)
-                state.set(conn, "last_morning_briefing_sent", today.isoformat())
                 _record_briefing_sent("morning", response, job_name, mbh, mbm)
             except Exception as e:
                 logger.error(f"Morning briefing send failed: {e}")
+                # Release the slot so the catch-up net can retry a failed send.
+                state.delete(conn, "last_morning_briefing_sent")
+        else:
+            # Empty compose isn't a real send — don't let the lock suppress retry.
+            state.delete(conn, "last_morning_briefing_sent")
 
     # ── LLM urgency tagging for unprocessed events ───────────────────────────
 
@@ -504,6 +517,14 @@ def main() -> None:
                 )
                 return
         today = datetime.date.today()
+        # Claim the slot BEFORE the slow compose, not after the send — see the
+        # morning job for the full rationale. Without this, a compose taking
+        # >60s lets the 60s catch-up net queue a duplicate evening briefing.
+        # is_catchup already holds the lock from _check_and_run_missed_briefings.
+        if not is_catchup:
+            if state.get(conn, "last_evening_briefing_sent") == today.isoformat():
+                return  # already sent today
+            state.set(conn, "last_evening_briefing_sent", today.isoformat())
         loop = asyncio.get_running_loop()
         # Pre-fetch a known-complete dataset (calendar/canvas/weather/groupme)
         # so the composer works from injected context instead of tool calls.
@@ -519,10 +540,14 @@ def main() -> None:
                     chat_id=chat_id,
                     text=f"Good evening, sir.\n\n{response}",
                 )
-                state.set(conn, "last_evening_briefing_sent", today.isoformat())
                 _record_briefing_sent("evening", response, job_name, bh, bm)
             except Exception as e:
                 logger.error(f"Evening briefing send failed: {e}")
+                # Release the slot so the catch-up net can retry a failed send.
+                state.delete(conn, "last_evening_briefing_sent")
+        else:
+            # Empty compose isn't a real send — don't let the lock suppress retry.
+            state.delete(conn, "last_evening_briefing_sent")
 
     # ── Missed-briefing catch-up (poll-driven safety net) ─────────────────────
     # APScheduler drops cron jobs whose run time was missed beyond their grace
