@@ -11,6 +11,7 @@ import datetime
 import json
 import logging
 import os
+import re
 import signal
 import sys
 from pathlib import Path
@@ -30,6 +31,19 @@ logging.basicConfig(
     ],
 )
 logger = logging.getLogger("friday")
+
+# Internal "[priority=high]" / "[priority=low]" tag the GroupMe connector prepends
+# to each event body purely as a signal for the LLM's urgency pass and the
+# briefing/urgent SQL LIKE queries. It must stay in events.body, but it is noise
+# in any user-facing message — strip it (and its now-orphaned blank line) before
+# the text reaches Telegram.
+_PRIORITY_TAG = re.compile(r"^\[priority=[^\]]*\]\n?", re.MULTILINE)
+
+
+def _strip_internal_tags(body: str) -> str:
+    """Remove internal LLM-only tags from an event body for user-facing display."""
+    return _PRIORITY_TAG.sub("", body).strip()
+
 
 from agent.core import FridayAgent
 from channels.telegram import TelegramHandler
@@ -467,14 +481,15 @@ def main() -> None:
         for row in rows:
             event_id, source, title, body = row
             text = f"🚨 Urgent — {source}\n{title}"
-            if body:
-                text += f"\n{body[:300]}"
+            clean_body = _strip_internal_tags(body) if body else ""
+            if clean_body:
+                text += f"\n{clean_body[:300]}"
             try:
                 await context.bot.send_message(chat_id=chat_id, text=text)
                 conn.execute("UPDATE events SET notified=1 WHERE id=?", (event_id,))
                 activity.record_urgent_alert(
                     conn, source=source or "", source_ref=event_id,
-                    body=f"{title}\n{body or ''}".strip(),
+                    body=f"{title}\n{clean_body}".strip(),
                 )
             except Exception as e:
                 logger.error(f"Urgent alert send failed: {e}")
