@@ -25,6 +25,7 @@ Synchronous — wrap in run_in_executor when called from async.
 
 import logging
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import compat
 from calendars import backend as calendar_backend
@@ -38,6 +39,18 @@ _UNAVAILABLE = "unavailable"
 
 # How far back to look for high-priority GroupMe chatter worth surfacing.
 _GROUPME_WINDOW_HOURS = 12
+
+
+def _local_now(config: dict) -> datetime:
+    """Authoritative current datetime in the configured timezone.
+
+    Never use date.today() / datetime.now() for the briefing's "today" — those
+    read the host's system timezone, which on the always-on Mac can disagree
+    with the configured America/Chicago and produce an off-by-one weekday label
+    even while the date-keyed calendar fetches (which use the config tz) stay
+    correct. Always derive the briefing's notion of now/today from here."""
+    tz_name = (config.get("agent") or {}).get("timezone", "America/Chicago")
+    return datetime.now(ZoneInfo(tz_name))
 
 
 def _local(iso: str) -> datetime | None:
@@ -211,9 +224,10 @@ def bundle_briefing_context(slot: str, config: dict, conn) -> dict:
       morning → today + next 3 days (excluding today), weather today
       evening → tomorrow + next 5 days (from tomorrow), weather tomorrow
     """
-    today = date.today()
+    now = _local_now(config)
+    today = now.date()
     tomorrow = today + timedelta(days=1)
-    bundle: dict = {"slot": slot, "now": datetime.now().astimezone()}
+    bundle: dict = {"slot": slot, "now": now}
 
     if slot == "morning":
         bundle["today_calendar"] = _fetch_calendar_day(config, today, "today_calendar")
@@ -342,11 +356,16 @@ def format_briefing_context(bundle: dict) -> str:
     """Render the bundle as a delimited, scannable block for the prompt top."""
     slot = bundle.get("slot", "?")
     now = bundle.get("now")
-    now_str = compat.strftime(now, "%A, %B %-d %Y, %H:%M %Z") if isinstance(now, datetime) else "?"
+    now_str = (
+        compat.strftime(now, "%A, %B %-d, %Y, %-I:%M %p %Z")
+        if isinstance(now, datetime) else "?"
+    )
 
     parts = [
         "===== BRIEFING CONTEXT (deterministic, do not re-fetch) =====",
-        f"Now: {now_str}",
+        f"Current date and time: {now_str}",
+        "This date, time, and weekday are authoritative. Use them verbatim. Never "
+        "infer, calculate, or guess the day of the week — it is given to you above.",
         "",
     ]
     if slot == "morning":
@@ -395,7 +414,8 @@ def compose_morning(agent, bundle: dict) -> str:
     injected above the existing instructions; tools stay registered as a
     fallback but the context is complete, so a normal day needs zero tool calls.
     """
-    today = date.today()
+    now = bundle.get("now")
+    today = now.date() if isinstance(now, datetime) else date.today()
     today_label = compat.strftime(today, "%A, %B %-d")
     today_evts = _safe_list(bundle.get("today_calendar"))
     upcoming_evts = _safe_list(bundle.get("week_preview"))
@@ -415,7 +435,8 @@ def compose_morning(agent, bundle: dict) -> str:
         f"{weather_line}\n\n"
         f"Today's scheduled events:\n{_events_block(today_evts)}\n\n"
         f"Upcoming this week:\n{_upcoming_block(upcoming_evts, today)}\n\n"
-        f"Today's date is {today.isoformat()} ({today.strftime('%A')}).\n\n"
+        f"Today is {today.strftime('%A')}, {today.isoformat()}. Use this weekday "
+        f"verbatim — never infer or guess the day of week.\n\n"
         f"Start with exactly: \"Good morning, sir. Here is your day:\"\n"
         f"Then in plain prose (no bullets, no markdown), 3-5 sentences:\n"
         f"  - Walk through today's events chronologically.\n"
@@ -429,7 +450,8 @@ def compose_morning(agent, bundle: dict) -> str:
 
 def compose_evening(agent, bundle: dict) -> str:
     """Evening briefing from the pre-bundled context (see compose_morning)."""
-    today = date.today()
+    now = bundle.get("now")
+    today = now.date() if isinstance(now, datetime) else date.today()
     tomorrow = today + timedelta(days=1)
     tomorrow_label = compat.strftime(tomorrow, "%A, %B %-d")
     tomorrow_evts = _safe_list(bundle.get("tomorrow_calendar"))
@@ -453,7 +475,9 @@ def compose_evening(agent, bundle: dict) -> str:
         f"Upcoming this week:\n{_upcoming_block(upcoming_evts, today)}\n\n"
         f"Pending Canvas items (SOON or URGENT, not yet alerted):\n"
         f"{_canvas_block(canvas_pending)}\n\n"
-        f"Today's date is {today.isoformat()} ({today.strftime('%A')}).\n\n"
+        f"Today is {today.strftime('%A')}, {today.isoformat()}; tomorrow is "
+        f"{tomorrow.strftime('%A')}, {tomorrow.isoformat()}. Use these weekdays "
+        f"verbatim — never infer or guess the day of week.\n\n"
         f"Write in plain prose, no markdown, 3-5 sentences:\n"
         f"  - Preview tomorrow chronologically.\n"
         f"  - Refer to upcoming items by weekday or \"next <weekday>\" rather than "
