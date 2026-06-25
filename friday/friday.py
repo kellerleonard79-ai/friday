@@ -250,6 +250,26 @@ def main() -> None:
             None, briefings.compose_morning, agent, bundle
         )
         if response:
+            # On a late catch-up, swap the standard greeting for a plain note
+            # that the machine was asleep. Emoji-free, since this can be spoken
+            # via TTS. Only when meaningfully late (>20 min) — a few minutes off
+            # keeps the normal opener.
+            if is_catchup:
+                now_local = datetime.datetime.now(local_tz)
+                scheduled = now_local.replace(hour=mbh, minute=mbm,
+                                              second=0, microsecond=0)
+                late_min = int((now_local - scheduled).total_seconds() // 60)
+                if late_min > 20:
+                    late_opener = (
+                        "Running a little late this morning, sir — the machine "
+                        "was asleep until just now."
+                    )
+                    if "Good morning, sir." in response:
+                        response = response.replace(
+                            "Good morning, sir.", late_opener, 1
+                        )
+                    else:
+                        response = f"{late_opener}\n\n{response}"
             try:
                 # The morning composer's prompt already makes the body open with
                 # "Good morning, sir. Here is your day:", so we only strip the
@@ -598,9 +618,16 @@ def main() -> None:
         today     = now_local.date()
         agent_cfg = config.get("agent") or {}
         try:
-            max_min = int(agent_cfg.get("briefing_catchup_max_minutes", 120))
+            default_max = int(agent_cfg.get("briefing_catchup_max_minutes", 120))
         except (TypeError, ValueError):
-            max_min = 120
+            default_max = 120
+
+        def _slot_max(key: str) -> int:
+            """Per-slot catch-up window, falling back to the shared default."""
+            try:
+                return int(agent_cfg.get(key, default_max))
+            except (TypeError, ValueError):
+                return default_max
 
         def _override_active_today(kind: str) -> bool:
             """True if a still-future override for today owns this slot."""
@@ -614,9 +641,11 @@ def main() -> None:
             return ovr_dt.date() == today and ovr_dt > now_local
 
         acted = False
-        for kind, runner, sched_h, sched_m, sent_key in (
-            ("morning", morning_briefing_job, mbh, mbm, "last_morning_briefing_sent"),
-            ("evening", briefing_job,         bh,  bm,  "last_evening_briefing_sent"),
+        for kind, runner, sched_h, sched_m, sent_key, max_key in (
+            ("morning", morning_briefing_job, mbh, mbm, "last_morning_briefing_sent",
+             "morning_briefing_catchup_max_minutes"),
+            ("evening", briefing_job,         bh,  bm,  "last_evening_briefing_sent",
+             "evening_briefing_catchup_max_minutes"),
         ):
             if state.get(conn, sent_key) == today.isoformat():
                 continue  # already sent today (on-time or an earlier catch-up)
@@ -630,9 +659,10 @@ def main() -> None:
             if _override_active_today(kind):
                 continue
             acted = True
+            max_min = _slot_max(max_key)
             if age_min > max_min:
-                logger.info(
-                    f"Skipping stale {kind} briefing, {age_min} minutes late "
+                logger.warning(
+                    f"Skipping stale {kind} briefing — {age_min} min late "
                     f"(max {max_min})"
                 )
                 # Mark sent so we don't re-evaluate this slot on every poll today.
