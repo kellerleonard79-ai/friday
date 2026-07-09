@@ -74,11 +74,24 @@ _SNARK_DIRECTIVES = {
 def _load_persona_base() -> str:
     import paths
     agents_path = str(paths.resource_path("AGENTS.md"))
+    fallback = "You are Friday, a helpful AI assistant. Be concise and direct."
     try:
         with open(agents_path) as f:
-            return f.read().strip()
+            base = f.read().strip()
     except FileNotFoundError:
-        return "You are Friday, a helpful AI assistant. Be concise and direct."
+        logger.warning(
+            f"Persona file missing: {agents_path} — using built-in fallback persona."
+        )
+        return fallback
+    if not base:
+        # A blank persona would hand Gemma an empty system_instruction —
+        # treat it as a miss, same as the file not existing.
+        logger.warning(
+            f"Persona file is empty: {agents_path} — using built-in fallback persona."
+        )
+        return fallback
+    logger.info(f"Persona loaded: {agents_path} ({len(base)} chars)")
+    return base
 
 
 def _compose_persona(base: str, config: dict) -> str:
