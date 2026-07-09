@@ -688,9 +688,16 @@ def main() -> None:
 
     # ── Build and run application ─────────────────────────────────────────────
 
+    # concurrent_updates lets callback taps (Confirm/Cancel) and new messages
+    # start processing while a slow handler runs — without it PTB awaits each
+    # update sequentially and one hung handler bricks the whole bot (July 9
+    # outage). LLM work is still serialized: the Semaphore(1) in
+    # channels/telegram.py gates on_message/on_media in FIFO order, so this
+    # never produces concurrent Gemini calls from user messages.
     app = (
         Application.builder()
         .token(bot_token)
+        .concurrent_updates(True)
         .post_init(post_init)
         .post_stop(post_stop)
         .build()

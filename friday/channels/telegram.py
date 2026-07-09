@@ -34,6 +34,14 @@ _API_BASE = "https://api.telegram.org/bot{token}/{method}"
 # RULE (CLAUDE.md): this semaphore must stay at the top of on_message. Never move it.
 _semaphore = asyncio.Semaphore(1)
 
+# Ceiling on any single executor call made while holding the semaphore —
+# slightly above the Gemini worst case (60s client timeout × capped retries
+# ≈ 123s), so a hung blocking call fails loudly and releases the pipeline
+# instead of wedging it forever (July 9 outage). wait_for cannot kill the
+# executor thread: the call may still finish in the background; only the
+# pipeline is released.
+_EXECUTOR_TIMEOUT_S = 150
+
 
 class TelegramHandler:
     def __init__(self, config: dict, agent, conn: sqlite3.Connection):
@@ -127,9 +135,32 @@ class TelegramHandler:
             loop = asyncio.get_running_loop()
             self.agent._last_action_emitted = None  # reset before the call
             self.agent._last_calendar_confirmation = None
-            response = await loop.run_in_executor(
-                None, self.agent._think, text, history, True, "user_message"
-            )
+            try:
+                response = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None, self.agent._think, text, history, True, "user_message"
+                    ),
+                    timeout=_EXECUTOR_TIMEOUT_S,
+                )
+            except TimeoutError:
+                logger.warning(
+                    f"on_message: agent call still running after "
+                    f"{_EXECUTOR_TIMEOUT_S}s — releasing the pipeline. "
+                    f"text={text[:80]!r}"
+                )
+                fail_msg = "Sorry, sir — that request timed out on my end. Try again?"
+                await update.message.reply_text(fail_msg)
+                now_iso = datetime.now().isoformat()
+                self.conn.execute(
+                    "INSERT INTO conversation_history (role, content, created_at) VALUES (?, ?, ?)",
+                    ("user", text, now_iso),
+                )
+                self.conn.execute(
+                    "INSERT INTO conversation_history (role, content, created_at) VALUES (?, ?, ?)",
+                    ("assistant", fail_msg, now_iso),
+                )
+                self.conn.commit()
+                return
             action_emitted = getattr(self.agent, "_last_action_emitted", None)
 
             now_iso = datetime.now().isoformat()
@@ -203,9 +234,22 @@ class TelegramHandler:
             logger.info(f"Media: {kind}, {len(file_bytes)} bytes, caption={caption!r}")
 
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(
-                None, self.agent.on_media, file_bytes, mime_type, caption
-            )
+            try:
+                await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None, self.agent.on_media, file_bytes, mime_type, caption
+                    ),
+                    timeout=_EXECUTOR_TIMEOUT_S,
+                )
+            except TimeoutError:
+                logger.warning(
+                    f"on_media: extraction still running after "
+                    f"{_EXECUTOR_TIMEOUT_S}s — releasing the pipeline."
+                )
+                await msg.reply_text(
+                    "Sorry, sir — reading that file timed out on my end. "
+                    "Try sending it again?"
+                )
 
     async def on_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle inline button taps. Stale callbacks are silently discarded."""

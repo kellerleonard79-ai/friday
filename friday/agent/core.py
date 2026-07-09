@@ -11,6 +11,7 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import httpx
 import requests
 from google import genai
 from google.genai import types
@@ -35,6 +36,15 @@ logger = logging.getLogger("friday.core")
 # is our fault and retrying just wastes time.
 _GEMINI_RETRY_CODES = ("500", "503", "504", "429")
 _GEMINI_RETRY_BACKOFF_S = (1.0, 2.0)  # delays before attempts 2 and 3
+# The client's HTTP timeout, in milliseconds (google-genai HttpOptions unit).
+# Load-bearing: without it a request in flight when the Mac sleeps blocks its
+# executor thread forever (July 9 outage).
+_GEMINI_HTTP_TIMEOUT_MS = 60_000
+# Timeout/transport failures (dead socket after a sleep, etc.) get at most ONE
+# retry: each attempt can burn the full client timeout, so this cap keeps
+# worst-case wall time (~60 + 1 + 60 ≈ 121s) under two minutes and under the
+# telegram handlers' _EXECUTOR_TIMEOUT_S ceiling.
+_GEMINI_TRANSPORT_MAX_RETRIES = 1
 
 
 # Only the first few PDF pages are rasterized for the vision model — flyers
@@ -124,7 +134,12 @@ class FridayAgent:
             api_key = gemini_cfg.get("api_key") or os.environ.get("GEMINI_API_KEY", "")
             if not api_key:
                 raise EnvironmentError("GEMINI_API_KEY not set.")
-            self.gemini_client = genai.Client(api_key=api_key)
+            # One client for every generate_content call — text, tools, and
+            # the vision/media path all inherit this timeout.
+            self.gemini_client = genai.Client(
+                api_key=api_key,
+                http_options=types.HttpOptions(timeout=_GEMINI_HTTP_TIMEOUT_MS),
+            )
             self.model_name = gemini_cfg.get("model", "gemma-4-31b-it")
             self.max_tokens = gemini_cfg.get("max_tokens", 1000)
             from agent.tools import make_tools
@@ -159,9 +174,13 @@ class FridayAgent:
             logger.debug(f"stat record failed: {e}")
 
     def _gemini_generate_with_retry(self, *, contents, config):
-        """Call Gemini generate_content with backoff on transient 503/504/429.
-        Other errors propagate immediately to the caller's except block."""
+        """Call Gemini generate_content with backoff on transient 503/504/429
+        and on timeout/transport errors (bounded harder — see
+        _GEMINI_TRANSPORT_MAX_RETRIES). On final failure the exception
+        propagates to _think's except block, which returns the "" sentinel the
+        handlers turn into the "LLM error, sir" reply."""
         attempt = 0
+        transport_retries_left = _GEMINI_TRANSPORT_MAX_RETRIES
         while True:
             try:
                 return self.gemini_client.models.generate_content(
@@ -169,6 +188,19 @@ class FridayAgent:
                     contents=contents,
                     config=config,
                 )
+            except httpx.TransportError as e:
+                # TimeoutException, ReadError, ConnectError, … — the
+                # sleep-killed-socket family. Never retried indefinitely.
+                if transport_retries_left <= 0 or attempt >= len(_GEMINI_RETRY_BACKOFF_S):
+                    raise
+                transport_retries_left -= 1
+                delay = _GEMINI_RETRY_BACKOFF_S[attempt]
+                logger.warning(
+                    f"Gemini transport error (attempt {attempt + 1}): "
+                    f"{type(e).__name__}: {e} — retrying in {delay}s"
+                )
+                time.sleep(delay)
+                attempt += 1
             except Exception as e:
                 msg = str(e)
                 is_transient = any(msg.startswith(code) for code in _GEMINI_RETRY_CODES)
