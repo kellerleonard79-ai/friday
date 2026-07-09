@@ -106,8 +106,8 @@ def _compose_persona(base: str, config: dict) -> str:
 
     preset_lines = {
         "professional": "## Mode\nProfessional secretary. Strictly utilitarian voice.",
-        "butler":       "## Mode\nButler. Formal address, occasional JARVIS-style flourishes drawn ONLY from the approved phrases below.",
-        "friday":       "## Mode\nF.R.I.D.A.Y. mode. Confident, capable, dry. Use approved phrases below when context fits — never force them.",
+        "butler":       "## Mode\nButler. Formal address, dry flourishes only when the moment fits.",
+        "friday":       "## Mode\nF.R.I.D.A.Y. mode. Confident, capable, dry.",
     }
     parts.append(preset_lines.get(preset, preset_lines["friday"]))
 
