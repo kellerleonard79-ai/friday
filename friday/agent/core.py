@@ -3,9 +3,13 @@ agent/core.py
 LLM calls only. No routing, no state, no Telegram references.
 """
 
+import base64
+import json
 import logging
 import os
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import requests
 from google import genai
@@ -31,6 +35,23 @@ logger = logging.getLogger("friday.core")
 # is our fault and retrying just wastes time.
 _GEMINI_RETRY_CODES = ("500", "503", "504", "429")
 _GEMINI_RETRY_BACKOFF_S = (1.0, 2.0)  # delays before attempts 2 and 3
+
+
+# Only the first few PDF pages are rasterized for the vision model — flyers
+# and schedules front-load their content, and each page adds latency + payload.
+_PDF_MAX_PAGES = 3
+
+
+def _pdf_to_png_pages(pdf_bytes: bytes) -> list[bytes]:
+    """Rasterize a PDF (from bytes) into one PNG per page, capped at
+    _PDF_MAX_PAGES. Raises on unreadable/corrupt input."""
+    import fitz  # PyMuPDF
+
+    pages = []
+    with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
+        for i in range(min(doc.page_count, _PDF_MAX_PAGES)):
+            pages.append(doc[i].get_pixmap(dpi=150).tobytes("png"))
+    return pages
 
 
 _SNARK_DIRECTIVES = {
@@ -161,7 +182,9 @@ class FridayAgent:
                 attempt += 1
 
     def _think(self, prompt: str, history: list | None = None,
-               use_tools: bool = True, triggered_by: str = "unknown") -> str:
+               use_tools: bool = True, triggered_by: str = "unknown",
+               images: list[tuple[bytes, str]] | None = None,
+               response_json: bool = False) -> str:
         """Synchronous LLM call. Always run via run_in_executor inside async handlers.
 
         use_tools controls whether Gemini gets the tool list. Set False for
@@ -171,24 +194,42 @@ class FridayAgent:
         briefing_evening, poll, ...) — it is persisted on the llm_exchanges row and
         stamped onto any tool_calls this exchange spawns. Instrumentation only;
         it never changes what the model sees or does.
+
+        images is a list of (bytes, mime_type) attached to the user turn.
+        On the multimodal path history is not supported — the call is a single
+        turn. response_json asks Gemini for application/json output (tools are
+        skipped on that path; JSON mode and function calling don't mix).
         """
         self._last_error = None
         # Tools only ever run on the chat path; stamp the source so the tool
         # wrappers (agent/tools.py) can attribute their rows to this call.
         self._tool_triggered_by = triggered_by
+        # llm_exchanges stores text only — mark attachments so the dashboard
+        # feed shows why this prompt produced what it did.
+        log_prompt = f"[{len(images)} image(s) attached]\n{prompt}" if images else prompt
         start_t = time.monotonic()
         try:
             if self.provider == "gemini":
-                contents = []
-                for turn in (history or []):
-                    role = "user" if turn["role"] == "user" else "model"
-                    contents.append({"role": role, "parts": [{"text": turn["content"]}]})
-                contents.append({"role": "user", "parts": [{"text": prompt}]})
+                if images:
+                    # Images BEFORE text, per Google's multimodal guidance. The
+                    # SDK wraps this flat parts list into a single user turn.
+                    contents = [
+                        types.Part.from_bytes(data=data, mime_type=mime)
+                        for data, mime in images
+                    ] + [prompt]
+                else:
+                    contents = []
+                    for turn in (history or []):
+                        role = "user" if turn["role"] == "user" else "model"
+                        contents.append({"role": role, "parts": [{"text": turn["content"]}]})
+                    contents.append({"role": "user", "parts": [{"text": prompt}]})
                 cfg_kwargs = dict(
                     system_instruction=self.persona,
                     max_output_tokens=self.max_tokens,
                 )
-                if use_tools and self._tools:
+                if response_json:
+                    cfg_kwargs["response_mime_type"] = "application/json"
+                elif use_tools and self._tools:
                     cfg_kwargs["tools"] = self._tools
                 resp = self._gemini_generate_with_retry(
                     contents=contents,
@@ -217,7 +258,7 @@ class FridayAgent:
                         f"Gemini returned empty text. finish_reason={finish} usage={usage}"
                     )
                 activity.record_llm_exchange(
-                    self._conn, model=self.model_name, prompt=prompt, response=text,
+                    self._conn, model=self.model_name, prompt=log_prompt, response=text,
                     tokens_in=tin, tokens_out=tout,
                     duration_ms=int((time.monotonic() - start_t) * 1000),
                     triggered_by=triggered_by,
@@ -228,7 +269,14 @@ class FridayAgent:
                 messages = [{"role": "system", "content": self.persona}]
                 for turn in (history or []):
                     messages.append({"role": turn["role"], "content": turn["content"]})
-                messages.append({"role": "user", "content": prompt})
+                user_msg = {"role": "user", "content": prompt}
+                if images:
+                    # Ollama's chat API takes base64 images; only vision-capable
+                    # models will actually use them.
+                    user_msg["images"] = [
+                        base64.b64encode(data).decode() for data, _ in images
+                    ]
+                messages.append(user_msg)
                 r = requests.post(
                     f"{self.ollama_url}/api/chat",
                     json={
@@ -245,7 +293,7 @@ class FridayAgent:
                 self._record_call(tokens_in=tin, tokens_out=tout)
                 text = data.get("message", {}).get("content", "").strip()
                 activity.record_llm_exchange(
-                    self._conn, model=self.model_name, prompt=prompt, response=text,
+                    self._conn, model=self.model_name, prompt=log_prompt, response=text,
                     tokens_in=tin, tokens_out=tout,
                     duration_ms=int((time.monotonic() - start_t) * 1000),
                     triggered_by=triggered_by,
@@ -256,9 +304,142 @@ class FridayAgent:
             logger.error(f"LLM error: {e}")
             self._last_error = str(e).splitlines()[0][:240]
             activity.record_llm_exchange(
-                self._conn, model=self.model_name, prompt=prompt,
+                self._conn, model=self.model_name, prompt=log_prompt,
                 response=f"[error] {self._last_error}", tokens_in=0, tokens_out=0,
                 duration_ms=int((time.monotonic() - start_t) * 1000),
                 triggered_by=triggered_by,
             )
             return ""
+
+    # ── Media → calendar event extraction ─────────────────────────────────
+
+    def on_media(self, file_bytes: bytes, mime_type: str,
+                 caption: str | None = None) -> None:
+        """Extract ONE calendar event from a photo or PDF the user sent, then
+        route it through the same gated_write permission card GroupMe
+        scheduling uses. Synchronous — the Telegram handler runs it in an
+        executor. Never writes to the calendar directly."""
+        telegram = getattr(self, "telegram_handler", None)
+        if telegram is None:
+            logger.error("on_media: telegram handler not bound — dropping media")
+            return
+
+        is_pdf = mime_type == "application/pdf"
+        if is_pdf:
+            try:
+                images = [(png, "image/png") for png in _pdf_to_png_pages(file_bytes)]
+            except Exception as e:
+                logger.error(f"on_media: PDF rasterization failed: {e}")
+                telegram.send("Couldn't read that PDF, sir — the file may be corrupted.")
+                return
+            if not images:
+                telegram.send("That PDF appears to have no pages, sir.")
+                return
+        else:
+            images = [(bytes(file_bytes), mime_type)]
+
+        tz_name = (self._config.get("agent") or {}).get("timezone", "America/Chicago")
+        now = datetime.now(ZoneInfo(tz_name))
+        caption_line = f'\nUser caption: "{caption}"\n' if caption else ""
+        prompt = (
+            f"Current date and time: {now.strftime('%A, %Y-%m-%d %H:%M')} ({tz_name})\n"
+            f"{caption_line}\n"
+            "The attached image(s) show a flyer, screenshot, schedule, or "
+            "document containing ONE event the user wants on their calendar.\n\n"
+            "Reply with ONLY a JSON object (no prose, no markdown fences):\n"
+            '{"title": "short descriptive title",\n'
+            ' "start": "ISO 8601 start — YYYY-MM-DDTHH:MM, or YYYY-MM-DD if no time is shown",\n'
+            ' "end": "ISO 8601 end, or null if not stated",\n'
+            ' "location": "string or null",\n'
+            ' "notes": "brief extra details, or null"}\n\n'
+            "Rules:\n"
+            '- Resolve ALL relative dates ("Friday", "next week", "tomorrow") '
+            "against the current date above. Do NOT infer or guess the day or "
+            "year beyond that.\n"
+            "- Never invent a date or time that is not in the image or caption.\n"
+            '- If there is no event, or its date cannot be resolved, reply {"title": null}.'
+        )
+
+        raw = (self._think(prompt, use_tools=False, triggered_by="media",
+                           images=images, response_json=True) or "").strip()
+        event = self._parse_media_event(raw)
+        if event is None:
+            telegram.send(
+                "I couldn't pull a confident event out of that, sir — could you "
+                "tell me the title, date, and time?"
+            )
+            return
+
+        # Same source attribution the GroupMe path prepends, so the approval
+        # card shows where the event came from.
+        source_line = "From PDF" if is_pdf else "From photo"
+        existing_notes = event.get("notes", "")
+        event["notes"] = source_line + ("\n" + existing_notes if existing_notes else "")
+
+        default_cal = (self._config.get("agent") or {}).get("default_calendar")
+        from actions import calendar as apple_writer
+        try:
+            apple_writer.gated_write(
+                event, self._conn, telegram, default_calendar=default_cal,
+            )
+        except Exception as e:
+            logger.error(f"on_media: gated_write failed: {e}")
+            telegram.send("Something went wrong drafting that event, sir.")
+
+    @staticmethod
+    def _parse_media_event(raw: str) -> dict | None:
+        """LLM extraction JSON → gated_write-shaped event dict
+        (title/date/start_time/end_time/notes). None if unusable."""
+        # Strip ```json fences the model may add despite instructions
+        if raw.startswith("```"):
+            raw = raw.strip("`")
+            if raw.lower().startswith("json"):
+                raw = raw[4:]
+            raw = raw.strip()
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            logger.info(f"on_media: unparseable LLM output: {raw[:200]}")
+            return None
+        if not isinstance(data, dict) or not data.get("title") or not data.get("start"):
+            return None
+
+        def _clean(key: str) -> str:
+            val = str(data.get(key) or "").strip()
+            return "" if val.lower() in ("null", "none") else val
+
+        start_raw = _clean("start")
+        try:
+            start_dt = datetime.fromisoformat(start_raw)
+        except ValueError:
+            logger.info(f"on_media: unparseable start {start_raw!r}")
+            return None
+
+        event = {
+            "title": str(data["title"]).strip(),
+            "date":  start_dt.date().isoformat(),
+        }
+        # Date-only start (no "T"/time component) means an all-day event —
+        # gated_write treats a missing start_time as all-day.
+        if "T" in start_raw or " " in start_raw.rstrip():
+            event["start_time"] = start_dt.strftime("%H:%M")
+            end_raw = _clean("end")
+            if end_raw:
+                try:
+                    end_dt = datetime.fromisoformat(end_raw)
+                    # gated_write only accepts a same-day range ending after start
+                    if end_dt.date() == start_dt.date() and end_dt > start_dt:
+                        event["end_time"] = end_dt.strftime("%H:%M")
+                except ValueError:
+                    pass
+
+        notes_parts = []
+        location = _clean("location")
+        if location:
+            notes_parts.append(f"Location: {location}")
+        extra = _clean("notes")
+        if extra:
+            notes_parts.append(extra)
+        if notes_parts:
+            event["notes"] = "\n".join(notes_parts)
+        return event

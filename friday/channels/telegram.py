@@ -83,6 +83,25 @@ class TelegramHandler:
 
     # ── Inbound (async) ───────────────────────────────────────────────────────
 
+    def _pause_active(self, what: str) -> bool:
+        """Pause gate — dashboard sets system_state.paused = "true". Silent
+        drop so the user can resume and replay history if they want. Handles
+        timed auto-resume: clears the pause once paused_until has passed."""
+        if state.get(self.conn, "paused") != "true":
+            return False
+        until = state.get(self.conn, "paused_until")
+        if until:
+            try:
+                if datetime.fromisoformat(until) <= datetime.now():
+                    state.set(self.conn, "paused", "false")
+                    state.delete(self.conn, "paused_until")
+                    logger.info("Timed pause expired — resuming.")
+                    return False
+            except ValueError:
+                state.delete(self.conn, "paused_until")
+        logger.info(f"Dropped while paused: {what}")
+        return True
+
     async def on_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Entry point for all text messages. Semaphore serializes processing."""
         async with _semaphore:
@@ -90,27 +109,8 @@ class TelegramHandler:
             if not text:
                 return
 
-            # Pause gate — dashboard sets system_state.paused = "true". Silent
-            # ignore so the user can resume and replay history if they want.
-            if state.get(self.conn, "paused") == "true":
-                # Timed-pause auto-resume: clear and proceed if past the deadline.
-                until = state.get(self.conn, "paused_until")
-                if until:
-                    try:
-                        if datetime.fromisoformat(until) <= datetime.now():
-                            state.set(self.conn, "paused", "false")
-                            state.delete(self.conn, "paused_until")
-                            logger.info("Timed pause expired — resuming.")
-                        else:
-                            logger.info(f"Message dropped (paused until {until}): {text[:80]}")
-                            return
-                    except ValueError:
-                        state.delete(self.conn, "paused_until")
-                        logger.info(f"Message dropped (paused, bad until): {text[:80]}")
-                        return
-                else:
-                    logger.info(f"Message dropped (paused): {text[:80]}")
-                    return
+            if self._pause_active(f"text: {text[:80]}"):
+                return
 
             state.set_many(self.conn, {
                 "last_message_at":      datetime.now().isoformat(),
@@ -162,6 +162,50 @@ class TelegramHandler:
                 ("assistant", assistant_log, now_iso),
             )
             self.conn.commit()
+
+    async def on_media(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Entry point for photos and PDF documents → calendar event extraction.
+        Same semaphore and pause gate as text, so media queues in arrival order
+        with everything else."""
+        async with _semaphore:
+            msg = update.message
+            if msg is None:
+                return
+            caption = (msg.caption or "").strip() or None
+            if self._pause_active(f"media, caption: {(caption or '')[:80]}"):
+                return
+
+            try:
+                if msg.photo:
+                    tg_file = await msg.photo[-1].get_file()
+                    file_bytes = bytes(await tg_file.download_as_bytearray())
+                    mime_type = "image/jpeg"
+                elif msg.document and msg.document.mime_type == "application/pdf":
+                    tg_file = await msg.document.get_file()
+                    file_bytes = bytes(await tg_file.download_as_bytearray())
+                    mime_type = "application/pdf"
+                else:
+                    return
+            except Exception as e:
+                # Most common cause: Telegram bots can only download files ≤20 MB.
+                logger.error(f"Media download failed: {e}")
+                await msg.reply_text(
+                    "Couldn't download that file, sir — Telegram only lets me "
+                    "fetch files up to 20 MB."
+                )
+                return
+
+            kind = "PDF" if mime_type == "application/pdf" else "photo"
+            state.set_many(self.conn, {
+                "last_message_at":      datetime.now().isoformat(),
+                "last_message_preview": f"[{kind}] {caption or ''}"[:80].strip(),
+            })
+            logger.info(f"Media: {kind}, {len(file_bytes)} bytes, caption={caption!r}")
+
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(
+                None, self.agent.on_media, file_bytes, mime_type, caption
+            )
 
     async def on_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle inline button taps. Stale callbacks are silently discarded."""

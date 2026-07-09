@@ -697,6 +697,9 @@ def main() -> None:
     )
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handler.on_message))
+    # Photos / PDFs → agent.on_media: vision extraction, then the same
+    # gated_write approval card GroupMe scheduling uses.
+    app.add_handler(MessageHandler(filters.PHOTO | filters.Document.PDF, handler.on_media))
     app.add_handler(CallbackQueryHandler(handler.on_callback))
 
     # Late-bind for the reschedule_briefing tool — it needs the live job_queue
