@@ -28,6 +28,7 @@ friday/voice/__pycache__/
 packaging/windows/google_client_secret.json
 packaging/windows/friday.ico
 packaging/windows/Output/
+packaging/windows/Releases/
 dist/
 build/
 .build-venv/

@@ -26,8 +26,15 @@ from pathlib import Path
 
 import paths
 
+try:
+    import velopack  # only present in Windows installed builds
+except ImportError:
+    velopack = None
+
 API_BASE = "http://127.0.0.1:5174"
 _SINGLETON_PORT = 51740  # held open to prevent a second tray instance
+_UPDATE_REPO_URL = "https://github.com/kellerleonard79-ai/friday"
+_UPDATE_CHECK_INTERVAL_S = 6 * 60 * 60
 
 logger = logging.getLogger("friday.tray")
 
@@ -94,6 +101,33 @@ class FridayTray:
             logger.warning(f"Core exited after {uptime:.0f}s — restarting in {delay}s")
             if self._quitting.wait(delay):
                 return
+
+    def _update_loop(self) -> None:
+        """Velopack update check — shortly after boot, then every few hours.
+        Applying goes through the normal quit path so the core isn't left
+        orphaned (holding port 5174) across the restart."""
+        delay = 60
+        while not self._quitting.wait(delay):
+            delay = _UPDATE_CHECK_INTERVAL_S
+            try:
+                manager = velopack.UpdateManager(
+                    velopack.GithubSource(_UPDATE_REPO_URL))
+                info = manager.check_for_updates()
+                if not info:
+                    continue
+                logger.info(
+                    f"Update {info.TargetFullRelease.Version} available "
+                    f"(running {manager.get_current_version()}) — downloading")
+                manager.download_updates(info)
+            except Exception as e:
+                logger.info(f"Update check failed (will retry): {e}")
+                continue
+            self._quitting.set()
+            self._shutdown_core()
+            logger.info("Applying update and restarting")
+            # Exits this process; Update.exe swaps versions and relaunches.
+            manager.apply_updates_and_restart(info)
+            return
 
     def _poll_status(self) -> None:
         while not self._quitting.wait(10):
@@ -177,6 +211,8 @@ class FridayTray:
 
         threading.Thread(target=self._supervise, daemon=True).start()
         threading.Thread(target=self._poll_status, daemon=True).start()
+        if velopack is not None and getattr(sys, "frozen", False):
+            threading.Thread(target=self._update_loop, daemon=True).start()
 
         menu = pystray.Menu(
             pystray.MenuItem(self._status_text, None, enabled=False),
@@ -206,6 +242,11 @@ def _acquire_singleton() -> socket.socket | None:
 
 
 def main() -> None:
+    # Must run before anything else: during install/update, Update.exe invokes
+    # this exe with --veloapp-* args and expects it to handle them and exit.
+    if velopack is not None:
+        velopack.App().run()
+
     if "--core" in sys.argv:
         import friday
         friday.main()

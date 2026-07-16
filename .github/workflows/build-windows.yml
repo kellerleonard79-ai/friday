@@ -2,18 +2,44 @@ name: Build Windows installer
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "SemVer for test builds (artifact only — no release is published)"
+        required: false
+        default: "0.0.1"
   push:
     tags: ["v*"]
 
+# vpk upload github creates the GitHub Release and attaches assets.
+permissions:
+  contents: write
+
 jobs:
   build:
-    runs-on: windows-latest
+    # Pinned (windows-latest currently resolves here anyway) so toolchain
+    # migrations happen when we choose, not when GitHub flips the alias.
+    runs-on: windows-2025
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+
+      # Tag pushes (v1.2.3) build that version and publish a Release.
+      # workflow_dispatch builds the input version as artifacts only.
+      - name: Compute version
+        id: ver
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+            $v = $env:GITHUB_REF.Substring('refs/tags/v'.Length)
+          } else {
+            $v = '${{ inputs.version }}'
+            if (-not $v) { $v = '0.0.1' }
+          }
+          Write-Host "Building version $v"
+          "version=$v" >> $env:GITHUB_OUTPUT
 
       - name: Install dependencies
         run: |
@@ -46,11 +72,65 @@ jobs:
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
 
+      # Legacy standalone installer — no auto-update. Kept as an artifact for
+      # manual side-loading; the Velopack Setup below is what users install.
       - name: Compile installer
         run: |
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" packaging/windows/installer.iss
 
-      - uses: actions/upload-artifact@v4
+      - name: Install Velopack CLI
+        run: dotnet tool install -g vpk
+
+      # Pull the previous release so vpk can build a delta package. Fails on
+      # the very first release (nothing to download yet) — that's fine.
+      - name: Download previous Velopack release
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          vpk download github `
+            --repoUrl https://github.com/kellerleonard79-ai/friday `
+            --token $env:GH_TOKEN `
+            -o packaging/windows/Releases
+
+      # Startup shortcut replaces the Inno "autostart" task — without it the
+      # friend's Friday would stop launching at login after switching installers.
+      - name: Velopack pack
+        shell: pwsh
+        run: |
+          vpk pack `
+            --packId Friday `
+            --packVersion "${{ steps.ver.outputs.version }}" `
+            --packDir dist/Friday `
+            --mainExe Friday.exe `
+            --packTitle Friday `
+            --packAuthors "Keller Leonard" `
+            --icon packaging/windows/friday.ico `
+            --shortcuts Desktop,StartMenuRoot,Startup `
+            -o packaging/windows/Releases
+
+      - uses: actions/upload-artifact@v5
         with:
           name: FridaySetup
           path: packaging/windows/Output/FridaySetup.exe
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: FridayVelopack
+          path: packaging/windows/Releases/
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          vpk upload github `
+            --repoUrl https://github.com/kellerleonard79-ai/friday `
+            --token $env:GH_TOKEN `
+            --publish `
+            --merge `
+            --releaseName "Friday ${{ steps.ver.outputs.version }}" `
+            --tag "v${{ steps.ver.outputs.version }}" `
+            -o packaging/windows/Releases

@@ -36,6 +36,7 @@ a = Analysis(
         "googleapiclient.discovery",
         "google_auth_oauthlib.flow",
         "tzdata",
+        "velopack",
     ],
     hookspath=[],
     runtime_hooks=[],
