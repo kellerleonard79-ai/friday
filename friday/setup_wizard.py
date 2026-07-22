@@ -65,8 +65,18 @@ class Wizard(tk.Tk):
                 self.cfg = {}
 
         self.google_calendars: list[str] = []
-        self.briefing_cals: list[str] = list(
-            (self.cfg.get("agent") or {}).get("briefing_calendars") or [])
+
+        # ── In-memory model: the single source of truth for entered values ──
+        # Every field's current contents live here, keyed by field name.
+        # Navigating away from a step writes its fields in; navigating into a
+        # step reads them back out. Nothing is written to disk until Finish.
+        self._values: dict = {}
+        # Last value confirmed valid per field. Commit 2's re-validation reads
+        # this to skip re-checking a value that hasn't changed since.
+        self._validated: dict = {}
+        # StringVars for the step currently on screen, snapshotted on nav.
+        self._step_vars: dict[str, tk.StringVar] = {}
+        self._seed_values()
 
         container = ttk.Frame(self, padding=16)
         container.pack(fill="both", expand=True)
@@ -91,25 +101,61 @@ class Wizard(tk.Tk):
             self._step_finish,
         ]
         self.step_idx = 0
-        # Per-step "may we advance?" validators, set by each step builder.
+        # Per-step hooks, (re)set by _show_step for each step builder:
+        #   _validate — may we advance? (may run async and call _advance itself)
+        #   _collect  — snapshot this step's fields into self._values
         self._validate = lambda: True
+        self._collect = self._collect_step
         self._show_step()
 
     # ── Navigation ────────────────────────────────────────────────────────────
 
+    def _seed_values(self):
+        """Populate the in-memory model from the on-disk config. Used at
+        startup and again after a reset."""
+        g = self._cfg_get
+        self._values = {
+            "tg_token":      g("telegram", "bot_token"),
+            "tg_chat_id":    str(g("telegram", "chat_id") or ""),
+            "gemini_key":    g("gemini", "api_key"),
+            "default_cal":   g("agent", "default_calendar") or "",
+            "briefing_cals": list(
+                (self.cfg.get("agent") or {}).get("briefing_calendars") or []),
+            "canvas_url":    g("canvas", "ical_url"),
+            "weather_key":   g("weather", "api_key"),
+            "weather_loc":   g("weather", "location"),
+            "tz":            g("agent", "timezone") or _guess_timezone(),
+            "morning":       g("agent", "morning_briefing_time") or "07:00",
+            "evening":       g("agent", "briefing_time") or "20:00",
+        }
+        self._validated = {}
+
     def _show_step(self):
         for w in self.body.winfo_children():
             w.destroy()
+        self._step_vars = {}
         self._validate = lambda: True
+        self._collect = self._collect_step
         self.steps[self.step_idx]()
         self.back_btn.state(["!disabled"] if self.step_idx > 0 else ["disabled"])
         self.next_btn.config(
             text="Finish" if self.step_idx == len(self.steps) - 1 else "Next →"
         )
 
+    def _collect_step(self):
+        """Default collector: snapshot every registered StringVar into the
+        model. Steps with non-Entry widgets extend this via self._collect."""
+        for key, var in self._step_vars.items():
+            self._values[key] = var.get()
+
     def _next(self):
-        if not self._validate():
-            return
+        if self._validate():
+            self._advance()
+
+    def _advance(self):
+        """Snapshot the current step into the model and move forward. Steps
+        whose validation runs asynchronously call this directly on success."""
+        self._collect()
         if self.step_idx == len(self.steps) - 1:
             self._write_config()
             return
@@ -118,6 +164,7 @@ class Wizard(tk.Tk):
 
     def _back(self):
         if self.step_idx > 0:
+            self._collect()          # preserve edits even when moving backward
             self.step_idx -= 1
             self._show_step()
 
@@ -130,13 +177,14 @@ class Wizard(tk.Tk):
             ttk.Label(self.body, text=sub, wraplength=560,
                       foreground="#555").pack(anchor="w", pady=(0, 12))
 
-    def _entry_row(self, label: str, initial: str = "", show: str = "") -> tk.StringVar:
+    def _entry_row(self, label: str, key: str, show: str = "") -> tk.StringVar:
         row = ttk.Frame(self.body)
         row.pack(fill="x", pady=4)
         ttk.Label(row, text=label, width=18).pack(side="left")
-        var = tk.StringVar(value=initial)
+        var = tk.StringVar(value=self._values.get(key, ""))
         ttk.Entry(row, textvariable=var, show=show, width=52).pack(
             side="left", fill="x", expand=True)
+        self._step_vars[key] = var
         return var
 
     def _link(self, text: str, url: str):
@@ -160,14 +208,6 @@ class Wizard(tk.Tk):
             return default
         val = node.get(keys[-1], default)
         return val if val is not None else default
-
-    def _keep(self, attr: str, fallback: str) -> str:
-        """Initial value for a re-shown step's entry: whatever the user
-        already typed this session wins over the on-disk config."""
-        var = getattr(self, attr, None)
-        if isinstance(var, tk.StringVar):
-            return var.get()
-        return fallback
 
     # ── Steps ─────────────────────────────────────────────────────────────────
 
@@ -199,10 +239,8 @@ class Wizard(tk.Tk):
         )).pack(anchor="w", pady=(0, 8))
         self._link("Open BotFather in Telegram →", "https://t.me/BotFather")
 
-        self.tg_token = self._entry_row(
-            "Bot token", self._keep("tg_token", self._cfg_get("telegram", "bot_token")))
-        self.tg_chat_id = self._entry_row(
-            "Chat ID", self._keep("tg_chat_id", str(self._cfg_get("telegram", "chat_id"))))
+        self.tg_token = self._entry_row("Bot token", "tg_token")
+        self.tg_chat_id = self._entry_row("Chat ID", "tg_chat_id")
 
         status = self._status_label()
 
@@ -268,8 +306,7 @@ class Wizard(tk.Tk):
         )).pack(anchor="w", pady=(0, 8))
         self._link("Open Google AI Studio →", "https://aistudio.google.com/apikey")
 
-        self.gemini_key = self._entry_row(
-            "API key", self._keep("gemini_key", self._cfg_get("gemini", "api_key")))
+        self.gemini_key = self._entry_row("API key", "gemini_key")
         status = self._status_label()
 
         def validate_key() -> bool:
@@ -321,8 +358,17 @@ class Wizard(tk.Tk):
                        command=pick).pack(anchor="w", pady=4)
 
         self.cal_listbox: tk.Listbox | None = None
-        self.default_cal = tk.StringVar(value=self._keep(
-            "default_cal", self._cfg_get("agent", "default_calendar") or ""))
+        self.default_cal = tk.StringVar(value=self._values.get("default_cal", ""))
+        self._step_vars["default_cal"] = self.default_cal
+
+        def collect():
+            self._collect_step()
+            if self.cal_listbox is not None:
+                self._values["briefing_cals"] = [
+                    self.cal_listbox.get(i)
+                    for i in self.cal_listbox.curselection()]
+        self._collect = collect
+
         connect_btn = ttk.Button(self.body, text="Connect Google Calendar")
         connect_btn.pack(anchor="w", pady=8)
 
@@ -348,7 +394,13 @@ class Wizard(tk.Tk):
             for n in names:
                 lb.insert("end", n)
             lb.pack(fill="x")
-            lb.selection_set(0, "end")
+            saved = self._values.get("briefing_cals")
+            if saved:
+                for idx, name in enumerate(names):
+                    if name in saved:
+                        lb.selection_set(idx)
+            else:
+                lb.selection_set(0, "end")
             self.cal_listbox = lb
 
         def connect():
@@ -401,11 +453,8 @@ class Wizard(tk.Tk):
             show_calendars(self.google_calendars)
 
         def ok():
-            # Snapshot the listbox now — the widget is destroyed when the
-            # next step renders, so _write_config can't read it later.
-            if self.cal_listbox is not None:
-                self.briefing_cals = [self.cal_listbox.get(i)
-                                      for i in self.cal_listbox.curselection()]
+            # briefing_cals is snapshotted by this step's collector (which runs
+            # while the listbox still exists), so we only gate here.
             if not paths.google_token_path().exists():
                 return messagebox.askyesno(
                     "Skip calendar?",
@@ -425,9 +474,7 @@ class Wizard(tk.Tk):
             "In Canvas (web): Calendar → \"Calendar Feed\" (bottom right) → "
             "copy the link. It ends in .ics. Leave blank to skip."
         )).pack(anchor="w", pady=(0, 8))
-        self.canvas_url = self._entry_row(
-            "Calendar feed URL",
-            self._keep("canvas_url", self._cfg_get("canvas", "ical_url")))
+        self.canvas_url = self._entry_row("Calendar feed URL", "canvas_url")
 
         def ok():
             url = self.canvas_url.get().strip()
@@ -447,32 +494,28 @@ class Wizard(tk.Tk):
         )
         self._link("Get a free OpenWeatherMap key →",
                    "https://home.openweathermap.org/api_keys")
-        self.weather_key = self._entry_row(
-            "API key", self._keep("weather_key", self._cfg_get("weather", "api_key")))
-        self.weather_loc = self._entry_row(
-            "Location (City,US)",
-            self._keep("weather_loc", self._cfg_get("weather", "location")))
+        self.weather_key = self._entry_row("API key", "weather_key")
+        self.weather_loc = self._entry_row("Location (City,US)", "weather_loc")
 
     def _step_schedule(self):
         self._heading(
             "Step 6 — Your schedule",
             "When should Friday brief you, and what timezone are you in?",
         )
-        tz_guess = self._cfg_get("agent", "timezone") or _guess_timezone()
+        tz_guess = self._values.get("tz") or _guess_timezone()
         row = ttk.Frame(self.body)
         row.pack(fill="x", pady=4)
         ttk.Label(row, text="Timezone", width=18).pack(side="left")
         self.tz_var = tk.StringVar(value=tz_guess)
+        self._step_vars["tz"] = self.tz_var
         values = list(_COMMON_TIMEZONES)
         if tz_guess not in values:
             values.insert(0, tz_guess)
         ttk.Combobox(row, textvariable=self.tz_var, values=values,
                      width=30).pack(side="left")
 
-        self.morning_var = self._entry_row(
-            "Morning briefing", self._cfg_get("agent", "morning_briefing_time") or "07:00")
-        self.evening_var = self._entry_row(
-            "Evening briefing", self._cfg_get("agent", "briefing_time") or "20:00")
+        self.morning_var = self._entry_row("Morning briefing", "morning")
+        self.evening_var = self._entry_row("Evening briefing", "evening")
 
         def ok():
             for v in (self.morning_var.get(), self.evening_var.get()):
@@ -505,32 +548,33 @@ class Wizard(tk.Tk):
 
     def _write_config(self):
         cfg = self.cfg or {}
-        briefing_cals = self.briefing_cals or list(self.google_calendars)
+        v = self._values
+        briefing_cals = v.get("briefing_cals") or list(self.google_calendars)
 
         agent = cfg.setdefault("agent", {})
         agent.setdefault("name", "Friday")
-        agent["timezone"] = self.tz_var.get().strip() or "America/Chicago"
-        agent["morning_briefing_time"] = self.morning_var.get().strip()
-        agent["briefing_time"] = self.evening_var.get().strip()
-        if self.default_cal.get():
-            agent["default_calendar"] = self.default_cal.get()
+        agent["timezone"] = v.get("tz", "").strip() or "America/Chicago"
+        agent["morning_briefing_time"] = v.get("morning", "").strip()
+        agent["briefing_time"] = v.get("evening", "").strip()
+        if v.get("default_cal"):
+            agent["default_calendar"] = v["default_cal"]
         if briefing_cals:
             agent["briefing_calendars"] = briefing_cals
 
         cfg["calendar"] = {"backend": "google"}
         cfg["provider"] = "gemini"
         cfg["telegram"] = {
-            "bot_token": self.tg_token.get().strip(),
-            "chat_id":   self.tg_chat_id.get().strip(),
+            "bot_token": v.get("tg_token", "").strip(),
+            "chat_id":   v.get("tg_chat_id", "").strip(),
         }
         gemini = cfg.setdefault("gemini", {})
-        gemini["api_key"] = self.gemini_key.get().strip()
+        gemini["api_key"] = v.get("gemini_key", "").strip()
         gemini.setdefault("model", _GEMINI_DEFAULT_MODEL)
         gemini.setdefault("max_tokens", 4000)
-        cfg.setdefault("canvas", {})["ical_url"] = self.canvas_url.get().strip()
+        cfg.setdefault("canvas", {})["ical_url"] = v.get("canvas_url", "").strip()
         cfg.setdefault("weather", {})
-        cfg["weather"]["api_key"]  = self.weather_key.get().strip()
-        cfg["weather"]["location"] = self.weather_loc.get().strip()
+        cfg["weather"]["api_key"]  = v.get("weather_key", "").strip()
+        cfg["weather"]["location"] = v.get("weather_loc", "").strip()
         cfg.setdefault("memory", {"db_path": "memory/friday_memory.db",
                                   "short_term_turns": 20})
 
