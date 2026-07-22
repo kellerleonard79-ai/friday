@@ -17,6 +17,7 @@ run(first_run=True) -> bool  — True when a config was written.
 """
 
 import logging
+import re
 import shutil
 import threading
 import tkinter as tk
@@ -37,6 +38,80 @@ _COMMON_TIMEZONES = [
 ]
 
 _GEMINI_DEFAULT_MODEL = "gemini-2.5-flash"
+
+# Base URL for the Telegram API. Module-level so it can be pointed at an
+# unreachable host to exercise the network-failure path.
+_TELEGRAM_API = "https://api.telegram.org"
+_TOKEN_RE = re.compile(r"^\d+:[A-Za-z0-9_-]{30,}$")
+_NET_MSG = ("Couldn't reach Telegram — check your internet connection "
+            "and try again.")
+
+
+def _token_format_ok(token: str) -> bool:
+    """Cheap local sanity check before spending a network round-trip."""
+    return bool(_TOKEN_RE.match((token or "").strip()))
+
+
+def _mask_token(token: str) -> str:
+    """Show only the last 4 characters. The raw token must never reach a
+    dialog, status label, or log line."""
+    token = (token or "").strip()
+    if len(token) <= 4:
+        return "•" * len(token)
+    return "••••••" + token[-4:]
+
+
+def _scrub(text: str, secret: str) -> str:
+    """Redact a secret that may be embedded in an exception/URL string."""
+    secret = (secret or "").strip()
+    if secret and secret in text:
+        text = text.replace(secret, _mask_token(secret))
+    return text
+
+
+def _telegram_getme(token: str, base: str | None = None, timeout: int = 10):
+    """Validate a bot token. Returns exactly one of:
+        ("ok", username)      — HTTP 200 and ok:true
+        ("auth", description) — reachable but token rejected (ok:false / 401)
+        ("network", message)  — could not reach Telegram (secret masked)
+    The auth/network split is deliberate: only a genuine rejection should ever
+    tell the user their token is bad."""
+    base = base or _TELEGRAM_API
+    try:
+        r = requests.get(f"{base}/bot{token}/getMe", timeout=timeout)
+    except requests.RequestException as e:
+        return ("network", _scrub(str(e), token))
+    try:
+        data = r.json()
+    except ValueError:
+        return ("network", f"Unexpected response from Telegram (HTTP {r.status_code}).")
+    if r.status_code == 200 and data.get("ok"):
+        return ("ok", (data.get("result") or {}).get("username", ""))
+    return ("auth", data.get("description") or f"HTTP {r.status_code}")
+
+
+def _telegram_getupdates(token: str, base: str | None = None, timeout: int = 10):
+    """Fetch the chat IDs the bot can see. Returns exactly one of:
+        ("ok", set_of_chat_ids) — HTTP 200 and ok:true (the set may be empty,
+                                  meaning the user hasn't messaged the bot yet)
+        ("auth", description)   — token rejected
+        ("network", message)    — could not reach Telegram (secret masked)"""
+    base = base or _TELEGRAM_API
+    try:
+        r = requests.get(f"{base}/bot{token}/getUpdates", timeout=timeout)
+    except requests.RequestException as e:
+        return ("network", _scrub(str(e), token))
+    try:
+        data = r.json()
+    except ValueError:
+        return ("network", f"Unexpected response from Telegram (HTTP {r.status_code}).")
+    if r.status_code == 200 and data.get("ok"):
+        chats = {
+            str(u["message"]["chat"]["id"])
+            for u in data.get("result", []) if "message" in u
+        }
+        return ("ok", chats)
+    return ("auth", data.get("description") or f"HTTP {r.status_code}")
 
 
 def _guess_timezone() -> str:
@@ -76,6 +151,7 @@ class Wizard(tk.Tk):
         self._validated: dict = {}
         # StringVars for the step currently on screen, snapshotted on nav.
         self._step_vars: dict[str, tk.StringVar] = {}
+        self._tg_username = ""       # cached from a successful getMe
         self._seed_values()
 
         container = ttk.Frame(self, padding=16)
@@ -87,6 +163,8 @@ class Wizard(tk.Tk):
         nav.pack(fill="x", pady=(12, 0))
         self.back_btn = ttk.Button(nav, text="← Back", command=self._back)
         self.back_btn.pack(side="left")
+        self.reset_btn = ttk.Button(nav, text="Start over", command=self._reset)
+        self.reset_btn.pack(side="left", padx=(8, 0))
         self.next_btn = ttk.Button(nav, text="Next →", command=self._next)
         self.next_btn.pack(side="right")
 
@@ -168,6 +246,43 @@ class Wizard(tk.Tk):
             self.step_idx -= 1
             self._show_step()
 
+    def _set_busy(self, busy: bool, status=None, msg: str = "", color: str = "#555"):
+        """Toggle the 'Checking…' state: disable nav while a network check runs
+        so the window never looks frozen, and restore it on the result."""
+        nav_state = ["disabled"] if busy else ["!disabled"]
+        self.next_btn.state(nav_state)
+        self.reset_btn.state(nav_state)
+        if busy:
+            self.back_btn.state(["disabled"])
+        else:
+            self.back_btn.state(["!disabled"] if self.step_idx > 0 else ["disabled"])
+        if status is not None and msg:
+            status.config(text=msg, foreground=color)
+
+    def _reset(self):
+        """Start over: clear the in-memory model and any stale config on disk so
+        a wedged user gets a clean first run without deleting files by hand."""
+        if not messagebox.askyesno(
+                "Start over",
+                "Clear everything entered so far and return to the first step?\n\n"
+                "This also removes any saved setup file so you start completely "
+                "fresh — nothing new is saved until you click Finish."):
+            return
+        # Only ever touches Friday's own config path (paths.config_path()).
+        try:
+            cp = paths.config_path()
+            if cp.exists():
+                cp.unlink()
+                logger.info("Setup reset: removed existing config file.")
+        except Exception as e:
+            logger.warning(f"Setup reset: could not remove config: {e}")
+        self.cfg = {}
+        self.google_calendars = []
+        self._tg_username = ""
+        self._seed_values()          # cfg is empty now, so the model comes up blank
+        self.step_idx = 0
+        self._show_step()
+
     # ── Small helpers ─────────────────────────────────────────────────────────
 
     def _heading(self, title: str, sub: str = ""):
@@ -244,53 +359,112 @@ class Wizard(tk.Tk):
 
         status = self._status_label()
 
+        # ── Async token/chat validation ────────────────────────────────────
+        # getMe/getUpdates run off the Tk thread so the window never freezes;
+        # results marshal back via self.after. The token is masked in every
+        # message, and a network failure is never reported as a bad token.
+
+        def resolve_chat(token, on_ready):
+            """Token is known good. Ensure a chat id exists (auto-detect when
+            blank), then call on_ready()."""
+            if self.tg_chat_id.get().strip():
+                on_ready()
+                return
+            self._set_busy(True, status, "Looking for your chat…")
+
+            def done(res):
+                self._set_busy(False)
+                kind, info = res
+                if kind == "network":
+                    status.config(text=_NET_MSG, foreground="red")
+                elif kind == "auth":
+                    status.config(text=f"Telegram rejected that token "
+                                        f"({_mask_token(token)}).", foreground="red")
+                elif info:
+                    self.tg_chat_id.set(sorted(info)[-1])
+                    on_ready()
+                else:
+                    uname = self._tg_username or "your bot"
+                    status.config(
+                        text=(f"Bot @{uname} works, but you haven't messaged it "
+                              f"yet. Open Telegram, press Start on the bot, send "
+                              f"it any message, then click Next again."),
+                        foreground="#b07000")
+                    if self._tg_username:
+                        webbrowser.open(f"https://t.me/{self._tg_username}")
+
+            def worker():
+                res = _telegram_getupdates(token)
+                self.after(0, lambda: done(res))
+            threading.Thread(target=worker, daemon=True).start()
+
+        def verify_token(token, on_valid):
+            """Validate the token via getMe off-thread, then call on_valid()."""
+            self._set_busy(True, status, "Checking with Telegram…")
+
+            def done(res):
+                kind, info = res
+                if kind == "ok":
+                    self._validated["tg_token"] = token
+                    self._tg_username = info or ""
+                    self._set_busy(False)
+                    on_valid()
+                    return
+                self._set_busy(False)
+                if kind == "network":
+                    status.config(text=_NET_MSG, foreground="red")
+                else:
+                    status.config(
+                        text=(f"Telegram rejected that token ({_mask_token(token)}). "
+                              f"Double-check what BotFather gave you."),
+                        foreground="red")
+                    logger.warning(f"Telegram token rejected ({_mask_token(token)})")
+
+            def worker():
+                res = _telegram_getme(token)
+                self.after(0, lambda: done(res))
+            threading.Thread(target=worker, daemon=True).start()
+
         def detect():
             token = self.tg_token.get().strip()
             if not token:
                 status.config(text="Paste the bot token first.", foreground="red")
                 return
-            try:
-                me = requests.get(
-                    f"https://api.telegram.org/bot{token}/getMe", timeout=10
-                ).json()
-                if not me.get("ok"):
-                    status.config(text=f"Token rejected: {me.get('description')}",
-                                  foreground="red")
-                    return
-                username = me["result"]["username"]
-                upd = requests.get(
-                    f"https://api.telegram.org/bot{token}/getUpdates", timeout=10
-                ).json()
-                chats = {
-                    str(u["message"]["chat"]["id"])
-                    for u in upd.get("result", []) if "message" in u
-                }
-                if chats:
-                    self.tg_chat_id.set(sorted(chats)[-1])
+            if not _token_format_ok(token):
+                status.config(text="That doesn't look like a bot token "
+                                   "(it should look like 123456789:AA…).",
+                              foreground="red")
+                return
+
+            def report_chat():
+                if self.tg_chat_id.get().strip():
                     status.config(
-                        text=f"✓ Bot @{username} verified — chat ID detected.",
-                        foreground="green")
-                else:
-                    status.config(
-                        text=(f"Bot @{username} is valid, but no messages yet. "
-                              f"Open t.me/{username}, press Start, send any "
-                              f"message, then click Detect again."),
-                        foreground="#b07000")
-                    webbrowser.open(f"https://t.me/{username}")
-            except Exception as e:
-                status.config(text=f"Network error: {e}", foreground="red")
+                        text=f"✓ Bot @{self._tg_username} verified — chat ID "
+                             f"detected.", foreground="green")
+            # Verify, then look for a chat id — but Detect never advances.
+            verify_token(token, lambda: resolve_chat(token, report_chat))
 
         ttk.Button(self.body, text="Detect my chat ID", command=detect).pack(
             anchor="w", pady=4)
 
         def ok():
-            if not self.tg_token.get().strip() or not self.tg_chat_id.get().strip():
-                messagebox.showwarning(
-                    "Telegram required",
-                    "Friday can't run without the bot token and chat ID. "
-                    "Use the Detect button after messaging your bot.")
+            token = self.tg_token.get().strip()
+            if not token:
+                status.config(text="Paste the bot token from BotFather first.",
+                              foreground="red")
                 return False
-            return True
+            if not _token_format_ok(token):
+                status.config(
+                    text=("That doesn't look like a bot token — it should look "
+                          "like 123456789:AA… . Check for a copy/paste slip."),
+                    foreground="red")
+                return False
+            # Skip the network round-trip when this exact token already passed.
+            if self._validated.get("tg_token") == token:
+                resolve_chat(token, self._advance)
+            else:
+                verify_token(token, lambda: resolve_chat(token, self._advance))
+            return False  # advancement happens inside the async callbacks above
         self._validate = ok
 
     def _step_gemini(self):
@@ -325,7 +499,8 @@ class Wizard(tk.Tk):
                                   foreground="red")
                     return False
             except Exception as e:
-                status.config(text=f"Network error: {e}", foreground="red")
+                status.config(text=f"Network error: {_scrub(str(e), key)}",
+                              foreground="red")
                 return False
             status.config(text="✓ Key verified.", foreground="green")
             return True
