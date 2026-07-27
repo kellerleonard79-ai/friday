@@ -1,26 +1,43 @@
+# Project Friday — configuration template.
+#
+# Copy to friday_config.yaml and fill in. That file is gitignored: it holds
+# live tokens. See the README for how to obtain each credential.
+#
+# On macOS (source checkout) this file lives next to friday.py.
+# On Windows / any frozen build it lives in %APPDATA%\Friday\.
+#
+# Startup hard-fails only on: telegram.bot_token, telegram.chat_id, and a
+# Gemini key when provider is gemini. Every other block is optional — an
+# unconfigured connector is skipped, not an error.
+
 agent:
   name: Friday
   morning_briefing_time: '07:00'
-  briefing_time: '21:45'
-  timezone: America/Chicago
-  # Fallback Apple Calendar used by actions.calendar when a write target
-  # doesn't exist (e.g. Canvas auto-sync when no 'Canvas' calendar is present).
-  # macOS exposes no scriptable "default calendar", so this must be explicit.
+  briefing_time: '21:45'            # evening briefing
+  timezone: America/Chicago         # IANA name; drives both briefing schedules
+
+  # How late a missed briefing may still be delivered after a sleep/outage.
+  briefing_catchup_max_minutes: 120
+
+  # Fallback calendar used when a write target doesn't exist (e.g. Canvas
+  # auto-sync with no 'Canvas' calendar present). macOS exposes no scriptable
+  # "default calendar", so this must be explicit.
   default_calendar: 'Keller Leonard'
-  # Whitelist of Apple Calendar names to include in briefings.
-  # Leave empty to include all calendars except 'Siri Suggestions' and 'US Holidays'.
+
+  # Whitelist of calendar names to include in briefings. Leave empty to
+  # include all calendars except 'Siri Suggestions' and 'US Holidays'.
   briefing_calendars:
     - Keller Leonard
     - Work
     - Family
 
 telegram:
-  bot_token: ''       # from @BotFather
-  chat_id: ''         # your personal chat ID
+  bot_token: ''       # from @BotFather. Env fallback: TELEGRAM_BOT_TOKEN
+  chat_id: ''         # your personal chat ID. Env fallback: TELEGRAM_CHAT_ID
 
 memory:
-  db_path: memory/friday_memory.db
-  short_term_turns: 20
+  db_path: memory/friday_memory.db  # relative paths resolve against the data dir
+  short_term_turns: 20              # rolling conversation window
 
 provider: ollama      # ollama | gemini
 
@@ -32,20 +49,99 @@ ollama:
 gemini:
   model: gemma-4-31b-it
   max_tokens: 1000
-  api_key: ''         # GEMINI_API_KEY env var also works
+  api_key: ''         # env fallback: GEMINI_API_KEY
+
+# Calendar backend — the event store. Defaults to google on Windows and
+# apple everywhere else; set explicitly to override.
+calendar:
+  backend: apple      # apple (macOS, JXA) | google (Calendar API + OAuth)
+  google:
+    auto_create: true # create missing calendars (google backend only;
+                      # the apple backend never creates calendars)
 
 canvas:
-  ical_url: ''
-  api_token: ''
-
-gmail:
-  credentials_path: gmail_credentials.json
-  token_path: gmail_token.json
-
-groupme:
-  api_token: ''
-  group_id: ''
+  ical_url: ''        # Canvas → Calendar → "Calendar Feed"
+  api_token: ''       # only if your institution's feed requires auth
 
 weather:
-  api_key: ''
-  location: ''
+  api_key: ''         # OpenWeatherMap. Env fallback: WEATHER_API_KEY
+  location: ''        # "City,CC" format, e.g. Austin,US.
+                      # Env fallback: WEATHER_LOCATION
+
+groupme:
+  api_token: ''       # from dev.groupme.com → "Access Token"
+  # Each entry needs an id OR a name (names resolve via the API).
+  # priority tiers — see connectors/groupme.py:
+  #   high   → can interrupt immediately, and appears in briefings
+  #   normal → appears in briefings only, never interrupts
+  #   muted  → ingested for history, never surfaced
+  # ('low' is the legacy spelling and is read as 'muted'.)
+  # enabled: false stops polling the group entirely. Omit it to mean true.
+  # Re-enabling resumes from the newest message — no backfill of the gap.
+  groups:
+    - name: ''
+      id: ''
+      priority: high
+      enabled: true
+    - name: ''
+      id: ''
+      priority: normal
+      enabled: true
+
+# Mirror Google Calendar iCal subscriptions into same-named Apple Calendars.
+# One-way (Google → Apple), no approval gate. Skipped on the google backend.
+# Create each Apple Calendar manually first — names must match exactly.
+# Secret iCal URLs are credentials: Google Calendar → calendar settings →
+# "Integrate calendar" → "Secret address in iCal format".
+gcal_sync:
+  calendars:
+    - name: PHS SGA
+      ical_url: ''
+    - name: FBLA Officer Calendar
+      ical_url: ''
+    - name: Keller Leonard
+      ical_url: ''
+
+# Dashboard-facing mirror. The agent block above stays canonical for the
+# JobQueue — if the two disagree, agent wins at runtime. Written lazily by
+# the dashboard on first load if absent.
+notifications:
+  morning_briefing:
+    enabled: true
+    time: '07:00'
+  evening_briefing:
+    enabled: true
+    time: '21:45'
+  proactive_reminders: true
+  urgent_interrupts: true
+  canvas_polling: true
+  groupme_polling: true
+  reminder_thresholds: [5, 3, 1]    # days before a due date
+
+# Voice satellite (macOS only). Read by voice/listen.py, which is standalone
+# and never imported by friday.py. A running listen.py does NOT reload this —
+# restart it: launchctl kickstart -k gui/$(id -u)/com.friday.voice
+#
+# wake_enabled/clap_enabled true = always-on mic stream (orange indicator lit
+# at idle). Both false = push-to-talk only, mic opened per session.
+voice:
+  enabled: true
+  mic_enabled: true
+  wake_enabled: false
+  clap_enabled: false
+  always_speak: false
+  whisper_model: base               # whisper model size
+  push_to_talk_key: right_option
+  tts_voice: Daniel
+  silence_ms: 1500
+  max_recording_ms: 30000
+  wake_phrases:
+    - Hey Friday
+    - Friday you up
+    - Friday
+
+gmail:
+  # Deprioritized — no accessible API path for locked-down school accounts.
+  # Present so the config shape stays stable; not implemented.
+  credentials_path: gmail_credentials.json
+  token_path: gmail_token.json

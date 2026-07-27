@@ -1,17 +1,24 @@
 """
 setup_wizard.py
-First-run setup wizard for the Windows build. Tkinter (stdlib — freezes
-cleanly under PyInstaller).
+First-run setup wizard for the packaged Windows and macOS builds. Tkinter
+(stdlib — freezes cleanly under PyInstaller).
 
-Collects everything Friday needs into %APPDATA%\\Friday\\friday_config.yaml:
+Writes to paths.config_path(): %APPDATA%\\Friday\\friday_config.yaml on
+Windows, ~/.friday/friday_config.yaml in a frozen macOS .app, next to
+friday.py in a source checkout.
 
     1. Telegram bot token  (+ automatic chat-id detection via getUpdates)
     2. Gemini API key      (validated against the models endpoint)
     3. Google Calendar     (OAuth installed-app flow; saves token; lets the
                             user pick a default calendar + briefing calendars)
+                            — skipped on the Apple Calendar backend
     4. Canvas iCal URL     (optional)
     5. Weather             (optional, OpenWeatherMap)
     6. Schedule            (timezone + briefing times)
+
+Every credential step doubles as a walkthrough: the numbered instructions and
+"Open …" buttons are meant to get a user who has never seen BotFather or
+Google AI Studio from nothing to a working key without leaving the window.
 
 run(first_run=True) -> bool  — True when a config was written.
 """
@@ -19,6 +26,7 @@ run(first_run=True) -> bool  — True when a config was written.
 import logging
 import re
 import shutil
+import sys
 import threading
 import tkinter as tk
 import webbrowser
@@ -122,12 +130,107 @@ def _guess_timezone() -> str:
         return "America/Chicago"
 
 
+# ── Platform seams ────────────────────────────────────────────────────────────
+# The wizard ships on both platforms, and the differences are all cosmetic or
+# calendar-related. Keeping them here stops per-platform branches from spreading
+# through the step builders.
+
+IS_MAC = sys.platform == "darwin"
+
+# Segoe UI does not exist on macOS; asking Tk for it silently falls back to a
+# default that looks nothing like the rest of the window.
+_HEADING_FONT = ("SF Pro Display", 18, "bold") if IS_MAC else ("Segoe UI", 16, "bold")
+
+# macOS's default UI font is wider than Segoe UI, so the same entry rows need
+# more room; at 620 the right edge of every text field is cut off.
+_WIN_WIDTH = 700 if IS_MAC else 620
+
+# Where the app lives once running, for instructions that point at it.
+_APP_SURFACE = "menu bar" if IS_MAC else "system tray"
+_MENU_GESTURE = "Click" if IS_MAC else "Right-click"
+_MULTISELECT_KEY = "Command-click" if IS_MAC else "Ctrl-click"
+
+# Text colours, keyed by role. The light-mode values are the originals; macOS
+# Dark Mode paints the window near-black, where "#555" grey and a plain "red"
+# are both unreadable. Filled in from the live theme by _init_palette(), which
+# is why every call site reads through this dict instead of a constant.
+_PALETTE = {
+    "muted":    "#555555",   # sub-headings and asides
+    "warn":     "#b07000",   # gotchas the user needs to notice
+    "ok":       "green",     # a check that passed
+    "err":      "red",       # a check that failed
+    # Classic (non-ttk) widgets only — ttk handles its own theming.
+    "field_bg": "white",
+    "field_fg": "black",
+    "sel_bg":   "#0b5fff",
+    "sel_fg":   "white",
+    "border":   "#c0c0c0",
+}
+
+
+def _init_palette(root: tk.Misc) -> None:
+    """Pick colours from the theme's own background luminance.
+
+    Reading it out of Tk rather than shelling out to `defaults read -g
+    AppleInterfaceStyle` means this works on every platform and matches
+    whatever theme ttk actually resolved, not what the OS says it prefers.
+    """
+    try:
+        bg = ttk.Style(root).lookup("TLabel", "background") or ""
+        r, g, b = root.winfo_rgb(bg)          # 16 bits per channel
+        if (0.299 * r + 0.587 * g + 0.114 * b) / 65535 >= 0.5:
+            return                            # light theme: defaults are right
+    except Exception:
+        return                                # unknown theme: assume light
+    _PALETTE.update(muted="#a8a8a8", warn="#e5b45a",
+                    ok="#5dd47f", err="#ff6b6b",
+                    field_bg="#2c2c2e", field_fg="#e8e8e8",
+                    sel_bg="#0a84ff", sel_fg="#ffffff",
+                    border="#4a4a4c")
+
+
+def _calendar_backend() -> str:
+    """Which calendar Friday will use — the same rule calendars/backend.py
+    applies, resolved without importing it (the wizard runs before any config
+    exists, and backend.py expects one)."""
+    return "google" if sys.platform == "win32" else "apple"
+
+
+def _macos_foreground(win: tk.Tk) -> None:
+    """Put the wizard in front of whatever the user was looking at.
+
+    Setup sends people to a browser several times (BotFather, AI Studio,
+    OpenWeatherMap), and the window they have to come back to must not be
+    buried behind the browser they were just sent to. Also guards the
+    activation policy: only the menu bar process is meant to be an accessory
+    (see mac_app._become_accessory), and Tk never puts a window on screen in an
+    accessory process, so assert Regular here rather than trust it.
+    """
+    try:
+        from AppKit import NSApplication, NSApplicationActivationPolicyRegular
+        app = NSApplication.sharedApplication()
+        app.setActivationPolicy_(NSApplicationActivationPolicyRegular)
+        app.activateIgnoringOtherApps_(True)
+    except Exception as e:
+        logger.warning(f"Could not promote the wizard to a foreground app: {e}")
+    # Raise above the browser, then drop topmost so it does not sit over every
+    # other window for the rest of setup.
+    win.lift()
+    win.attributes("-topmost", True)
+    win.after(500, lambda: win.attributes("-topmost", False))
+
+
 class Wizard(tk.Tk):
     def __init__(self, first_run: bool = True):
         super().__init__()
         self.title("Friday Setup")
-        self.geometry("620x540")
-        self.resizable(False, False)
+        # Tall enough for the longest walkthrough (Telegram, 7 steps) without
+        # scrolling. Height is resizable so a short display can still reach the
+        # nav buttons; width is fixed because every wraplength is tuned to it.
+        self.geometry(f"{_WIN_WIDTH}x680")
+        self.resizable(False, True)
+        self.minsize(_WIN_WIDTH, 420)
+        _init_palette(self)          # before any step builds a coloured label
         self.completed = False
 
         # Start from the existing config when re-running setup.
@@ -139,7 +242,21 @@ class Wizard(tk.Tk):
             except Exception:
                 self.cfg = {}
 
-        self.google_calendars: list[str] = []
+        # Which event store this machine will use. Honour an existing config
+        # (someone may have deliberately put the google backend on a Mac);
+        # otherwise take the platform default.
+        self.backend = (
+            ((self.cfg.get("calendar") or {}).get("backend") or "").strip().lower()
+            or _calendar_backend()
+        )
+        if self.backend not in ("apple", "google"):
+            self.backend = _calendar_backend()
+
+        # Calendar names offered in the pickers, from whichever backend is
+        # active. Named for its role, not its source. The writable subset is
+        # what may become the default calendar — see _calendar_pickers.
+        self.available_calendars: list[str] = []
+        self._writable_calendars: list[str] = []
 
         # ── In-memory model: the single source of truth for entered values ──
         # Every field's current contents live here, keyed by field name.
@@ -156,11 +273,15 @@ class Wizard(tk.Tk):
 
         container = ttk.Frame(self, padding=16)
         container.pack(fill="both", expand=True)
-        self.body = ttk.Frame(container)
-        self.body.pack(fill="both", expand=True)
 
+        # Nav is packed against the bottom edge FIRST so pack gives it its space
+        # before the body gets any. The walkthrough boxes make some steps taller
+        # than others, and a body packed first would push Next off-screen.
         nav = ttk.Frame(container)
-        nav.pack(fill="x", pady=(12, 0))
+        nav.pack(side="bottom", fill="x", pady=(12, 0))
+        self.body = ttk.Frame(container)
+        self.body.pack(side="top", fill="both", expand=True)
+
         self.back_btn = ttk.Button(nav, text="← Back", command=self._back)
         self.back_btn.pack(side="left")
         self.reset_btn = ttk.Button(nav, text="Start over", command=self._reset)
@@ -172,7 +293,7 @@ class Wizard(tk.Tk):
             self._step_welcome,
             self._step_telegram,
             self._step_gemini,
-            self._step_google,
+            self._step_calendar,
             self._step_canvas,
             self._step_weather,
             self._step_schedule,
@@ -185,6 +306,9 @@ class Wizard(tk.Tk):
         self._validate = lambda: True
         self._collect = self._collect_step
         self._show_step()
+
+        if IS_MAC:
+            _macos_foreground(self)
 
     # ── Navigation ────────────────────────────────────────────────────────────
 
@@ -246,7 +370,8 @@ class Wizard(tk.Tk):
             self.step_idx -= 1
             self._show_step()
 
-    def _set_busy(self, busy: bool, status=None, msg: str = "", color: str = "#555"):
+    def _set_busy(self, busy: bool, status=None, msg: str = "",
+                  color: str | None = None):
         """Toggle the 'Checking…' state: disable nav while a network check runs
         so the window never looks frozen, and restore it on the result."""
         nav_state = ["disabled"] if busy else ["!disabled"]
@@ -257,7 +382,7 @@ class Wizard(tk.Tk):
         else:
             self.back_btn.state(["!disabled"] if self.step_idx > 0 else ["disabled"])
         if status is not None and msg:
-            status.config(text=msg, foreground=color)
+            status.config(text=msg, foreground=color or _PALETTE["muted"])
 
     def _reset(self):
         """Start over: clear the in-memory model and any stale config on disk so
@@ -277,7 +402,8 @@ class Wizard(tk.Tk):
         except Exception as e:
             logger.warning(f"Setup reset: could not remove config: {e}")
         self.cfg = {}
-        self.google_calendars = []
+        self.available_calendars = []
+        self._writable_calendars = []
         self._tg_username = ""
         self._seed_values()          # cfg is empty now, so the model comes up blank
         self.step_idx = 0
@@ -286,11 +412,11 @@ class Wizard(tk.Tk):
     # ── Small helpers ─────────────────────────────────────────────────────────
 
     def _heading(self, title: str, sub: str = ""):
-        ttk.Label(self.body, text=title, font=("Segoe UI", 16, "bold")).pack(
+        ttk.Label(self.body, text=title, font=_HEADING_FONT).pack(
             anchor="w", pady=(0, 4))
         if sub:
             ttk.Label(self.body, text=sub, wraplength=560,
-                      foreground="#555").pack(anchor="w", pady=(0, 12))
+                      foreground=_PALETTE["muted"]).pack(anchor="w", pady=(0, 12))
 
     def _entry_row(self, label: str, key: str, show: str = "") -> tk.StringVar:
         row = ttk.Frame(self.body)
@@ -302,11 +428,42 @@ class Wizard(tk.Tk):
         self._step_vars[key] = var
         return var
 
-    def _link(self, text: str, url: str):
-        lbl = ttk.Label(self.body, text=text, foreground="#0b5fff",
-                        cursor="hand2")
-        lbl.pack(anchor="w", pady=2)
-        lbl.bind("<Button-1>", lambda e: webbrowser.open(url))
+    def _walkthrough(self, steps: list[str], parent=None):
+        """Render numbered instructions for creating a credential.
+
+        Every credential step gets one of these. The point is that someone who
+        has never heard of BotFather or an API key can follow along without
+        opening a browser tab to search for what the wizard means — so the
+        wording names the exact button to click on the exact page.
+        """
+        parent = parent if parent is not None else self.body
+        box = ttk.Frame(parent, relief="groove", borderwidth=1, padding=10)
+        box.pack(fill="x", pady=(0, 10))
+        for i, text in enumerate(steps, 1):
+            row = ttk.Frame(box)
+            row.pack(fill="x", anchor="w", pady=1)
+            ttk.Label(row, text=f"{i}.", width=3).pack(side="left", anchor="n")
+            ttk.Label(row, text=text, wraplength=500, justify="left").pack(
+                side="left", anchor="w")
+        return box
+
+    def _open_button(self, text: str, url: str, parent=None):
+        """Big obvious 'take me there' button. Paired with _walkthrough so the
+        user never has to find the page themselves."""
+        parent = parent if parent is not None else self.body
+        btn = ttk.Button(parent, text=text,
+                         command=lambda: webbrowser.open(url))
+        btn.pack(anchor="w", pady=(0, 8))
+        return btn
+
+    def _note(self, text: str, color: str | None = None, parent=None):
+        """A gotcha the user will otherwise hit and misdiagnose."""
+        parent = parent if parent is not None else self.body
+        lbl = ttk.Label(parent, text=text, wraplength=560,
+                        foreground=color or _PALETTE["warn"],
+                        justify="left")
+        lbl.pack(anchor="w", pady=(0, 6))
+        return lbl
 
     def _status_label(self) -> ttk.Label:
         lbl = ttk.Label(self.body, text="", wraplength=560)
@@ -327,32 +484,78 @@ class Wizard(tk.Tk):
     # ── Steps ─────────────────────────────────────────────────────────────────
 
     def _step_welcome(self):
+        cal = "Apple Calendar" if self.backend == "apple" else "Google Calendar"
         self._heading(
             "Welcome to Friday",
-            "Friday is a personal AI secretary. She watches your Canvas "
-            "assignments, GroupMe chats, weather, and Google Calendar — and "
-            "talks to you through Telegram with morning/evening briefings and "
-            "urgent alerts.",
+            f"Friday is a personal AI secretary. She watches your Canvas "
+            f"assignments, GroupMe chats, weather, and {cal} — and talks to "
+            f"you through Telegram with morning/evening briefings and urgent "
+            f"alerts.",
         )
         ttk.Label(self.body, wraplength=560, text=(
-            "This wizard takes about 5 minutes. You'll need:\n\n"
-            "  •  The Telegram app on your phone\n"
-            "  •  A Google account (for your calendar)\n"
-            "  •  A free Gemini API key (we'll show you where to get one)\n\n"
-            "Optional: your Canvas calendar link and a free weather API key."
-        )).pack(anchor="w")
+            "This wizard takes about 10 minutes. You do not need to prepare "
+            "anything in advance — each step walks you through creating the "
+            "account or key it needs, with a button that opens the right page."
+        )).pack(anchor="w", pady=(0, 10))
+
+        needed = [
+            "Telegram — a free chat app. Install it on your phone first if you "
+            "don't have it; that is the only thing you need before starting.",
+            "A Gemini API key — free, no credit card. Step 2 creates one.",
+        ]
+        if self.backend == "apple":
+            needed.append(
+                "Apple Calendar — already on this Mac. Step 3 just asks macOS "
+                "for permission to use it.")
+        else:
+            needed.append(
+                "A Google account — Step 3 signs you in and picks your "
+                "calendars.")
+        needed.append(
+            "Optional: your Canvas calendar link and a free weather key. Both "
+            "steps can be skipped and added later from the dashboard.")
+
+        ttk.Label(self.body, text="What Friday needs:",
+                  font=("", 11, "bold")).pack(anchor="w", pady=(0, 4))
+        for item in needed:
+            row = ttk.Frame(self.body)
+            row.pack(fill="x", anchor="w", pady=1)
+            ttk.Label(row, text="•", width=2).pack(side="left", anchor="n")
+            ttk.Label(row, text=item, wraplength=520, justify="left").pack(
+                side="left", anchor="w")
+
+        self._note("Nothing is saved until you click Finish on the last step. "
+                   "You can go Back at any point without losing what you typed.",
+                   color=_PALETTE["muted"])
 
     def _step_telegram(self):
         self._heading(
             "Step 1 — Telegram bot",
             "Friday talks to you through a private Telegram bot that you own.",
         )
-        ttk.Label(self.body, wraplength=560, text=(
-            "1. In Telegram, open @BotFather and send:  /newbot\n"
-            "2. Give it a name (e.g. \"Friday\") and a unique username\n"
-            "3. Copy the token BotFather gives you and paste it below"
-        )).pack(anchor="w", pady=(0, 8))
-        self._link("Open BotFather in Telegram →", "https://t.me/BotFather")
+        self._walkthrough([
+            "Install Telegram on your phone or Mac and create an account if "
+            "you don't already have one.",
+            "Click the button below. It opens a chat with @BotFather — "
+            "Telegram's official bot for making other bots.",
+            "Press START, then send the message:   /newbot",
+            "BotFather asks for a display name. Type anything — \"Friday\" "
+            "works.",
+            "It then asks for a username, which must be unique across all of "
+            "Telegram and must end in \"bot\". Try something like "
+            "friday_yourname_bot. If it says the name is taken, just try "
+            "another.",
+            "BotFather replies with a long token that looks like "
+            "123456789:AAExample-Token-Characters. Copy the whole thing and "
+            "paste it below.",
+            "Send your new bot any message (open the chat BotFather links to "
+            "and press START), then click \"Detect my chat ID\". Telegram will "
+            "not let a bot message you until you message it first.",
+        ])
+        self._open_button("Open BotFather in Telegram  →",
+                          "https://t.me/BotFather")
+        self._note("Treat this token like a password — anyone who has it can "
+                   "control your bot. It is stored only on this machine.")
 
         self.tg_token = self._entry_row("Bot token", "tg_token")
         self.tg_chat_id = self._entry_row("Chat ID", "tg_chat_id")
@@ -376,10 +579,10 @@ class Wizard(tk.Tk):
                 self._set_busy(False)
                 kind, info = res
                 if kind == "network":
-                    status.config(text=_NET_MSG, foreground="red")
+                    status.config(text=_NET_MSG, foreground=_PALETTE["err"])
                 elif kind == "auth":
                     status.config(text=f"Telegram rejected that token "
-                                        f"({_mask_token(token)}).", foreground="red")
+                                        f"({_mask_token(token)}).", foreground=_PALETTE["err"])
                 elif info:
                     self.tg_chat_id.set(sorted(info)[-1])
                     on_ready()
@@ -389,7 +592,7 @@ class Wizard(tk.Tk):
                         text=(f"Bot @{uname} works, but you haven't messaged it "
                               f"yet. Open Telegram, press Start on the bot, send "
                               f"it any message, then click Next again."),
-                        foreground="#b07000")
+                        foreground=_PALETTE["warn"])
                     if self._tg_username:
                         webbrowser.open(f"https://t.me/{self._tg_username}")
 
@@ -412,12 +615,12 @@ class Wizard(tk.Tk):
                     return
                 self._set_busy(False)
                 if kind == "network":
-                    status.config(text=_NET_MSG, foreground="red")
+                    status.config(text=_NET_MSG, foreground=_PALETTE["err"])
                 else:
                     status.config(
                         text=(f"Telegram rejected that token ({_mask_token(token)}). "
                               f"Double-check what BotFather gave you."),
-                        foreground="red")
+                        foreground=_PALETTE["err"])
                     logger.warning(f"Telegram token rejected ({_mask_token(token)})")
 
             def worker():
@@ -428,19 +631,19 @@ class Wizard(tk.Tk):
         def detect():
             token = self.tg_token.get().strip()
             if not token:
-                status.config(text="Paste the bot token first.", foreground="red")
+                status.config(text="Paste the bot token first.", foreground=_PALETTE["err"])
                 return
             if not _token_format_ok(token):
                 status.config(text="That doesn't look like a bot token "
                                    "(it should look like 123456789:AA…).",
-                              foreground="red")
+                              foreground=_PALETTE["err"])
                 return
 
             def report_chat():
                 if self.tg_chat_id.get().strip():
                     status.config(
                         text=f"✓ Bot @{self._tg_username} verified — chat ID "
-                             f"detected.", foreground="green")
+                             f"detected.", foreground=_PALETTE["ok"])
             # Verify, then look for a chat id — but Detect never advances.
             verify_token(token, lambda: resolve_chat(token, report_chat))
 
@@ -451,13 +654,13 @@ class Wizard(tk.Tk):
             token = self.tg_token.get().strip()
             if not token:
                 status.config(text="Paste the bot token from BotFather first.",
-                              foreground="red")
+                              foreground=_PALETTE["err"])
                 return False
             if not _token_format_ok(token):
                 status.config(
                     text=("That doesn't look like a bot token — it should look "
                           "like 123456789:AA… . Check for a copy/paste slip."),
-                    foreground="red")
+                    foreground=_PALETTE["err"])
                 return False
             # Skip the network round-trip when this exact token already passed.
             if self._validated.get("tg_token") == token:
@@ -473,12 +676,22 @@ class Wizard(tk.Tk):
             "Friday's brain. The free tier is plenty for personal use — "
             "no credit card needed.",
         )
-        ttk.Label(self.body, wraplength=560, text=(
-            "1. Open Google AI Studio (link below) and sign in\n"
-            "2. Click \"Create API key\"\n"
-            "3. Paste the key here"
-        )).pack(anchor="w", pady=(0, 8))
-        self._link("Open Google AI Studio →", "https://aistudio.google.com/apikey")
+        self._walkthrough([
+            "Click the button below to open Google AI Studio, and sign in with "
+            "any Google account.",
+            "Accept the terms if it asks. You may also be asked to pick or "
+            "create a Google Cloud project — take the default it offers; you "
+            "never have to touch it again.",
+            "Click \"Create API key\" (top right, or the blue button in the "
+            "middle of the page).",
+            "Copy the key it shows you and paste it below. It starts with "
+            "AIza and is about 39 characters.",
+        ])
+        self._open_button("Open Google AI Studio  →",
+                          "https://aistudio.google.com/apikey")
+        self._note("The free tier covers normal personal use. Google will ask "
+                   "for a card only if you deliberately upgrade — this wizard "
+                   "never does.", color=_PALETTE["muted"])
 
         self.gemini_key = self._entry_row("API key", "gemini_key")
         status = self._status_label()
@@ -496,42 +709,30 @@ class Wizard(tk.Tk):
                 if r.status_code != 200:
                     status.config(text=f"Key rejected ({r.status_code}). "
                                        "Double-check and try again.",
-                                  foreground="red")
+                                  foreground=_PALETTE["err"])
                     return False
             except Exception as e:
                 status.config(text=f"Network error: {_scrub(str(e), key)}",
-                              foreground="red")
+                              foreground=_PALETTE["err"])
                 return False
-            status.config(text="✓ Key verified.", foreground="green")
+            status.config(text="✓ Key verified.", foreground=_PALETTE["ok"])
             return True
         self._validate = validate_key
 
-    def _step_google(self):
-        self._heading(
-            "Step 3 — Connect Google Calendar",
-            "Google Calendar is where Friday keeps your events. She reads "
-            "your schedule from it and adds events you ask for.",
-        )
-        status = self._status_label()
+    def _step_calendar(self):
+        """Dispatch on the active backend. Apple needs no accounts or keys —
+        just macOS Automation permission — so it gets an entirely different
+        page rather than a Google page with the parts greyed out."""
+        if self.backend == "apple":
+            self._step_calendar_apple()
+        else:
+            self._step_calendar_google()
 
-        secret = paths.google_client_secret_path()
-        if not secret.exists():
-            ttk.Label(self.body, wraplength=560, foreground="#b07000", text=(
-                "This installer is missing its Google credentials file "
-                "(google_client_secret.json). Ask whoever sent you Friday for "
-                "it, then select it below.")).pack(anchor="w", pady=4)
+    # ── Calendar picker, shared by both backends ─────────────────────────────
 
-            def pick():
-                p = filedialog.askopenfilename(
-                    title="Select google_client_secret.json",
-                    filetypes=[("JSON", "*.json")])
-                if p:
-                    shutil.copyfile(p, paths.data_dir() / "google_client_secret.json")
-                    status.config(text="✓ Credentials file installed.",
-                                  foreground="green")
-            ttk.Button(self.body, text="Select credentials file…",
-                       command=pick).pack(anchor="w", pady=4)
-
+    def _calendar_pickers(self, parent):
+        """Default-calendar combo + briefing-calendar multiselect. Populated by
+        whichever backend fetched the names."""
         self.cal_listbox: tk.Listbox | None = None
         self.default_cal = tk.StringVar(value=self._values.get("default_cal", ""))
         self._step_vars["default_cal"] = self.default_cal
@@ -544,28 +745,49 @@ class Wizard(tk.Tk):
                     for i in self.cal_listbox.curselection()]
         self._collect = collect
 
-        connect_btn = ttk.Button(self.body, text="Connect Google Calendar")
-        connect_btn.pack(anchor="w", pady=8)
+        # Sized by its contents, never expanded to fill the body. An expanded
+        # frame already occupies its final geometry while it is still empty, so
+        # the widgets added later change nothing about its size — and on macOS a
+        # classic Tk widget added into an already-laid-out frame is never damaged
+        # and paints its background but none of its rows. Letting the frame grow
+        # when show() populates it is what makes the list visible at all.
+        frame = ttk.Frame(parent)
+        frame.pack(fill="x")
 
-        cal_frame = ttk.Frame(self.body)
-        cal_frame.pack(fill="both", expand=True)
-
-        def show_calendars(names: list[str]):
-            self.google_calendars = names
-            for w in cal_frame.winfo_children():
+        def show(names: list[str], writable: list[str] | None = None):
+            """`names` is everything Friday can read; `writable` is the subset
+            she can add events to. Only the writable ones may be the default
+            calendar — a subscribed holiday feed accepts no writes, and picking
+            one turns every later "add this to my calendar" into a silent
+            failure."""
+            self.available_calendars = names
+            for w in frame.winfo_children():
                 w.destroy()
-            ttk.Label(cal_frame, text="Default calendar (new events go here):"
+            if not names:
+                return
+            targets = writable if writable else names
+            ttk.Label(frame, text="Default calendar (new events go here):"
                       ).pack(anchor="w", pady=(8, 2))
-            combo = ttk.Combobox(cal_frame, textvariable=self.default_cal,
-                                 values=names, state="readonly", width=40)
+            combo = ttk.Combobox(frame, textvariable=self.default_cal,
+                                 values=targets, state="readonly", width=40)
             combo.pack(anchor="w")
-            if names and self.default_cal.get() not in names:
-                combo.set(names[0])
-            ttk.Label(cal_frame, text="Calendars Friday includes in briefings "
-                                      "(Ctrl-click for several):"
+            if self.default_cal.get() not in targets:
+                combo.set(targets[0])
+            ttk.Label(frame,
+                      text=f"Calendars Friday includes in briefings "
+                           f"({_MULTISELECT_KEY} for several):"
                       ).pack(anchor="w", pady=(10, 2))
-            lb = tk.Listbox(cal_frame, selectmode="multiple", height=6,
-                            exportselection=False)
+            # tk.Listbox is a classic widget, not ttk — it does not follow the
+            # macOS appearance and renders dark-on-dark (i.e. invisibly) in
+            # Dark Mode unless every colour is given explicitly.
+            lb = tk.Listbox(frame, selectmode="multiple", height=6,
+                            exportselection=False,
+                            background=_PALETTE["field_bg"],
+                            foreground=_PALETTE["field_fg"],
+                            selectbackground=_PALETTE["sel_bg"],
+                            selectforeground=_PALETTE["sel_fg"],
+                            highlightthickness=1,
+                            highlightbackground=_PALETTE["border"])
             for n in names:
                 lb.insert("end", n)
             lb.pack(fill="x")
@@ -578,14 +800,132 @@ class Wizard(tk.Tk):
                 lb.selection_set(0, "end")
             self.cal_listbox = lb
 
+        return show
+
+    def _step_calendar_apple(self):
+        self._heading(
+            "Step 3 — Apple Calendar",
+            "Apple Calendar is where Friday keeps your events. She reads your "
+            "schedule from it and adds events you ask for. Nothing to sign up "
+            "for — it is already on this Mac.",
+        )
+        self._walkthrough([
+            "Click \"Find my calendars\" below.",
+            "macOS will ask whether Friday may control Calendar. Click OK — "
+            "this is the Automation permission, and Friday cannot read or "
+            "write a single event without it.",
+            "Pick which calendar new events should go to, and which ones "
+            "Friday should read when she briefs you.",
+        ])
+        # Button and status first: the picker frame expands to fill whatever is
+        # left, so anything packed after it gets shoved to the window's bottom
+        # edge while the calendars are still unknown.
+        load_btn = ttk.Button(self.body, text="Find my calendars")
+        load_btn.pack(anchor="w", pady=8)
+        status = self._status_label()
+        show = self._calendar_pickers(self.body)
+
+        def load():
+            load_btn.state(["disabled"])
+            status.config(text="Asking Calendar… (approve the macOS prompt if "
+                               "one appears)", foreground=_PALETTE["muted"])
+
+            def worker():
+                try:
+                    from calendars.apple import list_calendars_detailed
+                    rows = list_calendars_detailed()
+                except Exception as e:
+                    logger.error(f"Apple Calendar listing failed: {e}")
+                    rows, err = [], str(e)
+                else:
+                    err = ""
+                names = [n for n, _ in rows]
+                writable = [n for n, w in rows if w]
+                self.after(0, lambda: done(names, writable, err))
+
+            def done(names, writable, err):
+                load_btn.state(["!disabled"])
+                if names:
+                    status.config(text=f"✓ Found {len(names)} calendars, "
+                                       f"{len(writable)} she can write to.",
+                                  foreground=_PALETTE["ok"])
+                    show(names, writable)
+                    self._writable_calendars = writable
+                    return
+                # An empty list almost always means the permission prompt was
+                # declined, not that the user has no calendars — say so, since
+                # the failure is otherwise completely silent.
+                status.config(
+                    text=("Couldn't read your calendars. Open System Settings → "
+                          "Privacy & Security → Automation, enable Calendar "
+                          "under Friday, then click Find my calendars again."
+                          + (f"\n({err})" if err else "")),
+                    foreground=_PALETTE["err"])
+            threading.Thread(target=worker, daemon=True).start()
+
+        load_btn.config(command=load)
+        if self.available_calendars:      # returning to this step
+            show(self.available_calendars, self._writable_calendars)
+
+        def ok():
+            if not self.available_calendars:
+                return messagebox.askyesno(
+                    "Skip calendar?",
+                    "Without calendar access Friday can't manage your "
+                    "schedule — briefings will be weather and Canvas only.\n\n"
+                    "You can grant it later in System Settings and re-run this "
+                    "wizard. Skip for now?")
+            return True
+        self._validate = ok
+
+    def _step_calendar_google(self):
+        self._heading(
+            "Step 3 — Connect Google Calendar",
+            "Google Calendar is where Friday keeps your events. She reads "
+            "your schedule from it and adds events you ask for.",
+        )
+        self._walkthrough([
+            "Click \"Connect Google Calendar\" below. Your browser opens.",
+            "Sign in with the Google account whose calendar you use.",
+            "Google will warn that the app isn't verified — click Advanced, "
+            "then \"Go to Friday (unsafe)\". This is expected for a personal "
+            "app that was never submitted for Google review.",
+            "Allow calendar access, then come back to this window. It fills in "
+            "your calendars by itself.",
+        ])
+        status = self._status_label()
+
+        secret = paths.google_client_secret_path()
+        if not secret.exists():
+            ttk.Label(self.body, wraplength=560, foreground=_PALETTE["warn"], text=(
+                "This installer is missing its Google credentials file "
+                "(google_client_secret.json). Ask whoever sent you Friday for "
+                "it, then select it below.")).pack(anchor="w", pady=4)
+
+            def pick():
+                p = filedialog.askopenfilename(
+                    title="Select google_client_secret.json",
+                    filetypes=[("JSON", "*.json")])
+                if p:
+                    shutil.copyfile(p, paths.data_dir() / "google_client_secret.json")
+                    status.config(text="✓ Credentials file installed.",
+                                  foreground=_PALETTE["ok"])
+            ttk.Button(self.body, text="Select credentials file…",
+                       command=pick).pack(anchor="w", pady=4)
+
+        connect_btn = ttk.Button(self.body, text="Connect Google Calendar")
+        connect_btn.pack(anchor="w", pady=8)
+
+        show_calendars = self._calendar_pickers(self.body)
+
         def connect():
             if not paths.google_client_secret_path().exists():
                 status.config(text="Select the credentials file first.",
-                              foreground="red")
+                              foreground=_PALETTE["err"])
                 return
             connect_btn.state(["disabled"])
             status.config(text="A browser window is opening — sign in and "
-                               "allow calendar access…", foreground="#555")
+                               "allow calendar access…", foreground=_PALETTE["muted"])
 
             def worker():
                 try:
@@ -610,7 +950,7 @@ class Wizard(tk.Tk):
                     names = [n for n in names if n]
                     self.after(0, lambda: (
                         status.config(text="✓ Google Calendar connected.",
-                                      foreground="green"),
+                                      foreground=_PALETTE["ok"]),
                         show_calendars(names),
                         connect_btn.state(["!disabled"]),
                     ))
@@ -618,14 +958,14 @@ class Wizard(tk.Tk):
                     logger.error(f"Google OAuth failed: {e}")
                     self.after(0, lambda e=e: (
                         status.config(text=f"Connection failed: {e}",
-                                      foreground="red"),
+                                      foreground=_PALETTE["err"]),
                         connect_btn.state(["!disabled"]),
                     ))
             threading.Thread(target=worker, daemon=True).start()
 
         connect_btn.config(command=connect)
-        if self.google_calendars:  # returning to this step after connecting
-            show_calendars(self.google_calendars)
+        if self.available_calendars:  # returning to this step after connecting
+            show_calendars(self.available_calendars)
 
         def ok():
             # briefing_cals is snapshotted by this step's collector (which runs
@@ -645,11 +985,20 @@ class Wizard(tk.Tk):
             "If your school uses Canvas, Friday can track assignment due "
             "dates and put them on your calendar automatically.",
         )
-        ttk.Label(self.body, wraplength=560, text=(
-            "In Canvas (web): Calendar → \"Calendar Feed\" (bottom right) → "
-            "copy the link. It ends in .ics. Leave blank to skip."
-        )).pack(anchor="w", pady=(0, 8))
+        self._walkthrough([
+            "Open Canvas in a browser and sign in — the desktop site, not the "
+            "phone app. It's usually yourschool.instructure.com.",
+            "Click Calendar in the left sidebar.",
+            "Scroll to the bottom right of the calendar and click "
+            "\"Calendar Feed\".",
+            "A box appears with a long link ending in .ics. Copy the whole "
+            "thing and paste it below.",
+        ])
+        self._note("Leave this blank to skip — you can add it later from the "
+                   "dashboard.", color=_PALETTE["muted"])
         self.canvas_url = self._entry_row("Calendar feed URL", "canvas_url")
+        self._note("Anyone with this link can read your assignment schedule, "
+                   "so don't post it anywhere public.")
 
         def ok():
             url = self.canvas_url.get().strip()
@@ -667,10 +1016,20 @@ class Wizard(tk.Tk):
             "Friday includes a weather note in briefings. Uses a free "
             "OpenWeatherMap key. Leave blank to skip.",
         )
-        self._link("Get a free OpenWeatherMap key →",
-                   "https://home.openweathermap.org/api_keys")
+        self._walkthrough([
+            "Click the button below to open OpenWeatherMap, then Create an "
+            "Account (email and password — no card).",
+            "Confirm the email they send you, then sign in.",
+            "Click your username at the top right → \"My API keys\".",
+            "A key is already there under Key. Copy it and paste it below.",
+        ])
+        self._open_button("Open OpenWeatherMap  →",
+                          "https://home.openweathermap.org/api_keys")
         self.weather_key = self._entry_row("API key", "weather_key")
         self.weather_loc = self._entry_row("Location (City,US)", "weather_loc")
+        self._note("A brand-new key takes up to two hours to start working. "
+                   "If weather is missing from your first briefings, that's "
+                   "why — it fixes itself.")
 
     def _step_schedule(self):
         self._heading(
@@ -707,7 +1066,7 @@ class Wizard(tk.Tk):
     def _step_finish(self):
         self._heading(
             "All set!",
-            "Click Finish to save. Friday will start in your system tray "
+            f"Click Finish to save. Friday will start in your {_APP_SURFACE} "
             "and send you a hello on Telegram.",
         )
         ttk.Label(self.body, wraplength=560, text=(
@@ -715,16 +1074,22 @@ class Wizard(tk.Tk):
             "  •  Send \"brief me\" on Telegram\n"
             "  •  \"Add dentist appointment Friday at 2pm\"\n"
             "  •  \"What's my week look like?\"\n\n"
-            "Right-click the tray icon for Brief Me Now, Pause, the "
-            "dashboard, or to re-run this wizard."
+            f"{_MENU_GESTURE} the {_APP_SURFACE} icon for Brief Me Now, Pause, "
+            "the dashboard, or to re-run this wizard."
         )).pack(anchor="w")
+
+        if IS_MAC:
+            self._note("macOS will ask for permission the first time Friday touches "
+                  "your calendar — click OK on the “Friday wants access to "
+                  "Calendar” prompt, or she'll come up with an empty schedule.",
+                  parent=self.body)
 
     # ── Config write ──────────────────────────────────────────────────────────
 
     def _write_config(self):
         cfg = self.cfg or {}
         v = self._values
-        briefing_cals = v.get("briefing_cals") or list(self.google_calendars)
+        briefing_cals = v.get("briefing_cals") or list(self.available_calendars)
 
         agent = cfg.setdefault("agent", {})
         agent.setdefault("name", "Friday")
@@ -736,7 +1101,7 @@ class Wizard(tk.Tk):
         if briefing_cals:
             agent["briefing_calendars"] = briefing_cals
 
-        cfg["calendar"] = {"backend": "google"}
+        cfg["calendar"] = {"backend": self.backend}
         cfg["provider"] = "gemini"
         cfg["telegram"] = {
             "bot_token": v.get("tg_token", "").strip(),
@@ -766,3 +1131,9 @@ def run(first_run: bool = True) -> bool:
     wiz = Wizard(first_run=first_run)
     wiz.mainloop()
     return wiz.completed
+
+
+if __name__ == "__main__":
+    # Run as its own process by the macOS menu bar — Tkinter and rumps both
+    # insist on owning the main thread, so they cannot share one.
+    sys.exit(0 if run(first_run="--first-run" in sys.argv) else 1)

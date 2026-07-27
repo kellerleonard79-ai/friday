@@ -12,6 +12,20 @@ trap "rmdir '$LOCKDIR' 2>/dev/null" EXIT
 
 PIDFILE="logs/watchdog.pid"
 
+# Interpreter resolution — never a hardcoded framework version, which breaks on
+# every machine that isn't the one this was written on.
+if [ -n "$FRIDAY_PYTHON" ] && [ -x "$FRIDAY_PYTHON" ]; then
+    PY="$FRIDAY_PYTHON"
+elif [ -x "$SCRIPT_DIR/.venv/bin/python3" ]; then
+    PY="$SCRIPT_DIR/.venv/bin/python3"
+else
+    PY="$(command -v python3 || true)"
+fi
+if [ -z "$PY" ]; then
+    echo "No python3 found. Set FRIDAY_PYTHON to your interpreter." >&2
+    exit 1
+fi
+
 echo "Stopping any running Friday watchdog..."
 if [ -f "$PIDFILE" ]; then
     OLD_PID=$(cat "$PIDFILE")
@@ -36,7 +50,7 @@ echo "Starting Friday watchdog..."
     FAILURES=0
     while true; do
         START=$(date +%s)
-        /Library/Frameworks/Python.framework/Versions/3.14/bin/python3 "$SCRIPT_DIR/friday.py"
+        "$PY" "$SCRIPT_DIR/friday.py"
         EXIT=$?
         ELAPSED=$(( $(date +%s) - START ))
         if [ $ELAPSED -lt 10 ]; then

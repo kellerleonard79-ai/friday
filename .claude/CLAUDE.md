@@ -20,95 +20,25 @@ Friday is **not** a simple chatbot. It is a structured, event-driven agent with 
 ---
  
 ## File Structure
- 
-```
-friday/
-├── friday.py                  # Entry point — builds PTB Application, registers handlers and jobs
-├── friday_config.yaml         # Config (tokens, models, paths, GroupMe priorities)
-├── AGENTS.md                  # Persona/system prompt for the LLM
-├── menubar.py                 # rumps menu bar app — provider switcher, status, opens dashboard
-├── dashboard.py               # Tkinter dashboard — full config editing, launched from menubar.py
-├── requirements.txt
-│
-├── agent/
-│   └── core.py                # FridayAgent — LLM calls only. Semaphore is NOT here.
-│
-├── channels/
-│   └── telegram.py            # TelegramChannel — semaphore entry point, message routing,
-│                              # permission gates, JobQueue job registration
-│
-├── connectors/                # Read-only data ingestion
-│   ├── canvas.py              # Canvas iCal feed reader
-│   ├── gmail.py               # Deprioritized — not implemented yet
-│   ├── groupme.py             # GroupMe reader (priority-tier aware)
-│   └── weather.py             # Weather API (stateless, on-demand)
-│
-├── actions/                   # Approval-gated write operations
-│   ├── calendar.py            # Apple Calendar write (caldav or AppleScript) — default calendar
-│   └── groupme_send.py        # GroupMe message sender (post-approval only)
-│
-├── memory/
-│   ├── db.py                  # SQLite connection, schema, migrations
-│   ├── state.py               # system_state table helpers (replaces state.json)
-│   └── friday_memory.db       # SQLite database (gitignored)
-│
-├── voice/
-│   └── listen.py              # Standalone voice script — never imported by friday.py
-│
-└── logs/
-    └── friday.log
-```
+
+The Python package is at `friday/friday/` — one level below the repo root,
+which holds only packaging, the `.app` bundle, and LaunchAgent plists. Run
+`ls friday/friday` for the current layout.
+
+Non-obvious placements: the calendar backend dispatcher and its two
+implementations are in `calendars/`; the web dashboard is a package
+(`dashboard/`), not a Tkinter script; `paths.py` and `compat.py` are the
+cross-platform seams.
  
 ---
  
 ## SQLite Schema
- 
-```sql
--- Runtime key-value state (replaces state.json entirely)
-CREATE TABLE system_state (
-    key        TEXT PRIMARY KEY,
-    value      TEXT,
-    updated_at TEXT
-);
- 
--- Raw ingested events buffer — all connectors write here first
--- LLM processes these into actions (calendar writes, alerts, drafts)
-CREATE TABLE events (
-    id          TEXT PRIMARY KEY,
-    source      TEXT,        -- 'canvas', 'groupme', 'gmail'
-    title       TEXT,
-    body        TEXT,
-    due_at      TEXT,
-    urgency     TEXT,        -- 'URGENT', 'SOON', 'NORMAL' — set by LLM
-    processed   INTEGER DEFAULT 0,
-    notified    INTEGER DEFAULT 0,
-    created_at  TEXT
-);
- 
--- Per-source ingestion cursors
-CREATE TABLE last_seen (
-    source     TEXT PRIMARY KEY,
-    cursor     TEXT,         -- timestamp or ID depending on source
-    updated_at TEXT
-);
- 
--- Pending approval actions
-CREATE TABLE pending_actions (
-    id          TEXT PRIMARY KEY,
-    action_type TEXT,        -- 'calendar_add', 'groupme_send', 'gmail_draft'
-    payload     TEXT,        -- JSON
-    status      TEXT,        -- 'pending', 'confirmed', 'cancelled'
-    created_at  TEXT
-);
- 
--- Conversation history (rolling window)
-CREATE TABLE conversation_history (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    role       TEXT,         -- 'user', 'assistant'
-    content    TEXT,
-    created_at TEXT
-);
-```
+
+Defined in `friday/memory/db.py` — read it there rather than trusting a copy.
+SQLite holds operational state only: runtime key-value state, conversation
+history, the raw ingested-events buffer, and per-source cursors. Calendar-type
+data (due dates, shifts, appointments) never lives here — see the event-store
+rule above.
  
 ---
  
@@ -401,7 +331,8 @@ gcal_sync:
 macOS TCC microphone permission is granted per executable binary path, not per Python
 script. Friday's two processes use different binaries:
 
-- `friday.py` runs directly under `/Library/Frameworks/Python.framework/Versions/3.14/bin/python3`
+- `friday.py` runs directly under whichever interpreter `macos_setup.resolve_python()` picked
+  when the LaunchAgent was generated (recorded in the agent's `FRIDAY_PYTHON` env var)
 - `voice/listen.py` runs under the `FridayVoice.app/Contents/MacOS/FridayVoice` wrapper
 
 Each binary needs its own TCC grant. A grant given to the wrapper does NOT extend to the

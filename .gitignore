@@ -35,3 +35,10 @@ build/
 
 # Runtime logs — contain live tokens, never track.
 friday/logs/
+
+# macOS packaging artifacts — build output and generated assets.
+packaging/macos/google_client_secret.json
+packaging/macos/friday.icns
+packaging/macos/friday.iconset/
+build/
+dist/

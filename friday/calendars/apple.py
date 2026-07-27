@@ -94,6 +94,38 @@ def _run_jxa(script: str) -> dict | None:
         return None
 
 
+def list_calendars_detailed(cfg: dict | None = None) -> list[tuple[str, bool]]:
+    """Every calendar Calendar.app knows about, as (name, writable) pairs.
+
+    Used by the setup wizard to populate its pickers. The first call is what
+    triggers macOS's Automation permission prompt, so an empty list here
+    usually means the user denied it rather than that they have no calendars.
+
+    Writability matters: subscribed calendars (holidays, a shared read-only
+    feed) show up alongside real ones, and picking one as the default calendar
+    makes every later write_event fail. One JXA round trip returns both lists
+    so the wizard doesn't pay for the permission-checked bridge twice.
+    """
+    out = _run_jxa("""
+const Calendar = Application('Calendar');
+JSON.stringify({
+  names:    Calendar.calendars.name(),
+  writable: Calendar.calendars.writable()
+});
+""") or {}
+    names = out.get("names", []) or []
+    writable = out.get("writable", []) or []
+    return [(n, bool(writable[i]) if i < len(writable) else True)
+            for i, n in enumerate(names) if n]
+
+
+def list_calendars(cfg: dict | None = None,
+                   writable_only: bool = False) -> list[str]:
+    """Calendar names only. See list_calendars_detailed for the caveats."""
+    return [n for n, w in list_calendars_detailed(cfg)
+            if w or not writable_only]
+
+
 def calendar_exists(cfg: dict, name: str) -> bool:
     out = _run_jxa(f"""
 const Calendar = Application('Calendar');

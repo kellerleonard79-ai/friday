@@ -12,6 +12,7 @@ and this menubar's tick auto-resumes proactively when the deadline lapses.
 import os
 import subprocess
 import sys
+import threading
 from datetime import datetime, time, timedelta
 from pathlib import Path
 
@@ -20,6 +21,7 @@ import rumps
 from AppKit import NSApplication, NSImage
 
 import menubar_icon
+import paths
 
 # voice/listen.py creates this for the duration of every wake/PTT session
 # (recording → transcription → bridge → TTS). Treat its presence as an
@@ -28,7 +30,9 @@ LISTENING_FLAG = Path("/tmp/friday_listening")
 
 _HERE   = os.path.dirname(os.path.abspath(__file__))
 _PYTHON = sys.executable
-_LOG    = os.path.join(_HERE, "logs", "friday.log")
+# Via paths, not _HERE: inside a frozen .app the logs live in ~/.friday/logs
+# while _HERE points at the read-only bundle.
+_LOG    = str(paths.log_dir() / "friday.log")
 
 _DASH_URL = "http://127.0.0.1:5174"
 _STATUS   = f"{_DASH_URL}/api/status"
@@ -37,7 +41,7 @@ _BRIEF    = f"{_DASH_URL}/api/friday/brief"
 _VOICE_STATUS  = f"{_DASH_URL}/api/voice/status"
 _VOICE_RESTART = f"{_DASH_URL}/api/voice/restart"
 _VOICE_WAKE    = f"{_DASH_URL}/api/voice/wake"
-_VOICE_LOG     = os.path.join(_HERE, "logs", "voice.err")
+_VOICE_LOG     = str(paths.log_dir() / "voice.err")
 
 
 def _friday_running_proc() -> bool:
@@ -132,7 +136,8 @@ class FridayMenuBar(rumps.App):
         # Tracks wake_enabled so the menu title flips without restarting tick.
         self._wake_enabled: bool | None = None
 
-        self._quit       = rumps.MenuItem("Quit Friday Bar", callback=rumps.quit_application)
+        self._setup      = rumps.MenuItem("Run Setup Wizard", callback=self.run_setup)
+        self._quit       = rumps.MenuItem("Quit Friday", callback=self.quit_friday)
 
         self.menu = [
             self._status_row,
@@ -145,8 +150,14 @@ class FridayMenuBar(rumps.App):
             self._dashboard,
             self._logs,
             None,
+            self._setup,
             self._quit,
         ]
+
+        # Set by mac_app when this bar is running inside the packaged .app;
+        # None when menubar.py was started on its own (LaunchAgent / source
+        # checkout), where the core is somebody else's process to manage.
+        self.supervisor = None
 
         self._last_state = None
         self._current_icon_key: str | None = None
@@ -343,6 +354,41 @@ class FridayMenuBar(rumps.App):
             subprocess.Popen(["open", _VOICE_LOG], start_new_session=True)
         else:
             rumps.alert("Friday", f"Voice log not found: {_VOICE_LOG}")
+
+    def run_setup(self, _):
+        """Re-run the wizard, then bounce the core so it reloads the config.
+
+        Tkinter and rumps both want the main thread, so the wizard runs in its
+        own process rather than in-process as the Windows tray does it. Waiting
+        on that process happens on a worker thread — blocking here would wedge
+        the whole menu bar for as long as the wizard is open.
+        """
+        if getattr(sys, "frozen", False):
+            cmd = [sys.executable, "--setup"]
+        else:
+            cmd = [_PYTHON, os.path.join(_HERE, "setup_wizard.py")]
+
+        def worker():
+            try:
+                proc = subprocess.run(cmd, check=False)
+            except Exception as e:
+                # rumps.alert must be called on the main thread, so report to
+                # stderr — which the LaunchAgent captures into ~/.friday/logs.
+                print(f"Setup wizard failed to launch: {e}", file=sys.stderr)
+                return
+            if proc.returncode != 0:
+                return  # cancelled or errored — leave the running core alone
+            try:
+                requests.post(f"{_DASH_URL}/api/friday/restart", timeout=5)
+            except Exception:
+                pass
+        threading.Thread(target=worker, daemon=True).start()
+
+    def quit_friday(self, _):
+        """Quit the bar, and the core too when we are the one supervising it."""
+        if self.supervisor is not None:
+            self.supervisor.shutdown()
+        rumps.quit_application()
 
 
 if __name__ == "__main__":

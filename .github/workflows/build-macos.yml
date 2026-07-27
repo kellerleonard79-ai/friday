@@ -1,0 +1,87 @@
+name: Build macOS dmg
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "SemVer for test builds (artifact only — no release is published)"
+        required: false
+        default: "0.0.1"
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    # macos-15 is Sequoia on Apple Silicon. The resulting .dmg is arm64-only —
+    # see the Architectures section of packaging/macos/BUILD_MACOS.md.
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Compute version
+        id: ver
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            v="${GITHUB_REF#refs/tags/v}"
+          else
+            v="${{ inputs.version }}"
+            [[ -n "$v" ]] || v="0.0.1"
+          fi
+          echo "Building version $v"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r friday/requirements.txt pyinstaller Pillow
+
+      # Optional: bundle the Google OAuth client so a Google-backend build's
+      # wizard never asks for the file. macOS defaults to the Apple Calendar
+      # backend, so this is usually unset. The empty-check is inside the script
+      # because `secrets` is not allowed in a step-level `if:`.
+      - name: Write Google client secret
+        env:
+          CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET_JSON }}
+        run: |
+          if [[ -n "$CLIENT_SECRET" ]]; then
+            printf '%s' "$CLIENT_SECRET" > packaging/macos/google_client_secret.json
+            echo "Bundled Google client secret."
+          else
+            echo "No GOOGLE_CLIENT_SECRET_JSON secret set — Apple backend build."
+          fi
+
+      # Ad-hoc signed: CI has no Developer ID certificate. Users get the
+      # Gatekeeper prompt documented in BUILD_MACOS.md. To ship a notarized
+      # build, run build.sh locally with SIGN_ID set.
+      - name: Build dmg
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: packaging/macos/build.sh
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: Friday-dmg
+          path: dist/Friday-${{ steps.ver.outputs.version }}.dmg
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="v${{ steps.ver.outputs.version }}"
+          dmg="dist/Friday-${{ steps.ver.outputs.version }}.dmg"
+          # This job and build-windows.yml race for the same tag: whichever
+          # finishes first has to create the release, because `gh release
+          # upload` fails outright against a tag that has none. Creating it as
+          # a draft-free empty release is safe — vpk --merge adds the Windows
+          # assets to whatever is already there.
+          gh release view "$tag" >/dev/null 2>&1 || \
+            gh release create "$tag" --title "Friday ${{ steps.ver.outputs.version }}" --notes ""
+          gh release upload "$tag" "$dmg" --clobber
