@@ -11,10 +11,10 @@ import requests
 
 logger = logging.getLogger("friday.groupme")
 
-# Features: per-group polling with priority tiers (high/normal/muted), lazy
-# name→id resolution, no-backfill first poll (cursor primed to newest), and a
-# [priority=...] tag prepended to each body so the LLM's later urgency pass and
-# event-extraction pass can weight the message correctly.
+# Features: per-group polling with priority tiers (high/normal/muted) and an
+# on/off switch, lazy name→id resolution, no-backfill first poll (cursor primed
+# to newest), and a [priority=...] tag prepended to each body so the LLM's later
+# urgency pass and event-extraction pass can weight the message correctly.
 _API_BASE  = "https://api.groupme.com/v3"
 _TIMEOUT_S = 15
 _PAGE_SIZE = 100
@@ -22,6 +22,37 @@ _PAGE_SIZE = 100
 # Process-lifetime cache of lowercased group name → group id. Populated lazily
 # from GET /groups when a configured entry has a name but no id. Reset on restart.
 _name_to_id: dict[str, str] = {}
+
+# Canonical priority tiers — the single source of truth for the whole app. The
+# dashboard UI writes exactly these three values; every consumer matches on the
+# `[priority=<tier>]` tag this module prepends to each stored body.
+#
+#   high   → LLM urgency pass + event extraction + briefing (can interrupt)
+#   normal → briefing only (never interrupts)
+#   muted  → ingested for history, never surfaced
+#
+# 'low' is the pre-dashboard spelling. It normalizes to 'muted' because that is
+# what it always did in practice: nothing downstream ever queried a non-'high'
+# tag, so 'low' rows were stored and never shown.
+PRIORITIES = ("high", "normal", "muted")
+_PRIORITY_ALIASES = {"low": "muted"}
+_DEFAULT_PRIORITY = "normal"
+
+
+def normalize_priority(value: str | None, group_name: str = "") -> str:
+    """Map any configured priority spelling onto a canonical tier.
+    An unset priority defaults to 'normal'; an unrecognized one warns."""
+    raw = (value or "").strip().lower()
+    if not raw:
+        return _DEFAULT_PRIORITY
+    pri = _PRIORITY_ALIASES.get(raw, raw)
+    if pri not in PRIORITIES:
+        logger.warning(
+            f"groupme[{group_name or '?'}] invalid priority {raw!r} — "
+            f"using {_DEFAULT_PRIORITY!r}"
+        )
+        return _DEFAULT_PRIORITY
+    return pri
 
 
 def fetch(cfg: dict, conn: sqlite3.Connection) -> int:
@@ -33,22 +64,30 @@ def fetch(cfg: dict, conn: sqlite3.Connection) -> int:
     if not api_token:
         return 0
 
+    # A group switched off in the dashboard is not polled at all. A missing
+    # flag counts as enabled, matching the dashboard's own default.
+    active   = [g for g in groups if g.get("enabled") is not False]
+    disabled = [g for g in groups if g.get("enabled") is False]
+
     # Resolve any name-only entries up front so we make at most one
-    # /groups call per poll cycle (and only if needed).
+    # /groups call per poll cycle (and only if needed). Disabled groups are
+    # excluded — we never poll them, so their ids aren't worth an API call.
     needed = {
         (g.get("name") or "").strip().lower()
-        for g in groups
+        for g in active
         if not str(g.get("id") or "").strip()
            and (g.get("name") or "").strip()
     }
     if needed - set(_name_to_id):
         _populate_name_cache(api_token)
 
+    for group in disabled:
+        _forget_cursor(conn, group)
+
     total = 0
-    for group in groups:
+    for group in active:
         gid  = str(group.get("id") or "").strip()
         name = (group.get("name") or "").strip()
-        pri  = (group.get("priority") or "low").strip().lower()
         if not name and not gid:
             continue  # placeholder row — silently skip
         if not gid:
@@ -61,9 +100,7 @@ def fetch(cfg: dict, conn: sqlite3.Connection) -> int:
                 continue
         if not name:
             name = gid  # fall back to id for log/title legibility
-        if pri not in ("high", "low"):
-            logger.warning(f"groupme[{name}] invalid priority {pri!r} — defaulting to low")
-            pri = "low"
+        pri = normalize_priority(group.get("priority"), name)
         try:
             total += _poll_one(api_token, gid, name, pri, conn)
         except Exception as e:
@@ -240,6 +277,29 @@ def _get_messages(gid: str, name: str, params: dict, op: str) -> list[dict]:
     except ValueError as e:
         logger.error(f"groupme[{name}] {op} bad JSON: {e}")
         return []
+
+
+def _forget_cursor(conn: sqlite3.Connection, group: dict) -> None:
+    """Drop a disabled group's cursor so re-enabling it re-primes to the newest
+    message (the same no-backfill path a brand-new group takes) instead of
+    replaying everything missed while it was off. Uses only an id we already
+    have — never triggers a name-resolution API call."""
+    gid = str(group.get("id") or "").strip()
+    if not gid:
+        gid = _name_to_id.get((group.get("name") or "").strip().lower(), "")
+    if not gid:
+        return
+    cur = conn.execute(
+        "DELETE FROM last_seen WHERE source = ?", (f"groupme_{gid}",)
+    )
+    # rowcount is 0 on every cycle after the first, so this logs and commits
+    # once per disable rather than every 15 minutes.
+    if cur.rowcount:
+        conn.commit()
+        logger.info(
+            f"groupme[{group.get('name') or gid}]: disabled — cursor cleared. "
+            f"Re-enabling resumes from the newest message, with no backfill."
+        )
 
 
 def _set_cursor(conn: sqlite3.Connection, key: str, value: str, when_iso: str) -> None:

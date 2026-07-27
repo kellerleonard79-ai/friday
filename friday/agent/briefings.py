@@ -9,7 +9,7 @@ whether to send).
 Context bundling (bundle_briefing_context / format_briefing_context):
     A briefing needs a known-complete dataset. Rather than leave the model to
     decide whether to call tools, we pre-fetch everything a briefing needs
-    (calendar, Canvas, weather, high-priority GroupMe) by reusing the same
+    (calendar, Canvas, weather, briefing-visible GroupMe) by reusing the same
     underlying functions the LLM tools wrap, and inject it as a structured
     block at the top of the prompt. The briefing call runs with tools OFF
     (use_tools=False) — a hard guarantee of zero tool calls. The model has no
@@ -37,7 +37,7 @@ logger = logging.getLogger("friday.briefings")
 # it verbatim so a thin briefing is visible in both the message and the logs.
 _UNAVAILABLE = "unavailable"
 
-# How far back to look for high-priority GroupMe chatter worth surfacing.
+# How far back to look for GroupMe chatter worth surfacing (high + normal tiers).
 _GROUPME_WINDOW_HOURS = 12
 
 
@@ -198,20 +198,23 @@ def _fetch_weather(config, query, label):
         return _UNAVAILABLE
 
 
-def _fetch_groupme_high_priority(conn):
-    """High-priority GroupMe rows from the events buffer in the last 12h. Reads
-    the table the connector already populated — no live API call here."""
+def _fetch_groupme_surfaced(conn):
+    """Briefing-visible GroupMe rows from the events buffer in the last 12h —
+    the 'high' and 'normal' tiers. 'muted' rows stay in the buffer for history
+    but never reach a briefing. Reads the table the connector already
+    populated — no live API call here."""
     try:
         cutoff = (datetime.now().astimezone() - timedelta(hours=_GROUPME_WINDOW_HOURS)).isoformat()
         rows = conn.execute(
             "SELECT body, created_at FROM events "
-            "WHERE source='groupme' AND body LIKE '%[priority=high]%' AND created_at >= ? "
+            "WHERE source='groupme' AND created_at >= ? "
+            "AND (body LIKE '%[priority=high]%' OR body LIKE '%[priority=normal]%') "
             "ORDER BY created_at",
             (cutoff,),
         ).fetchall()
         return [_parse_groupme_row(body, created_at) for body, created_at in rows]
     except Exception as e:
-        logger.warning(f"Briefing bundle: groupme_high_priority fetch failed — {e}")
+        logger.warning(f"Briefing bundle: groupme_surfaced fetch failed — {e}")
         return _UNAVAILABLE
 
 
@@ -245,7 +248,7 @@ def bundle_briefing_context(slot: str, config: dict, conn) -> dict:
         bundle["weather_tomorrow"] = _fetch_weather(config, "weather tomorrow", "weather_tomorrow")
 
     bundle["canvas_pending"] = _fetch_canvas_pending(conn)
-    bundle["groupme_high_priority"] = _fetch_groupme_high_priority(conn)
+    bundle["groupme_surfaced"] = _fetch_groupme_surfaced(conn)
 
     _log_bundle_summary(bundle)
     return bundle
@@ -265,7 +268,7 @@ def _log_bundle_summary(bundle: dict) -> None:
     logger.info(
         f"Briefing context bundled: {slot}, {_count(cal)} cal events, "
         f"{_count(bundle.get('canvas_pending'))} canvas items, weather {weather_state}, "
-        f"{_count(bundle.get('groupme_high_priority'))} groupme high-priority"
+        f"{_count(bundle.get('groupme_surfaced'))} groupme surfaced"
     )
     logger.debug("Briefing context block:\n%s", format_briefing_context(bundle))
 
@@ -343,7 +346,7 @@ def _block_groupme(value) -> str:
         return "  unavailable"
     items = _safe_list(value)
     if not items:
-        return "  Nothing high-priority."
+        return "  Nothing worth surfacing."
     lines = []
     for it in items:
         lines.append(
@@ -399,8 +402,8 @@ def format_briefing_context(bundle: dict) -> str:
             "",
         ]
     parts += [
-        f"GroupMe (high priority, last {_GROUPME_WINDOW_HOURS}h):",
-        _block_groupme(bundle.get("groupme_high_priority")),
+        f"GroupMe (high + normal priority, last {_GROUPME_WINDOW_HOURS}h):",
+        _block_groupme(bundle.get("groupme_surfaced")),
         "===== END CONTEXT =====",
     ]
     return "\n".join(parts)

@@ -32,11 +32,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger("friday")
 
-# Internal "[priority=high]" / "[priority=low]" tag the GroupMe connector prepends
-# to each event body purely as a signal for the LLM's urgency pass and the
-# briefing/urgent SQL LIKE queries. It must stay in events.body, but it is noise
-# in any user-facing message — strip it (and its now-orphaned blank line) before
-# the text reaches Telegram.
+# Internal "[priority=<tier>]" tag the GroupMe connector prepends to each event
+# body purely as a signal for the LLM's urgency pass and the briefing/urgent SQL
+# LIKE queries. Tiers are defined in connectors/groupme.py. It must stay in
+# events.body, but it is noise in any user-facing message — strip it (and its
+# now-orphaned blank line) before the text reaches Telegram.
 _PRIORITY_TAG = re.compile(r"^\[priority=[^\]]*\]\n?", re.MULTILINE)
 
 
@@ -293,15 +293,16 @@ def main() -> None:
         for event_id, title, body, due_at, source in rows:
             if source == "groupme":
                 criteria = (
-                    "GroupMe message. The body's first line is "
-                    "[priority=high] or [priority=low].\n"
+                    "GroupMe message. The body's first line is the group's "
+                    "tier: [priority=high], [priority=normal], or "
+                    "[priority=muted].\n"
                     "URGENT = priority=high AND the message is genuinely "
                     "time-sensitive (emergency, ASAP request, "
                     "imminent deadline, direct urgent ask).\n"
                     "SOON   = priority=high AND mentions something "
                     "happening in the next few days.\n"
-                    "NORMAL = everything else. "
-                    "priority=low messages are never URGENT or SOON."
+                    "NORMAL = everything else. Only priority=high messages "
+                    "can ever be URGENT or SOON."
                 )
             else:
                 criteria = (

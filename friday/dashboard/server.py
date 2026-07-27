@@ -38,6 +38,7 @@ from pydantic import BaseModel
 import compat
 import memory.state as state
 import paths
+from connectors.groupme import normalize_priority
 
 logger = logging.getLogger("friday.dashboard")
 
@@ -171,13 +172,9 @@ def _migrate_config(cfg: dict) -> dict:
     for g in groups:
         if "enabled" not in g:
             g["enabled"] = True
-        # priority migration: old 'low' → 'muted'
-        pri = (g.get("priority") or "normal").lower()
-        if pri == "low":
-            pri = "muted"
-        if pri not in ("high", "normal", "muted"):
-            pri = "normal"
-        g["priority"] = pri
+        # Tier vocabulary (including the legacy 'low' → 'muted' migration) is
+        # owned by connectors.groupme so the reader and the writer can't drift.
+        g["priority"] = normalize_priority(g.get("priority"), g.get("name", ""))
     return cfg
 
 
