@@ -15,7 +15,9 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$HERE/../.." && pwd)"
 cd "$REPO_ROOT"
 
-VERSION="${VERSION:-1.0.0}"
+# Exported, not just set: friday.spec reads it out of the environment so the
+# bundle's CFBundleVersion matches the .dmg filename.
+export VERSION="${VERSION:-1.0.0}"
 APP="dist/Friday.app"
 DMG="dist/Friday-${VERSION}.dmg"
 STAGE="dist/dmg-stage"

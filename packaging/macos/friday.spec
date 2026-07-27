@@ -13,6 +13,10 @@ import os
 
 SPEC_DIR = os.path.abspath(SPECPATH)
 REPO_ROOT = os.path.dirname(os.path.dirname(SPEC_DIR))
+
+# Same VERSION build.sh names the .dmg with, so the bundle does not report a
+# different version than the file it shipped in.
+VERSION = os.environ.get("VERSION", "1.0.0")
 SRC_DIR = os.path.join(REPO_ROOT, "friday")
 
 datas = [
@@ -109,12 +113,12 @@ app = BUNDLE(
     name="Friday.app",
     icon=_icon if os.path.exists(_icon) else None,
     bundle_identifier="com.friday.app",
-    version="1.0.0",
+    version=VERSION,
     info_plist={
         "CFBundleName": "Friday",
         "CFBundleDisplayName": "F.R.I.D.A.Y.",
-        "CFBundleShortVersionString": "1.0.0",
-        "CFBundleVersion": "1.0.0",
+        "CFBundleShortVersionString": VERSION,
+        "CFBundleVersion": VERSION,
         # NOTE: deliberately NOT LSUIElement. Friday is a menu bar app, but
         # declaring it here makes the process an accessory from launch, and Tk
         # never orders a window on screen in an accessory process — the setup
