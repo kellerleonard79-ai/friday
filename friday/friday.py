@@ -156,10 +156,17 @@ def main() -> None:
         except Exception as e:
             logger.error(f"Dashboard server failed to start: {e}")
 
-        await app.bot.send_message(
-            chat_id=chat_id,
-            text=f"Friday online — {config.get('provider', 'ollama')} / {agent.model_name}",
-        )
+        # Best-effort, like the offline message in post_stop. A bad chat_id or a
+        # transient Telegram error must not abort post_init — that kills the core
+        # seconds after boot and takes the dashboard down with it, so the menubar
+        # sees connection-refused on 5174 while the supervisor restart-loops.
+        try:
+            await app.bot.send_message(
+                chat_id=chat_id,
+                text=f"Friday online — {config.get('provider', 'ollama')} / {agent.model_name}",
+            )
+        except Exception as e:
+            logger.error(f"Startup message failed (check telegram.chat_id): {e}")
         logger.info("Startup complete.")
 
     # ── Post-stop: offline message ────────────────────────────────────────────

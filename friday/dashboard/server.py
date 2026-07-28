@@ -619,11 +619,12 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
 
     @app.post("/api/friday/restart")
     def api_friday_restart() -> dict:
-        if compat.IS_WINDOWS:
-            # The tray supervisor (tray.py) relaunches the core whenever it
-            # exits, so a restart is just a graceful shutdown. raise_signal
-            # delivers SIGINT to the main thread, which PTB's run_polling
-            # handles as a clean stop.
+        # Two deployments supervise the core and relaunch it whenever it exits
+        # — tray.py on Windows, mac_app.CoreSupervisor inside Friday.app. For
+        # both, a restart is just a graceful shutdown. raise_signal sets the
+        # flag that CPython services on the main thread, so PTB's run_polling
+        # sees the SIGINT it already handles as a clean stop.
+        def self_restart() -> dict:
             try:
                 threading.Timer(
                     0.3, lambda: signal.raise_signal(signal.SIGINT)
@@ -631,10 +632,32 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
                 return {"ok": True}
             except Exception as e:
                 raise HTTPException(500, f"Restart failed: {e}")
+
+        if compat.IS_WINDOWS:
+            return self_restart()
+
+        # macOS runs either way: under the com.friday.agent LaunchAgent, or as
+        # a supervised child of Friday.app with no LaunchAgent at all. Probe
+        # before assuming — `launchctl kickstart` against a label launchd has
+        # never heard of fails silently, and Popen only reports that launchctl
+        # itself started, so the endpoint used to answer ok:true while nothing
+        # restarted.
         uid = os.getuid()
+        label = f"gui/{uid}/com.friday.agent"
         try:
+            installed = subprocess.run(
+                ["launchctl", "print", label],
+                capture_output=True, timeout=5).returncode == 0
+        except Exception as e:
+            logger.debug(f"launchctl print {label} failed: {e}")
+            installed = False
+        if not installed:
+            return self_restart()
+        try:
+            # start_new_session so kickstart -k tearing down this job does not
+            # also kill the launchctl doing the tearing down.
             subprocess.Popen(
-                ["launchctl", "kickstart", "-k", f"gui/{uid}/com.friday.agent"],
+                ["launchctl", "kickstart", "-k", label],
                 start_new_session=True,
             )
             return {"ok": True}

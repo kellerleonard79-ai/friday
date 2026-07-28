@@ -33,7 +33,10 @@ agent:
 
 telegram:
   bot_token: ''       # from @BotFather. Env fallback: TELEGRAM_BOT_TOKEN
-  chat_id: ''         # your personal chat ID. Env fallback: TELEGRAM_CHAT_ID
+  chat_id: ''         # your personal chat ID — a NUMBER (negative for a group),
+                      # not the bot's @username. A username here is accepted at
+                      # startup and then 403s on the first send.
+                      # Env fallback: TELEGRAM_CHAT_ID
 
 memory:
   db_path: memory/friday_memory.db  # relative paths resolve against the data dir
@@ -61,7 +64,11 @@ calendar:
 
 canvas:
   ical_url: ''        # Canvas → Calendar → "Calendar Feed"
-  api_token: ''       # only if your institution's feed requires auth
+  api_token: ''       # optional. Canvas → Account → Settings →
+                      # "+ New Access Token". The feed URL works without it;
+                      # with it, a rejected fetch reports 401/403 instead of
+                      # looking like an empty week. Full account access — treat
+                      # it like a password.
 
 weather:
   api_key: ''         # OpenWeatherMap. Env fallback: WEATHER_API_KEY

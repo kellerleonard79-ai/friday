@@ -8,11 +8,11 @@ Windows, ~/.friday/friday_config.yaml in a frozen macOS .app, next to
 friday.py in a source checkout.
 
     1. Telegram bot token  (+ automatic chat-id detection via getUpdates)
-    2. Gemini API key      (validated against the models endpoint)
+    2. Gemini API key      (validated against the models endpoint) + model
     3. Google Calendar     (OAuth installed-app flow; saves token; lets the
                             user pick a default calendar + briefing calendars)
                             — skipped on the Apple Calendar backend
-    4. Canvas iCal URL     (optional)
+    4. Canvas              (optional: iCal URL + access token)
     5. Weather             (optional, OpenWeatherMap)
     6. Schedule            (timezone + briefing times)
 
@@ -29,6 +29,7 @@ import shutil
 import sys
 import threading
 import tkinter as tk
+import urllib.parse
 import webbrowser
 from tkinter import filedialog, messagebox, ttk
 
@@ -45,7 +46,18 @@ _COMMON_TIMEZONES = [
     "Pacific/Honolulu", "Europe/London", "Europe/Paris",
 ]
 
-_GEMINI_DEFAULT_MODEL = "gemini-2.5-flash"
+_GEMINI_DEFAULT_MODEL = "gemma-4-31b-it"
+
+# Offered in the model drop-down. Only models that support BOTH
+# systemInstruction and functionDeclarations belong here — agent/core.py sends
+# the persona as a system instruction and the calendar tools as function
+# declarations on every call, so a model missing either silently breaks
+# briefings and calendar writes rather than erroring at startup.
+_GEMINI_MODELS = [
+    "gemma-4-31b-it",
+    "gemini-2.5-flash",
+    "gemini-2.5-pro",
+]
 
 # Base URL for the Telegram API. Module-level so it can be pointed at an
 # unreachable host to exercise the network-failure path.
@@ -58,6 +70,16 @@ _NET_MSG = ("Couldn't reach Telegram — check your internet connection "
 def _token_format_ok(token: str) -> bool:
     """Cheap local sanity check before spending a network round-trip."""
     return bool(_TOKEN_RE.match((token or "").strip()))
+
+
+def _chat_id_ok(chat_id: str) -> bool:
+    """A chat ID is a bare number — negative for groups, positive for a DM.
+
+    The tempting wrong answer is the bot's own @username, which looks like an
+    address and is accepted by every field that takes a string. Telegram then
+    rejects it with a 403 on the first sendMessage, which happens at *startup*,
+    long after the wizard has closed — so catch it here."""
+    return bool(re.match(r"^-?\d+$", (chat_id or "").strip()))
 
 
 def _mask_token(token: str) -> str:
@@ -120,6 +142,32 @@ def _telegram_getupdates(token: str, base: str | None = None, timeout: int = 10)
         }
         return ("ok", chats)
     return ("auth", data.get("description") or f"HTTP {r.status_code}")
+
+
+def _canvas_whoami(ical_url: str, token: str, timeout: int = 15):
+    """Validate a Canvas access token against the school the feed URL points at.
+
+    Canvas is self-hosted per institution, so there is no single API host to
+    check against — the iCal URL the user just pasted is what tells us which
+    one to ask. Returns the same three-way result as _telegram_getme()."""
+    host = urllib.parse.urlparse((ical_url or "").strip()).netloc
+    if not host:
+        return ("network", "Add the calendar feed URL first — the token is "
+                           "checked against your school's Canvas site.")
+    try:
+        r = requests.get(f"https://{host}/api/v1/users/self",
+                         headers={"Authorization": f"Bearer {token}"},
+                         timeout=timeout)
+    except requests.RequestException as e:
+        return ("network", _scrub(str(e), token))
+    if r.status_code in (401, 403):
+        return ("auth", f"Canvas rejected that token (HTTP {r.status_code}).")
+    if r.status_code != 200:
+        return ("network", f"Unexpected response from Canvas (HTTP {r.status_code}).")
+    try:
+        return ("ok", (r.json() or {}).get("name", ""))
+    except ValueError:
+        return ("ok", "")
 
 
 def _guess_timezone() -> str:
@@ -187,6 +235,42 @@ def _init_palette(root: tk.Misc) -> None:
                     field_bg="#2c2c2e", field_fg="#e8e8e8",
                     sel_bg="#0a84ff", sel_fg="#ffffff",
                     border="#4a4a4c")
+
+
+def _combobox(parent: tk.Misc, **kwargs) -> ttk.Combobox:
+    """A ttk.Combobox whose open drop-down tracks the pointer.
+
+    Tk's built-in <Motion> binding on the popdown list only *activates* the row
+    under the cursor — on macOS that is an underline nobody can see, so an open
+    drop-down looks frozen while the mouse moves over it and the whole control
+    reads as broken. Moving the selection instead is also what makes the click
+    land where the eye expects: ttk::combobox::LBSelected commits whatever is
+    selected, not whatever happens to be under the pointer.
+
+    The popdown is a plain tk.Listbox that ttk does not theme, so it needs the
+    same explicit dark-mode colours as the briefing-calendar list.
+    """
+    combo = ttk.Combobox(parent, **kwargs)
+    try:
+        popdown = combo.tk.eval(f"ttk::combobox::PopdownWindow {combo}")
+        lb = f"{popdown}.f.l"
+        combo.tk.call(lb, "configure",
+                      "-background", _PALETTE["field_bg"],
+                      "-foreground", _PALETTE["field_fg"],
+                      "-selectbackground", _PALETTE["sel_bg"],
+                      "-selectforeground", _PALETTE["sel_fg"],
+                      "-activestyle", "none")
+        combo.tk.eval(
+            "bind " + lb + " <Motion> {"
+            " %W selection clear 0 end;"
+            " %W selection set [%W index @%x,%y];"
+            " %W activate [%W index @%x,%y] }"
+        )
+    except tk.TclError as e:
+        # Private Tk internals; a future Tk that renames them must not take the
+        # wizard down with it. Worst case the drop-down looks the way it did.
+        logger.debug(f"Combobox hover highlight unavailable: {e}")
+    return combo
 
 
 def _calendar_backend() -> str:
@@ -320,10 +404,12 @@ class Wizard(tk.Tk):
             "tg_token":      g("telegram", "bot_token"),
             "tg_chat_id":    str(g("telegram", "chat_id") or ""),
             "gemini_key":    g("gemini", "api_key"),
+            "gemini_model":  g("gemini", "model") or _GEMINI_DEFAULT_MODEL,
             "default_cal":   g("agent", "default_calendar") or "",
             "briefing_cals": list(
                 (self.cfg.get("agent") or {}).get("briefing_calendars") or []),
             "canvas_url":    g("canvas", "ical_url"),
+            "canvas_token":  g("canvas", "api_token"),
             "weather_key":   g("weather", "api_key"),
             "weather_loc":   g("weather", "location"),
             "tz":            g("agent", "timezone") or _guess_timezone(),
@@ -559,6 +645,9 @@ class Wizard(tk.Tk):
 
         self.tg_token = self._entry_row("Bot token", "tg_token")
         self.tg_chat_id = self._entry_row("Chat ID", "tg_chat_id")
+        self._note("Leave the chat ID blank and press \"Detect my chat ID\" — "
+                   "it's a number like 123456789, not your bot's @name.",
+                   color=_PALETTE["muted"])
 
         status = self._status_label()
 
@@ -662,6 +751,14 @@ class Wizard(tk.Tk):
                           "like 123456789:AA… . Check for a copy/paste slip."),
                     foreground=_PALETTE["err"])
                 return False
+            chat_id = self.tg_chat_id.get().strip()
+            if chat_id and not _chat_id_ok(chat_id):
+                status.config(
+                    text=("The chat ID must be a number, not a name — @your_bot "
+                          "is the bot's address, not the chat's. Clear the field "
+                          "and press \"Detect my chat ID\"."),
+                    foreground=_PALETTE["err"])
+                return False
             # Skip the network round-trip when this exact token already passed.
             if self._validated.get("tg_token") == token:
                 resolve_chat(token, self._advance)
@@ -694,6 +791,20 @@ class Wizard(tk.Tk):
                    "never does.", color=_PALETTE["muted"])
 
         self.gemini_key = self._entry_row("API key", "gemini_key")
+
+        model_row = ttk.Frame(self.body)
+        model_row.pack(fill="x", pady=4)
+        ttk.Label(model_row, text="Model", width=18).pack(side="left")
+        self.gemini_model = tk.StringVar(
+            value=self._values.get("gemini_model") or _GEMINI_DEFAULT_MODEL)
+        self._step_vars["gemini_model"] = self.gemini_model
+        _combobox(model_row, textvariable=self.gemini_model,
+                  values=list(_GEMINI_MODELS), state="readonly",
+                  width=30).pack(side="left")
+        self._note(f"{_GEMINI_DEFAULT_MODEL} is the default and what Friday is "
+                   "tuned against. Leave it alone unless you know you want "
+                   "something else.", color=_PALETTE["muted"])
+
         status = self._status_label()
 
         def validate_key() -> bool:
@@ -715,7 +826,24 @@ class Wizard(tk.Tk):
                 status.config(text=f"Network error: {_scrub(str(e), key)}",
                               foreground=_PALETTE["err"])
                 return False
-            status.config(text="✓ Key verified.", foreground=_PALETTE["ok"])
+            # The models endpoint already told us exactly what this key can
+            # reach, so a model the key cannot use is caught here rather than
+            # at the first briefing. Names come back as "models/<id>".
+            chosen = self.gemini_model.get().strip()
+            try:
+                available = {
+                    (m.get("name") or "").split("/")[-1]
+                    for m in (r.json() or {}).get("models", [])
+                }
+            except ValueError:
+                available = set()
+            if available and chosen not in available:
+                status.config(
+                    text=f"✓ Key verified, but {chosen} isn't available on it. "
+                         f"Pick another model.", foreground=_PALETTE["err"])
+                return False
+            status.config(text=f"✓ Key verified — {chosen}.",
+                          foreground=_PALETTE["ok"])
             return True
         self._validate = validate_key
 
@@ -768,8 +896,8 @@ class Wizard(tk.Tk):
             targets = writable if writable else names
             ttk.Label(frame, text="Default calendar (new events go here):"
                       ).pack(anchor="w", pady=(8, 2))
-            combo = ttk.Combobox(frame, textvariable=self.default_cal,
-                                 values=targets, state="readonly", width=40)
+            combo = _combobox(frame, textvariable=self.default_cal,
+                              values=targets, state="readonly", width=40)
             combo.pack(anchor="w")
             if self.default_cal.get() not in targets:
                 combo.set(targets[0])
@@ -1000,8 +1128,72 @@ class Wizard(tk.Tk):
         self._note("Anyone with this link can read your assignment schedule, "
                    "so don't post it anywhere public.")
 
+        ttk.Label(self.body, text="Access token (optional)",
+                  font=(_HEADING_FONT[0], 12, "bold")).pack(
+            anchor="w", pady=(14, 2))
+        self._walkthrough([
+            "Still in Canvas, click Account in the far-left sidebar → "
+            "Settings.",
+            "Scroll down to \"Approved Integrations\" and click "
+            "\"+ New Access Token\".",
+            "Put \"Friday\" as the purpose and leave the expiry blank so it "
+            "never stops working. Click Generate Token.",
+            "Copy the token it shows you — Canvas shows it exactly once — and "
+            "paste it below.",
+        ])
+        self.canvas_token = self._entry_row("Access token", "canvas_token",
+                                            show="•")
+        self._note("Optional. Without it the feed still works; with it, Friday "
+                   "can tell \"Canvas rejected me\" apart from \"nothing is "
+                   "due\" instead of quietly reporting an empty week. This "
+                   "token can read your whole Canvas account, so treat it like "
+                   "your password.")
+
+        status = self._status_label()
+
+        def check():
+            token = self.canvas_token.get().strip()
+            if not token:
+                status.config(text="Paste an access token first.",
+                              foreground=_PALETTE["err"])
+                return
+            url = self.canvas_url.get().strip()
+            self._set_busy(True, status, "Checking with Canvas…")
+
+            def done(res):
+                self._set_busy(False)
+                kind, info = res
+                if kind == "ok":
+                    self._validated["canvas_token"] = token
+                    who = f" — signed in as {info}" if info else ""
+                    status.config(text=f"✓ Token verified{who}.",
+                                  foreground=_PALETTE["ok"])
+                elif kind == "auth":
+                    status.config(text=f"{info} Check what you pasted "
+                                       f"({_mask_token(token)}).",
+                                  foreground=_PALETTE["err"])
+                    logger.warning(f"Canvas token rejected ({_mask_token(token)})")
+                else:
+                    status.config(text=info, foreground=_PALETTE["err"])
+
+            def worker():
+                res = _canvas_whoami(url, token)
+                self.after(0, lambda: done(res))
+            threading.Thread(target=worker, daemon=True).start()
+
+        ttk.Button(self.body, text="Check token", command=check).pack(
+            anchor="w", pady=4)
+
         def ok():
             url = self.canvas_url.get().strip()
+            token = self.canvas_token.get().strip()
+            if token and not url:
+                messagebox.showwarning(
+                    "Feed URL missing",
+                    "The access token on its own doesn't tell Friday which "
+                    "assignments are yours — paste the calendar feed URL too, "
+                    "or clear the token.")
+                return False
             if url and ".ics" not in url:
                 return messagebox.askyesno(
                     "Unusual URL",
@@ -1045,8 +1237,8 @@ class Wizard(tk.Tk):
         values = list(_COMMON_TIMEZONES)
         if tz_guess not in values:
             values.insert(0, tz_guess)
-        ttk.Combobox(row, textvariable=self.tz_var, values=values,
-                     width=30).pack(side="left")
+        _combobox(row, textvariable=self.tz_var, values=values,
+                  width=30).pack(side="left")
 
         self.morning_var = self._entry_row("Morning briefing", "morning")
         self.evening_var = self._entry_row("Evening briefing", "evening")
@@ -1109,9 +1301,13 @@ class Wizard(tk.Tk):
         }
         gemini = cfg.setdefault("gemini", {})
         gemini["api_key"] = v.get("gemini_key", "").strip()
-        gemini.setdefault("model", _GEMINI_DEFAULT_MODEL)
+        # Assigned, not setdefault: the model is a field the user just chose on
+        # the Gemini step, so a re-run of the wizard must be able to change it.
+        gemini["model"] = v.get("gemini_model", "").strip() or _GEMINI_DEFAULT_MODEL
         gemini.setdefault("max_tokens", 4000)
-        cfg.setdefault("canvas", {})["ical_url"] = v.get("canvas_url", "").strip()
+        canvas = cfg.setdefault("canvas", {})
+        canvas["ical_url"]  = v.get("canvas_url", "").strip()
+        canvas["api_token"] = v.get("canvas_token", "").strip()
         cfg.setdefault("weather", {})
         cfg["weather"]["api_key"]  = v.get("weather_key", "").strip()
         cfg["weather"]["location"] = v.get("weather_loc", "").strip()

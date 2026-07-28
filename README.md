@@ -166,19 +166,23 @@ are produced.
 ### First-run wizard
 
 `setup_wizard.py` is a Tkinter wizard that collects the essential config interactively:
-Telegram token (with chat-ID auto-detect), Gemini key, Google OAuth and calendar pickers,
-and optional Canvas and weather settings. It runs automatically on Windows first launch, and
-can be invoked directly:
+Telegram token (with chat-ID auto-detect), Gemini key and model, Google OAuth and calendar
+pickers, and optional Canvas (feed URL + access token) and weather settings. It runs
+automatically on Windows first launch, and can be invoked directly:
 
 ```bash
 cd friday
 python3 -c "import sys; sys.frozen=True; import setup_wizard; setup_wizard.run(first_run=True)"
 ```
 
-The wizard validates the Telegram token live (`getMe`) at the point of entry, supports Back
-navigation with value preservation, masks tokens in every message and log line, and has a
-"Start over" reset. It only writes the config file at the final confirmation step, so an
-abandoned run never leaves a dead token on disk.
+The wizard validates every credential at the point of entry rather than at first run:
+Telegram via `getMe`, Gemini via the models endpoint (which also rejects a model the key
+cannot reach), and the Canvas token via `users/self` on the host the feed URL points at. The
+chat ID is checked for being a number — the bot's `@username` looks like a valid answer and
+then 403s on the first send, hours later. It supports Back navigation with value
+preservation, masks tokens in every message and log line, and has a "Start over" reset. It
+only writes the config file at the final confirmation step, so an abandoned run never leaves
+a dead token on disk.
 
 ---
 
@@ -423,7 +427,10 @@ to `events`. Never HTML scraping.
 2. Click **Calendar Feed** in the lower right sidebar.
 3. Copy the `https://…/feeds/calendars/user_….ics` URL.
 
-**Get an API token** (optional — only needed if your institution's feed requires auth)
+**Get an API token** (optional). The feed URL works on its own; the token adds an
+`Authorization` header so a rejected fetch surfaces as a 401/403 in the log instead of
+looking like a week with nothing due. It grants full access to your Canvas account — treat
+it like a password.
 
 1. Canvas → **Account** → **Settings**.
 2. Under *Approved Integrations*, click **+ New Access Token**.
