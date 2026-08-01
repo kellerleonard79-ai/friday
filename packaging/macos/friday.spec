@@ -46,6 +46,10 @@ _icon = os.path.join(SPEC_DIR, "friday.icns")
 
 hiddenimports = [
     "rumps",
+    # Imported lazily inside apple_calendar so a missing framework degrades to
+    # the JXA reader rather than crashing — which also means PyInstaller's
+    # static analysis never sees it.
+    "EventKit",
     "menubar",
     "menubar_icon",
     "macos_setup",
@@ -136,5 +140,12 @@ app = BUNDLE(
             "Friday reads and writes events in your Apple Calendar.",
         "NSCalendarsUsageDescription":
             "Friday reads and writes events in your Apple Calendar.",
+        # macOS 14 split calendar access in two. Without the full-access key
+        # the EventKit request silently resolves to write-only, which reads as
+        # "granted" but returns zero events — so briefings fall back to the
+        # JXA reader and take minutes instead of milliseconds. Both keys are
+        # required: the plain one still covers macOS 13 and earlier.
+        "NSCalendarsFullAccessUsageDescription":
+            "Friday reads your calendar to assemble briefings and reminders.",
     },
 )

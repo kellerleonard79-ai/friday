@@ -149,7 +149,12 @@ def main() -> None:
         # no second event loop. Honors the single-loop rule in CLAUDE.md.
         config_path = paths.config_path()
         try:
-            server = await dashboard_server.start_server(config_path, conn)
+            server = await dashboard_server.start_server(
+                config_path, conn,
+                # Bound here rather than at definition: app.bot only exists once
+                # PTB has built the Application.
+                on_demand_briefing=lambda: send_on_demand_briefing(app.bot),
+            )
             task = asyncio.create_task(server.serve(), name="dashboard_server")
             app.bot_data["dashboard_server"] = server
             app.bot_data["dashboard_task"] = task
@@ -591,6 +596,34 @@ def main() -> None:
         else:
             # Empty compose isn't a real send — don't let the lock suppress retry.
             state.delete(conn, "last_evening_briefing_sent")
+
+    # ── On-demand briefing (dashboard / menubar "Brief Me Now") ───────────────
+    # The dashboard used to implement this by POSTing the text "brief me" to
+    # sendMessage — but Telegram never echoes a bot's own message back through
+    # getUpdates, so on_message() never fired and the button did nothing at all.
+    # It has to run the briefing itself and push the result to the chat.
+    #
+    # Deliberately does NOT call _record_briefing_sent: that sets the
+    # last_<slot>_briefing_sent lock, which would make the real scheduled
+    # briefing silently skip itself for the rest of the day.
+    on_demand_lock = asyncio.Lock()
+
+    async def send_on_demand_briefing(bot) -> str:
+        # The button is easy to double-click and a compose takes tens of
+        # seconds; serialize so the second click waits rather than racing a
+        # duplicate briefing into the chat.
+        async with on_demand_lock:
+            loop = asyncio.get_running_loop()
+            bundle = await loop.run_in_executor(
+                None, briefings.bundle_briefing_context, "on_demand", config, conn
+            )
+            response = await loop.run_in_executor(
+                None, briefings.compose_on_demand, agent, bundle
+            )
+            if not response:
+                raise RuntimeError("Briefing came back empty.")
+            await bot.send_message(chat_id=chat_id, text=response)
+            return response
 
     # ── Missed-briefing catch-up (poll-driven safety net) ─────────────────────
     # APScheduler drops cron jobs whose run time was missed beyond their grace

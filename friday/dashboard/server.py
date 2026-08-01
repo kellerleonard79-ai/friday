@@ -25,7 +25,7 @@ import threading
 from collections import deque
 from datetime import date, datetime, time as dtime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 import requests
 import uvicorn
@@ -471,7 +471,9 @@ def _pending_approvals(conn: sqlite3.Connection) -> list[dict]:
 #   GET  /api/logs               → tail friday.log
 #   POST /api/test/{telegram,canvas} → connectivity self-tests
 def create_app(config_path: Path, conn: sqlite3.Connection,
-               started_at: datetime) -> FastAPI:
+               started_at: datetime,
+               on_demand_briefing: Callable[[], Awaitable[str]] | None = None
+               ) -> FastAPI:
     app = FastAPI(title="F.R.I.D.A.Y. Dashboard", docs_url=None, redoc_url=None)
 
     # Generate a circular favicon from the user's menubar PNG if available.
@@ -757,22 +759,34 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
         return {"ok": True, "paused": req.paused, "until": req.until}
 
     @app.post("/api/friday/brief")
-    def api_friday_brief() -> dict:
+    async def api_friday_brief() -> dict:
+        # Runs the briefing in-process and pushes the result to Telegram.
+        #
+        # This used to POST the text "brief me" to sendMessage instead, on the
+        # assumption it would come back around as a user message. It does not:
+        # Telegram never delivers a bot's own messages to that bot through
+        # getUpdates, so on_message() never fired, no briefing was ever
+        # composed, and the button reported ok:true while doing nothing.
+        #
+        # We share friday.py's event loop, so the coroutine can simply be
+        # awaited. It bypasses on_message()'s semaphore — same as the scheduled
+        # briefing jobs, which are the precedent here — but takes its own lock
+        # so repeat clicks queue instead of racing.
+        if on_demand_briefing is None:
+            raise HTTPException(
+                503, "Briefings unavailable — dashboard is running standalone.")
         cfg = _load_config(config_path)
         tg = cfg.get("telegram", {})
-        token, chat_id = tg.get("bot_token", ""), tg.get("chat_id", "")
-        if not token or not chat_id:
+        if not tg.get("bot_token") or not tg.get("chat_id"):
             raise HTTPException(400, "Telegram not configured.")
         try:
-            r = requests.post(
-                f"https://api.telegram.org/bot{token}/sendMessage",
-                json={"chat_id": chat_id, "text": "brief me"},
-                timeout=10,
-            )
-            r.raise_for_status()
-            return {"ok": True}
+            text = await on_demand_briefing()
+        except HTTPException:
+            raise
         except Exception as e:
+            logger.error(f"On-demand briefing failed: {e}")
             raise HTTPException(500, f"Brief failed: {e}")
+        return {"ok": True, "text": text}
 
     @app.get("/api/logs")
     def api_logs(lines: int = Query(100, ge=1, le=1000)) -> dict:
@@ -960,10 +974,18 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
 # ── Lifecycle helper called from friday.py ───────────────────────────────────
 
 async def start_server(config_path: Path, conn: sqlite3.Connection,
-                       host: str = "127.0.0.1", port: int = 5174) -> uvicorn.Server:
+                       host: str = "127.0.0.1", port: int = 5174,
+                       on_demand_briefing: Callable[[], Awaitable[str]] | None = None
+                       ) -> uvicorn.Server:
     """Build the FastAPI app, wrap in uvicorn, return the Server (caller schedules
-    server.serve() as an asyncio task and keeps a handle for clean shutdown)."""
-    app = create_app(config_path, conn, started_at=datetime.now())
+    server.serve() as an asyncio task and keeps a handle for clean shutdown).
+
+    on_demand_briefing composes a briefing and sends it to Telegram; friday.py
+    supplies it so /api/friday/brief can run the real thing on the shared loop.
+    Omitted, the Brief button reports 503 rather than silently doing nothing.
+    """
+    app = create_app(config_path, conn, started_at=datetime.now(),
+                     on_demand_briefing=on_demand_briefing)
     cfg = uvicorn.Config(
         app,
         host=host,

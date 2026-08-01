@@ -179,9 +179,26 @@ function renderToday() {
   const pauseBtn = document.getElementById('pause-btn');
 
   // Static action handlers (bound once; tick() only refreshes data).
-  document.querySelector('[data-action="brief"]').onclick = async () => {
-    try { await api.post('/api/friday/brief'); flash('BRIEFING REQUESTED'); }
-    catch { flash('FAILED', true); }
+  // The endpoint composes the briefing before it answers — an LLM round-trip,
+  // so tens of seconds. Disable the button for the duration; otherwise the
+  // instant "REQUESTED" flash invites a second click while the first is still
+  // running, and there is no signal for whether it actually worked.
+  const briefBtn = document.querySelector('[data-action="brief"]');
+  briefBtn.onclick = async () => {
+    const label = briefBtn.textContent;
+    briefBtn.disabled = true;
+    briefBtn.textContent = 'Composing…';
+    flash('COMPOSING BRIEFING…');
+    try {
+      await api.post('/api/friday/brief');
+      flash('BRIEFING SENT');
+      tick();
+    } catch (e) {
+      flash(`FAILED — ${String(e.message || e).slice(0, 80)}`, true);
+    } finally {
+      briefBtn.disabled = false;
+      briefBtn.textContent = label;
+    }
   };
   pauseBtn.onclick = async () => {
     const next = !TODAY_PAUSED;

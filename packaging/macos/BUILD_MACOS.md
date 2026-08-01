@@ -114,9 +114,18 @@ first use and the user must accept.
 
 | Prompt | Triggered by | Declared in |
 |---|---|---|
-| Calendar access | first Apple Calendar read/write | `NSCalendarsUsageDescription` |
+| Calendar access | first Apple Calendar read/write | `NSCalendarsUsageDescription` + `NSCalendarsFullAccessUsageDescription` |
 | Automation / Apple Events | the JXA calendar bridge | `NSAppleEventsUsageDescription` |
 | Microphone | voice, if enabled | `NSMicrophoneUsageDescription` |
+
+**Grant Calendar access in full, not write-only.** Briefings read the calendar
+through EventKit, which is effectively instant. Denying it — or granting only
+the write-only variant macOS 14 offers when
+`NSCalendarsFullAccessUsageDescription` is missing — silently demotes reads to
+the JXA fallback, which costs roughly 35 ms per event *in the calendar being
+scanned*. On a shared calendar with a few thousand events one briefing takes
+minutes and times out, and the user sees "nothing scheduled" on a day that is
+full. `friday.log` says which reader is in use on the first read.
 
 **Microphone is granted per executable binary, not per app.** `Friday.app` and
 the nested `FridayVoice.app` are separate binaries and need separate grants —
@@ -154,3 +163,4 @@ in the repo hardcodes a home directory or a Python version.
 | `ModuleNotFoundError` at runtime | Add the module to `hiddenimports` in `friday.spec`; PyInstaller misses dynamic imports |
 | Voice never starts | `~/.friday/voice_launcher.conf` missing or stale — `mac_app` rewrites it on every launch; check `~/.friday/logs/` |
 | Calendar operations silently return nothing | Automation permission was denied; System Settings → Privacy & Security → Automation |
+| Briefings say "nothing scheduled" on a busy day, `friday.log` shows `Apple Calendar read timed out` | EventKit access is missing or write-only, so reads fell back to JXA and ran out of time. System Settings → Privacy & Security → Calendars → give Friday **Full Access** |

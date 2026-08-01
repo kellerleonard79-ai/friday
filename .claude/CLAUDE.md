@@ -326,6 +326,32 @@ gcal_sync:
   logs it but does not attempt to update the Apple Calendar entry. Update sync is out of scope
   for now.
 
+## Apple Calendar: two readers, one writer
+
+Reads and writes take different paths, and the split is deliberate.
+
+- **Reads** — `connectors/apple_calendar.py`. EventKit (PyObjC) first, JXA as a fallback.
+  These are not interchangeable on speed: every property read over the Apple Events
+  bridge is its own IPC round trip, so JXA costs ~35 ms per event *in the calendar being
+  scanned*, not per event returned. A 2,600-event shared calendar took 55 s to answer
+  "what is on today"; a full briefing bundle took over six minutes and timed out on every
+  read, so briefings reported an empty day. EventKit answers the same query in ~3 ms
+  because it reads the local store instead of talking to Calendar.app. Bulk property
+  fetches (`cal.events.startDate()`) are *not* a workaround — measured slower still.
+- **Writes** — `calendars/apple.py`, JXA only. Writes are one event at a time, so the
+  per-round-trip cost never accumulates. Do not port them to EventKit for symmetry.
+
+EventKit needs both `NSCalendarsUsageDescription` and, on macOS 14+,
+`NSCalendarsFullAccessUsageDescription` in the app's Info.plist. Without the second key
+the request resolves to *write-only* access, which reports as granted and then returns
+zero events — the reader treats that as unavailable and falls back. Authorization is
+requested once per process and cached both ways.
+
+The EventKit completion handler must return `None`. PyObjC checks the block signature
+against the ObjC `void` return and raises inside the callback thread otherwise, which
+surfaces as an uncaught NSException that aborts the process — not something the calling
+code can catch.
+
 ## Microphone Access (TCC) and the Orange Indicator
 
 macOS TCC microphone permission is granted per executable binary path, not per Python

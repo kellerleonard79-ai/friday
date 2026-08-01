@@ -148,6 +148,27 @@ def _acquire_singleton() -> socket.socket | None:
         return None
 
 
+def _prime_calendar_access() -> None:
+    """Ask for EventKit calendar access here, before the core is spawned.
+
+    TCC grants are per executable binary, and the menu bar process and the core
+    are the same binary — so a grant obtained here is one the core inherits.
+    This has to happen in *this* process rather than in the core, because the
+    core has no foreground UI: its request produces a prompt nobody is looking
+    at, times out as "not determined", and demotes every calendar read for the
+    rest of that process's life to the JXA fallback (minutes per briefing).
+
+    Best-effort and non-blocking to the user's decision — a denied or ignored
+    prompt just means the fallback, not a broken app.
+    """
+    try:
+        from connectors import apple_calendar
+        threading.Thread(target=apple_calendar.ensure_calendar_access,
+                         daemon=True).start()
+    except Exception as e:
+        logger.debug(f"Calendar access priming skipped: {e}")
+
+
 def main() -> None:
     if "--core" in sys.argv:
         import friday
@@ -184,6 +205,8 @@ def main() -> None:
         macos_setup.write_voice_launcher_conf()
     except Exception as e:
         logger.warning(f"Could not write the voice launcher conf: {e}")
+
+    _prime_calendar_access()
 
     supervisor = CoreSupervisor()
     supervisor.start()

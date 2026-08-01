@@ -107,6 +107,9 @@ class FridayMenuBar(rumps.App):
         # Replace the Python "rocket" Dock icon with the user PNG (uncropped).
         self._apply_dock_icon()
 
+        # Set by brief_me's worker thread, drained by _tick on the main thread.
+        self._brief_error = None
+
         # Non-clickable status header (set_callback(None) renders as disabled)
         self._status_row = rumps.MenuItem("Connecting…")
         self._status_row.set_callback(None)
@@ -219,6 +222,12 @@ class FridayMenuBar(rumps.App):
         self._apply_icon()
 
     def _tick(self, _):
+        # Surface anything brief_me's worker thread parked for us — alerts have
+        # to be raised from the main thread, which this is.
+        err, self._brief_error = self._brief_error, None
+        if err:
+            rumps.alert("Friday", err)
+
         self._maybe_refresh_icons()
         snap = _status_snapshot()
         st = snap["state"]
@@ -279,12 +288,27 @@ class FridayMenuBar(rumps.App):
     # ── Callbacks ─────────────────────────────────────────────────────────
 
     def brief_me(self, _):
-        try:
-            r = requests.post(_BRIEF, timeout=5)
-            if r.status_code != 200:
-                rumps.alert("Friday", f"Brief failed: HTTP {r.status_code}")
-        except Exception as e:
-            rumps.alert("Friday", f"Brief failed: {e}")
+        # /api/friday/brief now composes the briefing in-process rather than
+        # firing a message and returning, so the response only arrives after a
+        # full LLM round-trip — tens of seconds. Blocking the rumps main thread
+        # on that freezes the whole menu bar, and the old 5 s timeout would
+        # abort every time, so this runs in a worker.
+        #
+        # rumps.alert must be called from the main thread. The worker parks the
+        # message and the existing tick shows it.
+        def worker() -> None:
+            try:
+                r = requests.post(_BRIEF, timeout=180)
+                if r.status_code != 200:
+                    detail = r.text[:200].strip()
+                    self._brief_error = (
+                        f"Brief failed: HTTP {r.status_code}"
+                        + (f"\n{detail}" if detail else "")
+                    )
+            except Exception as e:
+                self._brief_error = f"Brief failed: {e}"
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def toggle_pause(self, _):
         snap = _status_snapshot()

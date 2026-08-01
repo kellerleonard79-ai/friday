@@ -169,6 +169,18 @@ def _fetch_calendar_window(config, start, end, label):
         return _UNAVAILABLE
 
 
+def _event_date(evt: dict):
+    """The local calendar date an event starts on, or None if unparseable."""
+    dt = _local(evt.get("start_iso", ""))
+    return dt.date() if dt else None
+
+
+def _events_on(events: list[dict], day) -> list[dict]:
+    """Slice a pre-fetched window down to one day — see the on_demand branch of
+    bundle_briefing_context for why the window is fetched whole."""
+    return [e for e in events if _event_date(e) == day]
+
+
 def _fetch_calendar_day(config, day, label):
     try:
         return calendar_backend.events_for_day(config, day)
@@ -232,7 +244,29 @@ def bundle_briefing_context(slot: str, config: dict, conn) -> dict:
     tomorrow = today + timedelta(days=1)
     bundle: dict = {"slot": slot, "now": now}
 
-    if slot == "morning":
+    if slot == "on_demand":
+        # Asked for at an arbitrary hour, so it covers both ends: what is left
+        # of today, what tomorrow holds, and the rest of the week.
+        #
+        # One read sliced three ways, rather than three reads. The user is
+        # waiting on this one (it is the dashboard's Brief button), and a
+        # calendar read is the slowest thing in the bundle by a wide margin —
+        # on the JXA fallback each one can take a minute or more.
+        window = _fetch_calendar_window(
+            config, today, today + timedelta(days=7), "on_demand_calendar")
+        if window is _UNAVAILABLE:
+            bundle["today_calendar"] = _UNAVAILABLE
+            bundle["tomorrow_calendar"] = _UNAVAILABLE
+            bundle["week_preview"] = _UNAVAILABLE
+        else:
+            bundle["today_calendar"] = _events_on(window, today)
+            bundle["tomorrow_calendar"] = _events_on(window, tomorrow)
+            after = tomorrow + timedelta(days=1)
+            bundle["week_preview"] = [
+                e for e in window if (d := _event_date(e)) and d >= after
+            ]
+        bundle["weather_today"] = _fetch_weather(config, "weather today", "weather_today")
+    elif slot == "morning":
         bundle["today_calendar"] = _fetch_calendar_day(config, today, "today_calendar")
         # next 3 days excluding today
         bundle["week_preview"] = _fetch_calendar_window(
@@ -371,7 +405,25 @@ def format_briefing_context(bundle: dict) -> str:
         "infer, calculate, or guess the day of the week — it is given to you above.",
         "",
     ]
-    if slot == "morning":
+    if slot == "on_demand":
+        parts += [
+            "Today's calendar:",
+            _block_day_events(bundle.get("today_calendar")),
+            "",
+            "Tomorrow's calendar:",
+            _block_day_events(bundle.get("tomorrow_calendar")),
+            "",
+            "Rest of the week:",
+            _block_week(bundle.get("week_preview")),
+            "",
+            "Canvas pending:",
+            _block_canvas(bundle.get("canvas_pending")),
+            "",
+            "Weather today:",
+            _block_weather(bundle.get("weather_today")),
+            "",
+        ]
+    elif slot == "morning":
         parts += [
             "Today's calendar:",
             _block_day_events(bundle.get("today_calendar")),
@@ -490,15 +542,30 @@ def compose_evening(agent, bundle: dict) -> str:
     return agent._think(prompt, use_tools=False, triggered_by="briefing_evening")
 
 
-def compose_on_demand(agent, today_evts: list[dict], tomorrow_evts: list[dict],
-                      upcoming_evts: list[dict], canvas_pending: list[tuple],
-                      weather_str: str) -> str:
-    today = date.today()
+def compose_on_demand(agent, bundle: dict) -> str:
+    """Briefing asked for at an arbitrary time — dashboard button, or "brief me"
+    in Telegram. Same pre-bundled context as its scheduled siblings; the caller
+    must not record it as a briefing_sent, or the real scheduled one is skipped.
+    """
+    now = bundle.get("now")
+    today = now.date() if isinstance(now, datetime) else date.today()
     tomorrow = today + timedelta(days=1)
-    weather_line = f"Weather: {weather_str}" if weather_str else ""
+    today_evts = _safe_list(bundle.get("today_calendar"))
+    tomorrow_evts = _safe_list(bundle.get("tomorrow_calendar"))
+    upcoming_evts = _safe_list(bundle.get("week_preview"))
+    canvas_pending = _safe_list(bundle.get("canvas_pending"))
+    weather_str = bundle.get("weather_today")
+    weather_line = (
+        f"Weather: {weather_str}" if weather_str and weather_str != _UNAVAILABLE
+        else ""
+    )
 
+    context_block = format_briefing_context(bundle)
     prompt = (
-        f"The user asked for a briefing. Give him a concise current snapshot.\n\n"
+        f"{context_block}\n\n"
+        f"The user asked for a briefing. Give him a concise current snapshot from "
+        f"the context above — it is complete and authoritative, do not ask for or "
+        f"assume any other data.\n\n"
         f"{weather_line}\n\n"
         f"Today ({compat.strftime(today, '%A, %B %-d')}):\n{_events_block(today_evts)}\n\n"
         f"Tomorrow ({compat.strftime(tomorrow, '%A, %B %-d')}):\n{_events_block(tomorrow_evts)}\n\n"
