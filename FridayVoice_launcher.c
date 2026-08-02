@@ -25,7 +25,10 @@
 // The conf file is two lines: interpreter path, then script path. Setup writes
 // it; see friday/macos_setup.py::write_voice_launcher_conf.
 
+#include <errno.h>
 #include <limits.h>
+#include <signal.h>
+#include <sys/wait.h>
 #include <mach-o/dyld.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -80,6 +83,56 @@ static int read_conf(const char *path, char *interp, size_t interp_size,
     return ok;
 }
 
+// The interpreter runs as a CHILD, not via execv.
+//
+// execv() discards this process image, and with it the very TCC identity the
+// bundle exists to provide. macOS resolves Accessibility and Input Monitoring
+// against the running process, so an exec'd interpreter is judged on its own
+// and denied — pynput's listener then starts cleanly and receives no key event
+// for the rest of the process's life. Microphone is unaffected (it resolves
+// through the responsible bundle), which is why this only ever surfaced as
+// push-to-talk silently doing nothing while the mic worked fine.
+//
+// Staying alive as the parent makes FridayVoice the responsible process for
+// the child — the same arrangement that makes a Terminal-launched run work.
+static volatile sig_atomic_t g_child_pid = 0;
+
+// launchd signals the parent. Forward it, or the child outlives us and the
+// next start races a still-running listener over the mic and the Telegram
+// session.
+static void forward_signal(int signo) {
+    if (g_child_pid > 0) {
+        kill(g_child_pid, signo);
+    }
+}
+
+// Returns only if the child could not be started, so the caller can fall
+// through to the next candidate. Otherwise exits with the child's status.
+static void spawn_and_wait(const char *interp, const char *script) {
+    if (access(interp, X_OK) != 0) {
+        return;  // not runnable — let the caller try the next conf
+    }
+    pid_t pid = fork();
+    if (pid < 0) {
+        return;
+    }
+    if (pid == 0) {
+        execv(interp, (char *[]){(char *)interp, (char *)script, (char *)0});
+        _exit(127);  // exec failed inside the child
+    }
+    g_child_pid = pid;
+    signal(SIGTERM, forward_signal);
+    signal(SIGINT, forward_signal);
+
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0) {
+        if (errno != EINTR) {
+            _exit(1);
+        }
+    }
+    _exit(WIFEXITED(status) ? WEXITSTATUS(status) : 1);
+}
+
 int main(int argc, char **argv) {
     (void)argc;
     (void)argv;
@@ -96,7 +149,7 @@ int main(int argc, char **argv) {
         snprintf(conf, sizeof(conf), "%s/Contents/Resources/voice_launcher.conf",
                  root);
         if (read_conf(conf, interp, sizeof(interp), script, sizeof(script)) == 0) {
-            execv(interp, (char *[]){interp, script, (char *)0});
+            spawn_and_wait(interp, script);
         }
     }
 
@@ -105,7 +158,7 @@ int main(int argc, char **argv) {
     if (home != NULL) {
         snprintf(conf, sizeof(conf), "%s/.friday/voice_launcher.conf", home);
         if (read_conf(conf, interp, sizeof(interp), script, sizeof(script)) == 0) {
-            execv(interp, (char *[]){interp, script, (char *)0});
+            spawn_and_wait(interp, script);
         }
     }
 
@@ -115,12 +168,12 @@ int main(int argc, char **argv) {
                  root);
         snprintf(script, sizeof(script), "%s/Contents/Resources/voice/listen.py",
                  root);
-        execv(interp, (char *[]){interp, script, (char *)0});
+        spawn_and_wait(interp, script);
     }
 
     fprintf(stderr,
             "FridayVoice: no interpreter found. Expected a two-line "
             "voice_launcher.conf (interpreter, then script) in the bundle's "
             "Resources or in ~/.friday/. Re-run Friday setup to regenerate it.\n");
-    return 127;  // execv only returns on failure
+    return 127;  // spawn_and_wait only returns if the child never started
 }

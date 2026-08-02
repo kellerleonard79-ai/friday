@@ -184,6 +184,7 @@ def _accessibility_trusted(prompt: bool = False) -> bool:
     """
     try:
         from ApplicationServices import (  # type: ignore[import-not-found]
+            AXIsProcessTrusted,
             AXIsProcessTrustedWithOptions,
             kAXTrustedCheckOptionPrompt,
         )
@@ -191,8 +192,13 @@ def _accessibility_trusted(prompt: bool = False) -> bool:
         # Missing pyobjc shouldn't block boot; PTT will warn on its own.
         _LOGGER.warning("accessibility check unavailable: %s", e)
         return True
-    options = {kAXTrustedCheckOptionPrompt: True} if prompt else {}
-    return bool(AXIsProcessTrustedWithOptions(options))
+    # Must be the no-options call when we aren't prompting: handing
+    # AXIsProcessTrustedWithOptions an empty dict segfaults inside CFGetTypeID
+    # (EXC_BAD_ACCESS at 0x8), which kills the process mid-boot with nothing in
+    # the log — launchd then respawns straight back into it.
+    if not prompt:
+        return bool(AXIsProcessTrusted())
+    return bool(AXIsProcessTrustedWithOptions({kAXTrustedCheckOptionPrompt: True}))
 
 
 def _input_monitoring_trusted(prompt: bool = False) -> bool:
