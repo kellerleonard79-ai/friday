@@ -15,12 +15,16 @@ the user's phone number and the Telegram-sent code. The session is saved to
 
 `TelegramBridge` owns its own asyncio loop in a background thread; the
 synchronous `send_and_wait` is the integration point for the rest of voice/.
+It returns a `BridgeResult` rather than a bare reply string so callers can
+tell a slow answer apart from an undelivered one — see `Outcome`.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
 import threading
+from dataclasses import dataclass
+from enum import Enum
 from typing import Callable, Optional
 
 from telethon import TelegramClient, events
@@ -32,6 +36,43 @@ _LOGGER = logging.getLogger(__name__)
 # with the PTT key just released, so failing fast to "I couldn't reach Friday"
 # beats a long silence.
 _RECONNECT_TIMEOUT_S = 10
+
+
+class Outcome(str, Enum):
+    """Why a send_and_wait ended the way it did.
+
+    The distinction that matters to a caller is `BridgeResult.reached_friday`:
+    a timeout means the message IS with Friday and the answer is merely late
+    (it will still land in Telegram), whereas a send failure means nothing was
+    delivered at all. Collapsing those two into a bare None is what made voice
+    announce "I couldn't reach Friday" about a briefing that arrived four
+    seconds later."""
+
+    OK = "ok"                        # reply received
+    TIMEOUT = "timeout"              # sent, no reply inside the window
+    DISCONNECTED = "disconnected"    # sent, connection dropped while waiting
+    SEND_FAILED = "send_failed"      # Telegram rejected the send
+    NOT_CONNECTED = "not_connected"  # bridge was never up
+    EMPTY_TEXT = "empty_text"        # refused before sending
+    INTERNAL_ERROR = "internal_error"
+
+
+@dataclass(frozen=True)
+class BridgeResult:
+    outcome: Outcome
+    reply: Optional[str] = None
+    detail: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return self.outcome is Outcome.OK
+
+    @property
+    def reached_friday(self) -> bool:
+        """True if the message was handed to Telegram, regardless of whether a
+        reply came back. Callers use this to decide between "still working" and
+        "couldn't reach" phrasing."""
+        return self.outcome in (Outcome.OK, Outcome.TIMEOUT, Outcome.DISCONNECTED)
 
 
 class TelegramBridge:
@@ -110,10 +151,10 @@ class TelegramBridge:
         timeout: int = 30,
         on_slow: Optional[Callable[[], None]] = None,
         slow_after_s: int = 0,
-    ) -> Optional[str]:
-        """Send `text` to the Friday bot AS the user. Wait up to `timeout`
-        seconds for the bot's reply. Returns the reply text or None on any
-        failure (timeout, send error, or bridge not connected). Every failure
+    ) -> BridgeResult:
+        """Send `text` to the Friday bot AS the user and wait up to `timeout`
+        seconds for the reply. Always returns a BridgeResult — never raises —
+        carrying both the reply (if any) and the reason it ended. Every failure
         path is logged at WARNING or higher so silent drops are impossible.
 
         `on_slow`, if given, is called once — on the bridge's loop thread —
@@ -124,10 +165,10 @@ class TelegramBridge:
         if self._loop is None or self._client is None:
             _LOGGER.error("send_and_wait: bridge not connected (loop=%s client=%s)",
                           self._loop is not None, self._client is not None)
-            return None
+            return BridgeResult(Outcome.NOT_CONNECTED, detail="bridge not connected")
         if not text or not text.strip():
             _LOGGER.warning("send_and_wait: refusing to send empty/whitespace text")
-            return None
+            return BridgeResult(Outcome.EMPTY_TEXT, detail="empty text")
 
         _LOGGER.info("send_and_wait: dispatching (%d chars, timeout=%ds)", len(text), timeout)
         fut = asyncio.run_coroutine_threadsafe(
@@ -137,22 +178,29 @@ class TelegramBridge:
         # before it even sends, so the outer wait has to allow for both legs.
         outer = timeout + _RECONNECT_TIMEOUT_S + 5
         try:
-            reply = fut.result(timeout=outer)
+            result = fut.result(timeout=outer)
         except asyncio.TimeoutError:
-            _LOGGER.warning("send_and_wait: outer future timed out after %ds (bot likely offline)", outer)
-            return None
+            # The inner coroutine overran its own budget — it had already sent
+            # by then in every path that can get here, so this is a slow reply,
+            # not an unreachable bot.
+            _LOGGER.warning("send_and_wait: outer future timed out after %ds", outer)
+            return BridgeResult(
+                Outcome.TIMEOUT, detail=f"outer future timed out after {outer}s"
+            )
         except Exception as e:
             _LOGGER.exception("send_and_wait: future raised %s: %s", type(e).__name__, e)
-            return None
+            return BridgeResult(
+                Outcome.INTERNAL_ERROR, detail=f"{type(e).__name__}: {e}"
+            )
 
-        if reply is None:
-            # The specific cause (send error, disconnect, timeout) is already
-            # logged above by the inner coroutine — don't assert a timeout here,
-            # which read as "waited 30s" even when the send failed instantly.
-            _LOGGER.warning("send_and_wait: returning None — see the cause logged above")
+        if result.ok:
+            _LOGGER.info("send_and_wait: reply received (%d chars)", len(result.reply or ""))
         else:
-            _LOGGER.info("send_and_wait: reply received (%d chars)", len(reply))
-        return reply
+            _LOGGER.warning(
+                "send_and_wait: no reply (outcome=%s, reached_friday=%s): %s",
+                result.outcome.value, result.reached_friday, result.detail,
+            )
+        return result
 
     # ---------- internals ----------
 
@@ -279,10 +327,12 @@ class TelegramBridge:
         timeout: int,
         on_slow: Optional[Callable[[], None]] = None,
         slow_after_s: int = 0,
-    ) -> Optional[str]:
+    ) -> BridgeResult:
         assert self._client is not None
         if not await self._ensure_connected():
-            return None
+            return BridgeResult(
+                Outcome.NOT_CONNECTED, detail="reconnect failed before send"
+            )
         reply_future: asyncio.Future[str] = asyncio.get_event_loop().create_future()
 
         # Use NewMessage event to catch the reply as it arrives — beats polling.
@@ -303,7 +353,9 @@ class TelegramBridge:
                     "send_message failed (%s): %s — text=%r",
                     type(e).__name__, e, text[:80],
                 )
-                return None
+                return BridgeResult(
+                    Outcome.SEND_FAILED, detail=f"{type(e).__name__}: {e}"
+                )
             _LOGGER.info("voice → bot (msg_id=%s): %s",
                          getattr(sent, "id", "?"), text[:80])
             # Race the reply against connection loss. Without this, a Telethon
@@ -314,14 +366,20 @@ class TelegramBridge:
                     reply_future, timeout, on_slow, slow_after_s
                 )
             except asyncio.TimeoutError:
-                _LOGGER.warning("no bot reply after %ds — Friday may be offline or stuck", timeout)
-                return None
+                # Sent fine — Friday is just slow. The answer will still arrive
+                # in Telegram after we stop listening for it.
+                _LOGGER.warning("no bot reply after %ds — Friday is slow or stuck", timeout)
+                return BridgeResult(
+                    Outcome.TIMEOUT, detail=f"no reply within {timeout}s"
+                )
             if reply is None:
-                # Disconnect path (logged inside helper). Surface as a normal
-                # None return so the caller speaks the failure cue.
-                return None
+                # Disconnect path (logged inside helper). The send landed, so
+                # this is distinct from never having reached Friday at all.
+                return BridgeResult(
+                    Outcome.DISCONNECTED, detail="client disconnected while waiting"
+                )
             _LOGGER.info("bot → voice: %s", reply[:80] if reply else "<empty>")
-            return reply
+            return BridgeResult(Outcome.OK, reply=reply)
         finally:
             # Remove the handler so we don't accumulate one per call.
             self._client.remove_event_handler(_on_bot_reply)
@@ -403,7 +461,10 @@ if __name__ == "__main__":
     if new_session and new_session != cfg.telegram_telethon_session:
         persist_telethon_session(new_session)
     try:
-        reply = bridge.send_and_wait("voice bridge smoke test, please respond", timeout=30)
-        print("REPLY:", reply)
+        result = bridge.send_and_wait("voice bridge smoke test, please respond", timeout=30)
+        print("OUTCOME:", result.outcome.value, "| reached_friday:", result.reached_friday)
+        print("REPLY:", result.reply)
+        if result.detail:
+            print("DETAIL:", result.detail)
     finally:
         bridge.disconnect()

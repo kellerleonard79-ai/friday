@@ -38,7 +38,7 @@ from audio import (  # noqa: E402
     record_until_silence,
     record_while_held,
 )
-from bridge import TelegramBridge  # noqa: E402
+from bridge import BridgeResult, Outcome, TelegramBridge  # noqa: E402
 from ptt import PTTListener  # noqa: E402
 from wakeword import WakeDetector  # noqa: E402
 
@@ -259,6 +259,42 @@ def _transcribe_wav_bytes(model, wav_bytes: bytes) -> str:
     audio = pcm.astype(np.float32) / 32768.0
     result = model.transcribe(audio, fp16=False, language="en")
     return (result.get("text") or "").strip()
+
+
+# ---------------------------------------------------------------------------
+# Spoken failure cues
+# ---------------------------------------------------------------------------
+
+# What to say when there is no reply to read out. Keyed by why. The split that
+# matters is whether the message actually got to Friday: on a timeout it did,
+# the answer is already on its way to Telegram, and the old blanket "I couldn't
+# reach Friday" was simply false — it sent a briefing while voice denied it.
+_FAILURE_CUES = {
+    Outcome.TIMEOUT: (
+        "Friday is taking a while, sir. The reply will be in Telegram."
+    ),
+    Outcome.DISCONNECTED: (
+        "I lost my connection mid-request, sir. Check Telegram."
+    ),
+    Outcome.SEND_FAILED: "I couldn't reach Friday, sir.",
+    Outcome.NOT_CONNECTED: "I couldn't reach Friday, sir.",
+    Outcome.EMPTY_TEXT: "I didn't catch that, sir.",
+    Outcome.INTERNAL_ERROR: "Something went wrong on my end, sir.",
+}
+
+_FALLBACK_CUE = "I couldn't reach Friday, sir."
+
+
+def _failure_cue(result: BridgeResult) -> str:
+    """The sentence to speak when `result` carries no reply. Unknown outcomes
+    fall back to the conservative wording rather than saying nothing."""
+    cue = _FAILURE_CUES.get(result.outcome)
+    if cue:
+        return cue
+    # OK-but-empty lands here: Friday answered with a blank message.
+    if result.reached_friday:
+        return "Friday answered, but said nothing, sir."
+    return _FALLBACK_CUE
 
 
 # ---------------------------------------------------------------------------
@@ -634,26 +670,33 @@ class VoiceListener:
             def _speak_slow_cue() -> None:
                 tts.speak("Working on it, sir.", voice=cfg.tts_voice)
 
-            reply = self.bridge.send_and_wait(
+            result = self.bridge.send_and_wait(
                 transcript,
                 timeout=cfg.response_timeout_s,
                 on_slow=_speak_slow_cue,
                 slow_after_s=cfg.slow_reply_cue_s,
             )
-            _LOGGER.info("reply: %r", (reply or "")[:200])
+            _LOGGER.info(
+                "result: outcome=%s reply=%r",
+                result.outcome.value, (result.reply or "")[:200],
+            )
 
             # Step 10: TTS decision
-            if reply:
+            if result.ok and result.reply:
                 if cfg.always_speak or tts.external_audio_present():
-                    tts.speak(reply, voice=cfg.tts_voice).join()
+                    tts.speak(result.reply, voice=cfg.tts_voice).join()
                 else:
                     _LOGGER.info("reply delivered to Telegram only (no external audio, always_speak=False)")
             else:
-                # Bridge returned nothing — never leave the user wondering why.
-                # See voice/bridge.py logs for the specific failure (timeout,
-                # send error, disconnect, etc).
-                _LOGGER.warning("bridge returned no reply — speaking failure cue")
-                tts.speak("I couldn't reach Friday, sir.", voice=cfg.tts_voice).join()
+                # No reply to read out — say which kind of nothing it was. The
+                # message may well have reached Friday and simply outrun our
+                # listening window, in which case the answer is in Telegram and
+                # claiming we couldn't reach him would be a lie.
+                _LOGGER.warning(
+                    "no reply to speak (outcome=%s): %s",
+                    result.outcome.value, result.detail,
+                )
+                tts.speak(_failure_cue(result), voice=cfg.tts_voice).join()
 
         except Exception as e:
             _LOGGER.exception("session crashed: %s", e)
