@@ -627,7 +627,19 @@ class VoiceListener:
             # Step 9: bridge → bot → reply
             assert self.bridge is not None
             _LOGGER.info("bridge dispatch: %r", transcript[:200])
-            reply = self.bridge.send_and_wait(transcript, timeout=cfg.response_timeout_s)
+
+            # Tool-using requests ("brief me now") routinely run 30-60 s. The
+            # cue keeps that wait from reading as a hang; `say` serializes on
+            # its own lock, so it can't talk over the reply if one lands mid-cue.
+            def _speak_slow_cue() -> None:
+                tts.speak("Working on it, sir.", voice=cfg.tts_voice)
+
+            reply = self.bridge.send_and_wait(
+                transcript,
+                timeout=cfg.response_timeout_s,
+                on_slow=_speak_slow_cue,
+                slow_after_s=cfg.slow_reply_cue_s,
+            )
             _LOGGER.info("reply: %r", (reply or "")[:200])
 
             # Step 10: TTS decision

@@ -21,7 +21,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-from typing import Optional
+from typing import Callable, Optional
 
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
@@ -104,11 +104,23 @@ class TelegramBridge:
             except Exception:
                 pass
 
-    def send_and_wait(self, text: str, timeout: int = 30) -> Optional[str]:
+    def send_and_wait(
+        self,
+        text: str,
+        timeout: int = 30,
+        on_slow: Optional[Callable[[], None]] = None,
+        slow_after_s: int = 0,
+    ) -> Optional[str]:
         """Send `text` to the Friday bot AS the user. Wait up to `timeout`
         seconds for the bot's reply. Returns the reply text or None on any
         failure (timeout, send error, or bridge not connected). Every failure
-        path is logged at WARNING or higher so silent drops are impossible."""
+        path is logged at WARNING or higher so silent drops are impossible.
+
+        `on_slow`, if given, is called once — on the bridge's loop thread —
+        when `slow_after_s` seconds pass with the message sent and no reply
+        yet. It exists so the caller can tell the user the request is still
+        in flight instead of leaving them in silence; keep it fast and
+        non-blocking. Exceptions from it are swallowed."""
         if self._loop is None or self._client is None:
             _LOGGER.error("send_and_wait: bridge not connected (loop=%s client=%s)",
                           self._loop is not None, self._client is not None)
@@ -119,7 +131,7 @@ class TelegramBridge:
 
         _LOGGER.info("send_and_wait: dispatching (%d chars, timeout=%ds)", len(text), timeout)
         fut = asyncio.run_coroutine_threadsafe(
-            self._async_send_and_wait(text, timeout), self._loop
+            self._async_send_and_wait(text, timeout, on_slow, slow_after_s), self._loop
         )
         # The inner coroutine may spend up to _RECONNECT_TIMEOUT_S reconnecting
         # before it even sends, so the outer wait has to allow for both legs.
@@ -261,7 +273,13 @@ class TelegramBridge:
         _LOGGER.info("reconnected")
         return True
 
-    async def _async_send_and_wait(self, text: str, timeout: int) -> Optional[str]:
+    async def _async_send_and_wait(
+        self,
+        text: str,
+        timeout: int,
+        on_slow: Optional[Callable[[], None]] = None,
+        slow_after_s: int = 0,
+    ) -> Optional[str]:
         assert self._client is not None
         if not await self._ensure_connected():
             return None
@@ -292,7 +310,9 @@ class TelegramBridge:
             # disconnect mid-wait makes us sit on a future that nothing will
             # ever resolve, burning the full timeout for no reason.
             try:
-                reply = await self._wait_for_reply_or_disconnect(reply_future, timeout)
+                reply = await self._wait_for_reply_or_disconnect(
+                    reply_future, timeout, on_slow, slow_after_s
+                )
             except asyncio.TimeoutError:
                 _LOGGER.warning("no bot reply after %ds — Friday may be offline or stuck", timeout)
                 return None
@@ -310,13 +330,17 @@ class TelegramBridge:
         self,
         reply_future: "asyncio.Future[str]",
         timeout: int,
+        on_slow: Optional[Callable[[], None]] = None,
+        slow_after_s: int = 0,
     ) -> Optional[str]:
         """Poll the connection state every 500 ms while waiting for the bot
         reply. Returns the reply on success, None if the client disconnects
         before the reply arrives, and raises asyncio.TimeoutError on full
-        timeout."""
+        timeout. Fires `on_slow` once at `slow_after_s` if still waiting."""
         loop = asyncio.get_event_loop()
-        deadline = loop.time() + timeout
+        start = loop.time()
+        deadline = start + timeout
+        slow_at = start + slow_after_s if (on_slow and slow_after_s > 0) else None
         tick = 0.5
         while True:
             remaining = deadline - loop.time()
@@ -328,6 +352,15 @@ class TelegramBridge:
                     timeout=min(tick, remaining),
                 )
             except asyncio.TimeoutError:
+                if slow_at is not None and loop.time() >= slow_at:
+                    slow_at = None  # fire once
+                    _LOGGER.info(
+                        "no reply after %ds — signalling slow response", slow_after_s
+                    )
+                    try:
+                        on_slow()
+                    except Exception as e:
+                        _LOGGER.warning("on_slow callback raised: %s", e)
                 # Did we lose the connection while waiting?
                 connected = False
                 try:

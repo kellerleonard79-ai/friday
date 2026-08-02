@@ -57,6 +57,7 @@ class VoiceConfig:
     push_to_talk_key: str
     tts_voice: str
     response_timeout_s: int
+    slow_reply_cue_s: int
 
     wake_phrases: List[str]
     acknowledgment_phrases: List[str]
@@ -87,7 +88,14 @@ _DEFAULTS: Dict[str, Any] = {
     "whisper_model": "base",
     "push_to_talk_key": "right_option",
     "tts_voice": "Daniel",
-    "response_timeout_s": 30,
+    # Generous on purpose. A plain conversational turn answers in 5-12 s, but
+    # anything that makes the agent run tools takes much longer: "brief me now"
+    # measured 34 s (two Gemini round trips plus calendar reads), which the old
+    # 30 s ceiling cut off four seconds early — Telegram got the briefing while
+    # voice announced it couldn't reach Friday. slow_reply_cue_s keeps the wait
+    # from being silent, so the ceiling can be high without feeling broken.
+    "response_timeout_s": 120,
+    "slow_reply_cue_s": 20,
     "wake_phrases": ["Hey Friday", "Friday you up", "Friday status", "Friday"],
     "acknowledgment_phrases": [
         "At your service, sir.",
@@ -186,7 +194,12 @@ def _build(data: Dict[str, Any]) -> VoiceConfig:
         whisper_model=_coerce_str(vget("whisper_model"), _DEFAULTS["whisper_model"]),
         push_to_talk_key=_coerce_str(vget("push_to_talk_key"), _DEFAULTS["push_to_talk_key"]),
         tts_voice=_coerce_str(vget("tts_voice"), _DEFAULTS["tts_voice"]),
-        response_timeout_s=_coerce_int(vget("response_timeout_s"), 30),
+        response_timeout_s=_coerce_int(
+            vget("response_timeout_s"), _DEFAULTS["response_timeout_s"]
+        ),
+        slow_reply_cue_s=_coerce_int(
+            vget("slow_reply_cue_s"), _DEFAULTS["slow_reply_cue_s"]
+        ),
         wake_phrases=wake_phrases,
         acknowledgment_phrases=ack_phrases,
         ack_phrases_only=ack_phrases_only,
