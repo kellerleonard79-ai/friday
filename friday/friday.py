@@ -511,18 +511,32 @@ def main() -> None:
             "SELECT id, source, title, body FROM events WHERE urgency='URGENT' AND notified=0"
         )
         rows = cur.fetchall()
+        loop = asyncio.get_running_loop()
         for row in rows:
             event_id, source, title, body = row
-            text = f"🚨 Urgent — {source}\n{title}"
             clean_body = _strip_internal_tags(body) if body else ""
-            if clean_body:
-                text += f"\n{clean_body[:300]}"
+            # The LLM writes the alert (one call per new urgent event, not per
+            # tick — only unnotified rows get here). A model failure must never
+            # swallow the interrupt, so any error drops to the plain text.
+            try:
+                text = await loop.run_in_executor(
+                    None,
+                    lambda: briefings.compose_urgent_alert(
+                        agent, source or "", title or "", clean_body
+                    ),
+                )
+            except Exception as e:
+                logger.warning(f"Urgent alert compose failed for {event_id}: {e}")
+                text = ""
+            text = (text or "").strip() or briefings.fallback_urgent_alert(
+                source or "", title or "", clean_body
+            )
             try:
                 await context.bot.send_message(chat_id=chat_id, text=text)
                 conn.execute("UPDATE events SET notified=1 WHERE id=?", (event_id,))
                 activity.record_urgent_alert(
                     conn, source=source or "", source_ref=event_id,
-                    body=f"{title}\n{clean_body}".strip(),
+                    body=text,
                 )
             except Exception as e:
                 logger.error(f"Urgent alert send failed: {e}")

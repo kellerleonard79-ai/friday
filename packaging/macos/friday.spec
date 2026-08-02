@@ -50,6 +50,9 @@ hiddenimports = [
     # the JXA reader rather than crashing — which also means PyInstaller's
     # static analysis never sees it.
     "EventKit",
+    # Same story in connectors/location.py — lazy import, degrades to IP
+    # geolocation, invisible to static analysis.
+    "CoreLocation",
     "menubar",
     "menubar_icon",
     "macos_setup",
@@ -147,5 +150,9 @@ app = BUNDLE(
         # required: the plain one still covers macOS 13 and earlier.
         "NSCalendarsFullAccessUsageDescription":
             "Friday reads your calendar to assemble briefings and reminders.",
+        # Without this key CoreLocation resolves to denied and never prompts,
+        # so location questions silently fall back to IP geolocation.
+        "NSLocationWhenInUseUsageDescription":
+            "Friday tells you where this Mac is when you ask.",
     },
 )

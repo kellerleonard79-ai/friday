@@ -117,6 +117,7 @@ first use and the user must accept.
 | Calendar access | first Apple Calendar read/write | `NSCalendarsUsageDescription` + `NSCalendarsFullAccessUsageDescription` |
 | Automation / Apple Events | the JXA calendar bridge | `NSAppleEventsUsageDescription` |
 | Microphone | voice, if enabled | `NSMicrophoneUsageDescription` |
+| Location | first "where am I" question | `NSLocationWhenInUseUsageDescription` |
 
 **Grant Calendar access in full, not write-only.** Briefings read the calendar
 through EventKit, which is effectively instant. Denying it — or granting only

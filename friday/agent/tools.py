@@ -21,7 +21,7 @@ import compat
 import memory.activity as activity
 import memory.state as state
 from calendars import backend as calendar_backend
-from connectors import weather
+from connectors import location, weather
 
 logger = logging.getLogger("friday.tools")
 
@@ -127,6 +127,33 @@ def make_tools(conn, config, agent=None):
         rain, temperature, or forecast question."""
         text = weather.respond(config.get("weather", {}), query)
         return {"weather": text or "(weather unavailable)"}
+
+    def get_location() -> dict:
+        """Return where the machine running Friday currently is. Use for "where
+        am I", "what's my location", "what city am I in".
+
+        This is the location of the always-on Mac, NOT of the user's phone —
+        it is only the user's location while they are with the machine. Never
+        claim to know where the user personally is.
+
+        `source` sets how precisely you may speak:
+          - "corelocation": device positioning, accurate to `accuracy_m` metres.
+            State the place plainly.
+          - "ip": derived from the internet connection, city-level at best and
+            sometimes off by a city. Hedge — "your connection places the Mac
+            in ...".
+        On {"error": ...} say the location could not be determined; do not
+        guess a city from anything else in the conversation."""
+        fix = location.fetch()
+        if fix is None:
+            return {"error": "location unavailable"}
+        return {
+            "place":      fix.get("place") or "",
+            "latitude":   round(fix["lat"], 4),
+            "longitude":  round(fix["lon"], 4),
+            "accuracy_m": fix.get("accuracy_m"),
+            "source":     fix["source"],
+        }
 
     def get_pending_canvas() -> dict:
         """Return Canvas LMS assignments tagged URGENT or SOON that have not
@@ -296,7 +323,7 @@ def make_tools(conn, config, agent=None):
         }
 
     return [_instrument(fn) for fn in (
-        get_now, get_schedule, get_weather,
+        get_now, get_schedule, get_weather, get_location,
         get_pending_canvas, reschedule_briefing,
         add_calendar_event,
     )]

@@ -7,6 +7,9 @@ rumps>=0.4.0
 # costs ~35 ms per event in the scanned calendar — minutes per briefing on a
 # busy shared calendar. See connectors/apple_calendar.py.
 pyobjc-framework-EventKit>=10.0; sys_platform == "darwin"
+# Device-level location. Optional: connectors/location.py falls back to IP
+# geolocation when it is missing or its TCC grant is refused.
+pyobjc-framework-CoreLocation>=10.0; sys_platform == "darwin"
 icalendar>=5.0
 PyMuPDF>=1.24
 fastapi>=0.110

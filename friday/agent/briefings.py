@@ -1,6 +1,6 @@
 """
 agent/briefings.py
-Briefing prompt composers + deterministic context bundling.
+Briefing and alert prompt composers + deterministic context bundling.
 
 Each composer shapes one LLM call. Persona comes from agent._think()'s
 system_instruction. Returns the model's prose, or "" on failure (caller decides
@@ -24,6 +24,7 @@ Synchronous — wrap in run_in_executor when called from async.
 """
 
 import logging
+import re
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -39,6 +40,9 @@ _UNAVAILABLE = "unavailable"
 
 # How far back to look for GroupMe chatter worth surfacing (high + normal tiers).
 _GROUPME_WINDOW_HOURS = 12
+
+# The header lines connectors/groupme.py prepends to every stored body.
+_GROUPME_HEADER = re.compile(r"^(Group|From):\s")
 
 
 def _local_now(config: dict) -> datetime:
@@ -578,3 +582,72 @@ def compose_on_demand(agent, bundle: dict) -> str:
         f"If everything is empty, say so plainly."
     )
     return agent._think(prompt, use_tools=False, triggered_by="briefing_on_demand")
+
+
+# ── Urgent alerts ─────────────────────────────────────────────────────────────
+#
+# An urgent alert interrupts the user, so it gets the same treatment as a
+# briefing: the LLM writes it. The raw material is scaffolding meant for the
+# model — a GroupMe body carries "Group: …/From: …" lines that the title already
+# repeats — and reads as a machine dump if forwarded verbatim.
+
+
+def compose_urgent_alert(agent, source: str, title: str, body: str) -> str:
+    """One or two sentences announcing a single URGENT event, in Friday's voice.
+
+    `body` must already have internal tags stripped (see friday._strip_internal_tags).
+    Returns "" on model failure — callers fall back to fallback_urgent_alert().
+    """
+    prompt = (
+        f"An urgent item just arrived. Announce it to the user.\n\n"
+        f"Source: {source}\n"
+        f"Title: {title}\n"
+        f"Details:\n{(body or '(none)')[:1000]}\n\n"
+        f"Write one or two sentences of plain prose. No emoji, no markdown, no "
+        f"header line, no bullets, no sign-off, no follow-up question, no quip — "
+        f"this is an interruption, so it stays crisp.\n\n"
+        f"Rules:\n"
+        f"- Address him as sir.\n"
+        f"- Name the source inside the sentence, not as a label: \"in the SGA "
+        f"GroupMe\", \"your Canvas feed shows\".\n"
+        f"- Shorten an unwieldy group or course name to how a person would say it "
+        f"out loud.\n"
+        f"- Paraphrase what was said. Do not quote the whole message back.\n"
+        f"- Use only what is above. Never invent a date, time, name, place, or "
+        f"detail, and keep any date or time exactly as written.\n\n"
+        f"Example — a GroupMe message titled \"Executive SGA Officers 26-27: "
+        f"Heather Horn\" reading \"Who is available to help on Tuesday Aug 5 for "
+        f"freshman Orientation?\" becomes:\n"
+        f"Sir, in the SGA GroupMe, Heather Horn wants to know if anyone is "
+        f"available to help on Tuesday, August 5 for freshman Orientation."
+    )
+    return agent._think(prompt, use_tools=False, triggered_by="urgent_alert")
+
+
+def _strip_groupme_scaffolding(body: str) -> str:
+    """Drop the connector's leading "Group: …/From: …" lines (connectors/groupme.py).
+    They exist to give the model context; the title already carries both, so
+    repeating them to the user is the redundancy this whole path removes."""
+    lines = (body or "").splitlines()
+    i = 0
+    while i < len(lines) and (
+        not lines[i].strip() or _GROUPME_HEADER.match(lines[i])
+    ):
+        i += 1
+    return "\n".join(lines[i:]).strip()
+
+
+def fallback_urgent_alert(source: str, title: str, body: str) -> str:
+    """Deterministic alert text for when the model is unavailable. Plainer than
+    the composed version, but never an emoji-and-header dump — an LLM outage
+    must not change what an alert looks like more than it has to."""
+    title = (title or "").strip()
+    if (source or "").strip() == "groupme":
+        text = _strip_groupme_scaffolding(body)[:300]
+        group, _, sender = title.partition(": ")
+        where = f"in {group}" if group else "in GroupMe"
+        who   = f" from {sender}" if sender else ""
+        return f"Sir, new message {where}{who}: {text}".rstrip(": ").strip()
+    body = (body or "").strip()[:300]
+    lead = f"Sir, {title}" if title else "Sir, an urgent item just arrived."
+    return f"{lead}\n{body}".strip()

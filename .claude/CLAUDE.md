@@ -383,6 +383,32 @@ dialog — this is by design and does not mean the always-on stream is running.
 If a process appears running via `launchctl print` but the menubar reports voice offline,
 the menubar polls `/api/voice/status` every few seconds and may have cached an earlier
 failed boot. Wait ~10 seconds or restart via the menubar's "Restart Voice" item.
+## Location
+
+`connectors/location.py` answers "where am I", exposed as the `get_location` tool.
+It reports where the **Mac** is, not where the user is — there is no passive way to
+read a phone's position from here, so the answer is "home" whenever the machine is
+home and it does not move when the user does. The tool docstring instructs the LLM
+never to claim knowledge of the user's personal whereabouts.
+
+Two backends, tried in order, both lazy-imported so a failure degrades instead of
+crashing:
+
+- **CoreLocation** (PyObjC) — device positioning, accurate to tens of metres.
+  Subject to the same per-binary TCC rule as the calendar and mic: under the
+  LaunchAgent, friday.py is a bare interpreter with no Info.plist, so
+  `NSLocationWhenInUseUsageDescription` is absent and authorization resolves to
+  `kCLErrorDenied` (code 1) **without ever prompting**. Only the packaged .app
+  gets the prompt. Delegate methods and the CLGeocoder completion handler must
+  return `None` — same PyObjC NSException trap as the EventKit handler.
+- **IP geolocation** — city-level, keyless, works on Windows too. Not optional:
+  it is the only path that answers under the LaunchAgent. Two providers are tried
+  in order because these services throttle by source IP without warning (ipapi.co
+  returned 429 on the very first request and was dropped).
+
+Fixes are cached for 5 minutes; an always-on Mac does not move, and a CoreLocation
+round trip costs seconds.
+
 ## Windows Port (friend's build)
 
 The same codebase runs on Windows, packaged as `FridaySetup.exe` (Inno Setup wrapping a
