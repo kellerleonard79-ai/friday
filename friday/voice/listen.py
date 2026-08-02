@@ -54,8 +54,10 @@ _LOGGER = logging.getLogger(__name__)
 #   • /tmp/friday_listening flag toggled per session (menubar/dashboard read it)
 LISTENING_FLAG = Path("/tmp/friday_listening")
 
-# Throttle for the Accessibility prompt — see the call site in boot().
+# Throttles for the two TCC prompts — see the call sites in boot(). Separate
+# markers so approving one doesn't suppress the other's prompt.
 _AX_PROMPT_MARKER = Path("/tmp/friday_ax_prompt")
+_IM_PROMPT_MARKER = Path("/tmp/friday_input_monitoring_prompt")
 _AX_PROMPT_INTERVAL_S = 3600
 
 
@@ -191,6 +193,31 @@ def _accessibility_trusted(prompt: bool = False) -> bool:
         return True
     options = {kAXTrustedCheckOptionPrompt: True} if prompt else {}
     return bool(AXIsProcessTrustedWithOptions(options))
+
+
+def _input_monitoring_trusted(prompt: bool = False) -> bool:
+    """Whether this process may listen to key events, optionally prompting.
+
+    Input Monitoring is a *second* gate, separate from Accessibility, and
+    pynput warns about neither once its listener is up: with Accessibility
+    granted and this one denied, `keyboard.Listener` starts, logs nothing, and
+    delivers zero events forever. Same identity rule as Accessibility — the
+    grant has to name the binary that actually runs, so it must come from this
+    prompt rather than from System Settings by hand.
+    """
+    try:
+        from Quartz import (  # type: ignore[import-not-found]
+            CGPreflightListenEventAccess,
+            CGRequestListenEventAccess,
+        )
+    except ImportError as e:
+        _LOGGER.warning("input-monitoring check unavailable: %s", e)
+        return True
+    if CGPreflightListenEventAccess():
+        return True
+    if prompt:
+        CGRequestListenEventAccess()
+    return False
 
 
 def _transcribe_wav_bytes(model, wav_bytes: bytes) -> str:
@@ -363,6 +390,20 @@ class VoiceListener:
                 _accessibility_trusted(prompt=True)
             else:
                 _LOGGER.info("accessibility prompt suppressed (shown recently)")
+
+        if not _input_monitoring_trusted():
+            _LOGGER.error(
+                "Input Monitoring not granted to %s — push-to-talk will receive "
+                "no key events. This is a different permission from "
+                "Accessibility and both are required; granting one alone leaves "
+                "the listener running and deaf. Approve the prompt, then restart "
+                "voice (`launchctl kickstart -k gui/$(id -u)/com.friday.voice`).",
+                sys.executable,
+            )
+            if _prompt_due(_IM_PROMPT_MARKER, _AX_PROMPT_INTERVAL_S):
+                _input_monitoring_trusted(prompt=True)
+            else:
+                _LOGGER.info("input-monitoring prompt suppressed (shown recently)")
 
         # A bad key name must not take the whole listener down. boot() failing
         # returns 1 from main(), and the LaunchAgent's KeepAlive then respawns
