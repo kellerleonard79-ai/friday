@@ -28,6 +28,11 @@ from telethon.sessions import StringSession
 
 _LOGGER = logging.getLogger(__name__)
 
+# Ceiling on a pre-send reconnect. Short on purpose: the user is standing there
+# with the PTT key just released, so failing fast to "I couldn't reach Friday"
+# beats a long silence.
+_RECONNECT_TIMEOUT_S = 10
+
 
 class TelegramBridge:
     def __init__(
@@ -116,17 +121,23 @@ class TelegramBridge:
         fut = asyncio.run_coroutine_threadsafe(
             self._async_send_and_wait(text, timeout), self._loop
         )
+        # The inner coroutine may spend up to _RECONNECT_TIMEOUT_S reconnecting
+        # before it even sends, so the outer wait has to allow for both legs.
+        outer = timeout + _RECONNECT_TIMEOUT_S + 5
         try:
-            reply = fut.result(timeout=timeout + 5)
+            reply = fut.result(timeout=outer)
         except asyncio.TimeoutError:
-            _LOGGER.warning("send_and_wait: outer future timed out after %ds (bot likely offline)", timeout + 5)
+            _LOGGER.warning("send_and_wait: outer future timed out after %ds (bot likely offline)", outer)
             return None
         except Exception as e:
             _LOGGER.exception("send_and_wait: future raised %s: %s", type(e).__name__, e)
             return None
 
         if reply is None:
-            _LOGGER.warning("send_and_wait: returning None (no reply received within %ds)", timeout)
+            # The specific cause (send error, disconnect, timeout) is already
+            # logged above by the inner coroutine — don't assert a timeout here,
+            # which read as "waited 30s" even when the send failed instantly.
+            _LOGGER.warning("send_and_wait: returning None — see the cause logged above")
         else:
             _LOGGER.info("send_and_wait: reply received (%d chars)", len(reply))
         return reply
@@ -214,8 +225,46 @@ class TelegramBridge:
             except Exception as e:
                 _LOGGER.debug("client disconnect: %s", e)
 
+    async def _ensure_connected(self) -> bool:
+        """Reconnect if the client has dropped. Returns False if it can't.
+
+        Telethon's auto-reconnect gives up for good after `connection_retries`
+        attempts ("Automatic reconnection failed 5 time(s)"), which a sleeping
+        Mac or a Wi-Fi drop reaches easily. Once it does, `_user_connected`
+        stays false and every send raises ConnectionError for the rest of the
+        process's life — voice stayed dead until the LaunchAgent was restarted.
+        connect() is cheap when already connected, so this runs before each send.
+        """
+        assert self._client is not None
+        try:
+            if self._client.is_connected():
+                return True
+        except Exception:
+            pass  # treat an unreadable state as disconnected
+        _LOGGER.warning("client disconnected — reconnecting")
+        try:
+            await asyncio.wait_for(self._client.connect(), timeout=_RECONNECT_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            _LOGGER.error("reconnect timed out after %ds", _RECONNECT_TIMEOUT_S)
+            return False
+        except Exception as e:
+            _LOGGER.error("reconnect failed (%s): %s", type(e).__name__, e)
+            return False
+        # The session (and its entity cache) survives a reconnect, so the bot
+        # entity is only re-resolved if we never got one.
+        if self._bot_entity is None:
+            try:
+                self._bot_entity = await self._client.get_entity(self.bot_user_id)
+            except Exception as e:
+                _LOGGER.error("bot entity unresolved after reconnect: %s", e)
+                return False
+        _LOGGER.info("reconnected")
+        return True
+
     async def _async_send_and_wait(self, text: str, timeout: int) -> Optional[str]:
         assert self._client is not None
+        if not await self._ensure_connected():
+            return None
         reply_future: asyncio.Future[str] = asyncio.get_event_loop().create_future()
 
         # Use NewMessage event to catch the reply as it arrives — beats polling.

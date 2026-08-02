@@ -33,6 +33,13 @@ FRAME_SAMPLES = 1280       # 80 ms at 16 kHz
 FRAME_BYTES = FRAME_SAMPLES * 2  # int16 mono
 RING_FRAMES = 64           # ~5.1 s of context
 
+# Push-to-talk capture floor and post-release tail. Sized against the measured
+# cost of opening the input device on macOS: start() returns in ~470 ms and the
+# first real frame lands ~575 ms after key-down, so anything shorter than this
+# risks handing Whisper nothing but the device-open transient.
+MIN_PTT_CAPTURE_MS = 1500
+PTT_TAIL_MS = 400
+
 
 # ---------------------------------------------------------------------------
 # AudioStream + Consumer
@@ -317,9 +324,26 @@ def record_while_held(
     max_ms: int = 30000,
     preroll_ms: int = 500,
     consumer_name: str = "record_ptt",
+    min_capture_ms: int = MIN_PTT_CAPTURE_MS,
+    tail_ms: int = PTT_TAIL_MS,
 ) -> bytes:
     """Capture audio until `key_released_event` fires. Same WAV contract as
-    record_until_silence."""
+    record_until_silence.
+
+    Release does not stop capture on its own. In PTT-only mode the stream is
+    opened on key-down and CoreAudio needs ~600 ms before it hands over a real
+    frame, so a plain "break when released" returned nothing but preroll — every
+    failed session in the log read exactly `0.48s captured` (preroll_ms // frame)
+    with rms 0, and Whisper transcribed it as "". Two guards fix that:
+
+      tail_ms         keep capturing briefly past release, since speech routinely
+                      runs a moment past the key coming up.
+      min_capture_ms  never hand Whisper less than this. A tap shorter than the
+                      device-open latency still yields usable audio instead of
+                      silence.
+
+    Both are ceilinged by max_ms.
+    """
     frame_ms = (FRAME_SAMPLES * 1000) // SAMPLE_RATE
     consumer = stream.subscribe(consumer_name)
     try:
@@ -327,17 +351,27 @@ def record_while_held(
         preroll = consumer.latest_frames(preroll_frames)
         parts: List[np.ndarray] = [preroll] if preroll.size else []
         elapsed_ms = preroll.size * 1000 // SAMPLE_RATE
+        min_capture_ms = min(min_capture_ms, max_ms)
+        released_at: Optional[float] = None
 
         while elapsed_ms < max_ms:
             if key_released_event.is_set():
-                break
+                if released_at is None:
+                    released_at = time.monotonic()
+                past_tail = (time.monotonic() - released_at) * 1000 >= tail_ms
+                if past_tail and elapsed_ms >= min_capture_ms:
+                    break
             frame = consumer.next_frame(timeout=0.1)
             if frame is None:
                 continue
             parts.append(frame)
             elapsed_ms += frame_ms
         pcm = np.concatenate(parts) if parts else np.zeros(0, dtype=np.int16)
-        _LOGGER.info("record_while_held: %.2fs captured", pcm.size / SAMPLE_RATE)
+        _LOGGER.info(
+            "record_while_held: %.2fs captured (%s)",
+            pcm.size / SAMPLE_RATE,
+            "key released" if released_at is not None else "hit max_ms",
+        )
         return _pcm_to_wav_bytes(pcm)
     finally:
         consumer.unsubscribe()

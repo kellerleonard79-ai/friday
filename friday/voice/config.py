@@ -119,6 +119,18 @@ def _coerce_float(v: Any, default: float) -> float:
         return default
 
 
+def _coerce_str(v: Any, default: str) -> str:
+    """Blank falls back to the default. The dashboard writes these fields as
+    free-text inputs, so clearing one leaves an empty string in the YAML rather
+    than removing the key — and `voice.get(key, default)` happily returns it.
+    An empty push_to_talk_key used to raise out of PTTListener and take the
+    whole listener down on the next restart."""
+    if v is None:
+        return default
+    s = str(v).strip()
+    return s or default
+
+
 def _coerce_bool(v: Any, default: bool) -> bool:
     if isinstance(v, bool):
         return v
@@ -171,9 +183,9 @@ def _build(data: Dict[str, Any]) -> VoiceConfig:
         silence_rms_threshold=_coerce_int(vget("silence_rms_threshold"), 500),
         max_recording_ms=_coerce_int(vget("max_recording_ms"), 30000),
         preroll_ms=_coerce_int(vget("preroll_ms"), 500),
-        whisper_model=str(vget("whisper_model")),
-        push_to_talk_key=str(vget("push_to_talk_key")),
-        tts_voice=str(vget("tts_voice")),
+        whisper_model=_coerce_str(vget("whisper_model"), _DEFAULTS["whisper_model"]),
+        push_to_talk_key=_coerce_str(vget("push_to_talk_key"), _DEFAULTS["push_to_talk_key"]),
+        tts_voice=_coerce_str(vget("tts_voice"), _DEFAULTS["tts_voice"]),
         response_timeout_s=_coerce_int(vget("response_timeout_s"), 30),
         wake_phrases=wake_phrases,
         acknowledgment_phrases=ack_phrases,

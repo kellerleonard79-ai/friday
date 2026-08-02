@@ -182,6 +182,13 @@ def write_voice_launcher_conf(python: str | None = None) -> Path:
 
     This is the substitution step that replaces what used to be a hardcoded
     path inside the compiled binary.
+
+    The destination is ~/.friday, NOT paths.data_dir(). FridayVoice_launcher.c
+    reads exactly two locations — <bundle>/Contents/Resources/ and $HOME/.friday
+    — and on macOS data_dir() is the package directory, which is neither. Writing
+    it there meant the launcher never found a conf, fell through to bundle-relative
+    defaults that don't exist in a source checkout, and exited 127 on every spawn;
+    KeepAlive turned that into a crash loop the moment voice was next restarted.
     """
     interp = python or resolve_python()
     # The voice satellite has its own venv when one exists — it pulls in heavy
@@ -191,7 +198,9 @@ def write_voice_launcher_conf(python: str | None = None) -> Path:
         interp = str(voice_venv)
     script = PKG_DIR / "voice" / "listen.py"
 
-    conf = paths.data_dir() / "voice_launcher.conf"
+    conf_dir = Path.home() / ".friday"
+    conf_dir.mkdir(parents=True, exist_ok=True)
+    conf = conf_dir / "voice_launcher.conf"
     conf.write_text(f"{interp}\n{script}\n")
     logger.info(f"Wrote voice launcher conf: {conf}")
     return conf

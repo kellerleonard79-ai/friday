@@ -296,12 +296,23 @@ class VoiceListener:
         if new_session and new_session != self.cfg.telegram_telethon_session:
             voice_config.persist_telethon_session(new_session)
 
-        self.ptt = PTTListener(
-            key_name=self.cfg.push_to_talk_key,
-            on_press_cb=self._on_ptt_press,
-            on_release_cb=self._on_ptt_release,
-        )
-        self.ptt.start()
+        # A bad key name must not take the whole listener down. boot() failing
+        # returns 1 from main(), and the LaunchAgent's KeepAlive then respawns
+        # straight into the same failure — a crash loop that kills wake, clap
+        # and PTT alike over one unusable config string.
+        try:
+            self.ptt = PTTListener(
+                key_name=self.cfg.push_to_talk_key,
+                on_press_cb=self._on_ptt_press,
+                on_release_cb=self._on_ptt_release,
+            )
+            self.ptt.start()
+        except ValueError as e:
+            self.ptt = None
+            _LOGGER.error(
+                "push-to-talk disabled: %s. Set voice.push_to_talk_key to a "
+                "recognized name (e.g. right_option) and restart.", e,
+            )
 
         if self.cfg.wake_enabled and self.wake is not None:
             self._wake_thread = threading.Thread(
@@ -318,8 +329,12 @@ class VoiceListener:
             active.append("wake")
         if self.cfg.clap_enabled and self.clap is not None:
             active.append("clap")
-        active.append(f"PTT={self.cfg.push_to_talk_key}")
-        _LOGGER.info("F.R.I.D.A.Y. Voice — online. Triggers: %s", ", ".join(active))
+        if self.ptt is not None:
+            active.append(f"PTT={self.cfg.push_to_talk_key}")
+        _LOGGER.info(
+            "F.R.I.D.A.Y. Voice — online. Triggers: %s",
+            ", ".join(active) if active else "none (voice is deaf)",
+        )
 
     def shutdown_all(self) -> None:
         self.shutdown.set()
@@ -410,10 +425,15 @@ class VoiceListener:
             and not self.cfg.clap_enabled
         )
         try:
-            cfg = voice_config.load()
+            # Open the device before anything else. It is the long pole by an
+            # order of magnitude (~470 ms, plus ~105 ms to the first frame), and
+            # every millisecond of it is audio the user is already speaking into
+            # a dead mic. Loading config and reading system_state underneath the
+            # warm-up costs nothing and buys back their share of the head.
             if ptt_owns_stream:
                 self.stream.start()
-            else:
+            cfg = voice_config.load()
+            if not ptt_owns_stream:
                 self.stream.pause()
             if self.wake is not None:
                 self.wake.reset()
