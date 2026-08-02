@@ -43,6 +43,20 @@ _semaphore = asyncio.Semaphore(1)
 _EXECUTOR_TIMEOUT_S = 150
 
 
+def _is_silent_residue(text: str) -> bool:
+    """True if `text` is the model's failed attempt at saying nothing.
+
+    A tool that already messaged the user tells the model to stay quiet for
+    the rest of the turn (see add_calendar_event in agent/tools.py), but Gemma
+    does not reliably return empty text for it. Two shapes seen so far: an
+    empty Markdown fence (blanked in agent/core.py) and a single stray CJK
+    token — 避, sent to the user on Aug 2 after a calendar add. Neither is
+    English Friday would ever send, so anything holding no ASCII letter or
+    digit counts as silence rather than a reply worth forwarding.
+    """
+    return not any(c.isascii() and c.isalnum() for c in text)
+
+
 class TelegramHandler:
     def __init__(self, config: dict, agent, conn: sqlite3.Connection):
         tg = config.get("telegram", config)  # accept full config or telegram sub-dict
@@ -168,6 +182,13 @@ class TelegramHandler:
                 "INSERT INTO conversation_history (role, content, created_at) VALUES (?, ?, ?)",
                 ("user", text, now_iso),
             )
+
+            if (response and action_emitted == "calendar_added"
+                    and _is_silent_residue(response)):
+                # The confirmation already shipped and the model was told to
+                # stop; what came back is noise, not a second reply.
+                logger.warning(f"Dropping silent-residue reply: {response!r}")
+                response = ""
 
             if response:
                 await update.message.reply_text(response)
