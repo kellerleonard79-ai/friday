@@ -40,6 +40,10 @@ logger = logging.getLogger("friday.location")
 _CACHE_TTL_S = 300.0
 _CL_TIMEOUT_S = 15.0
 _GEOCODE_TIMEOUT_S = 10.0
+# Stop refining once the fix is this tight. Wi-Fi positioning on a Mac tops
+# out around 10-65 m, so this is "as good as it gets" rather than a
+# compromise; without a floor the loop would always burn the full timeout.
+_GOOD_ENOUGH_M = 65.0
 
 _cache_lock = threading.Lock()
 _cache = {"at": 0.0, "fix": None}
@@ -73,12 +77,24 @@ def _delegate_class(objc):
     class _FridayLocationDelegate(objc.lookUpClass("NSObject")):
         def locationManager_didUpdateLocations_(self, manager, locations):
             loc = locations.lastObject() if locations else None
-            if loc is not None:
+            if loc is None:
+                return
+            acc = float(loc.horizontalAccuracy())
+            if acc < 0:            # negative means the fix is invalid
+                return
+            # At Best accuracy CoreLocation delivers a coarse fix immediately
+            # and refines it over the next few seconds. Taking the first one
+            # would report a ~1 km Wi-Fi estimate as though it were final, so
+            # keep the tightest seen and only stop early once it is good
+            # enough to be worth the wait.
+            prev = _pending.get("accuracy_m")
+            if prev is None or acc < prev:
                 coord = loc.coordinate()
                 _pending["lat"] = float(coord.latitude)
                 _pending["lon"] = float(coord.longitude)
-                _pending["accuracy_m"] = float(loc.horizontalAccuracy())
-            _pending["done"] = True
+                _pending["accuracy_m"] = acc
+            if _pending["accuracy_m"] <= _GOOD_ENOUGH_M:
+                _pending["done"] = True
 
         def locationManager_didFailWithError_(self, manager, error):
             _pending["error"] = str(error)
@@ -114,7 +130,7 @@ def _corelocation_fix():
                 _cl_manager = CoreLocation.CLLocationManager.alloc().init()
                 _cl_manager.setDelegate_(_cl_delegate)
                 _cl_manager.setDesiredAccuracy_(
-                    CoreLocation.kCLLocationAccuracyHundredMeters)
+                    CoreLocation.kCLLocationAccuracyBest)
                 # No-op when the process has no usage-description key, which
                 # is exactly the bare-interpreter case described up top.
                 if hasattr(_cl_manager, "requestWhenInUseAuthorization"):
@@ -151,7 +167,7 @@ def _corelocation_fix():
             return None
 
 
-def _reverse_geocode(lat: float, lon: float) -> str:
+def _reverse_geocode(lat: float, lon: float, accuracy_m=None) -> str:
     """A human place name for a coordinate, or '' if it can't be resolved.
 
     CLGeocoder rather than a web service: the coordinate came from the local
@@ -187,7 +203,16 @@ def _reverse_geocode(lat: float, lon: float) -> str:
         pm = done.get("placemark")
         if pm is None:
             return ""
-        parts = [pm.locality(), pm.administrativeArea()]
+        parts = []
+        # Only claim a street address when the fix is tight enough to support
+        # one. Naming a specific street off a 500 m estimate reads as certainty
+        # the data does not have — and a wrong street is worse than a right city.
+        if accuracy_m is not None and accuracy_m <= _GOOD_ENOUGH_M:
+            street = " ".join(p for p in (pm.subThoroughfare(),
+                                          pm.thoroughfare()) if p)
+            if street:
+                parts.append(street)
+        parts += [pm.locality(), pm.administrativeArea()]
         return ", ".join(p for p in parts if p)
     except Exception as e:
         logger.debug(f"Reverse geocode failed: {e}")
@@ -262,7 +287,8 @@ def fetch(max_age_s: float = _CACHE_TTL_S) -> dict | None:
     fix = _corelocation_fix()
     if fix is not None:
         fix["source"] = "corelocation"
-        fix["place"] = _reverse_geocode(fix["lat"], fix["lon"])
+        fix["place"] = _reverse_geocode(fix["lat"], fix["lon"],
+                                        fix.get("accuracy_m"))
     else:
         fix = _ip_fix()
         if fix is not None:
