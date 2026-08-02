@@ -1,5 +1,9 @@
 # Project Friday — Claude Code Instructions
- 
+
+## Codebase Navigation & Knowledge Graph
+- **Search Strategy:** Before running broad `grep` or file searches across the repository, check `graphify-out/GRAPH_REPORT.md` to map out dependencies and locate relevant files.
+- **Context Gathering:** Use the Graphify snapshot to identify component relationships first, then perform targeted reads on specific files.
+
 ## What is Friday?
  
 Friday is a personal AI secretary running on an always-on Mac. It ingests information from multiple sources (Canvas, GroupMe, and eventually Gmail), manages Apple Calendar, delivers proactive briefings and urgent alerts via Telegram, and drafts replies for user review. The user interacts with Friday exclusively through Telegram.
