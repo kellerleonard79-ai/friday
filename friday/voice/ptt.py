@@ -71,6 +71,7 @@ class PTTListener:
 
         self._held = False
         self._listener: Optional[keyboard.Listener] = None
+        self._seen_any_key = False
 
     def _matches(self, k) -> bool:
         if k == self.key:
@@ -80,6 +81,18 @@ class PTTListener:
         return False
 
     def _on_press(self, k) -> None:
+        # One-shot proof that the event tap is actually delivering. macOS gates
+        # key monitoring behind two separate TCC services — Accessibility and
+        # Input Monitoring — and a denial of either yields a listener that
+        # starts cleanly and then receives nothing at all. Without this line,
+        # "the tap is dead" and "the configured key never matches" look
+        # identical in the log.
+        if not self._seen_any_key:
+            self._seen_any_key = True
+            _LOGGER.info(
+                "key monitoring live — first event observed: %s "
+                "(watching for %s)", k, self.key,
+            )
         if not self._matches(k):
             return
         if self._held:

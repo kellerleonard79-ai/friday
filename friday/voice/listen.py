@@ -54,6 +54,22 @@ _LOGGER = logging.getLogger(__name__)
 #   • /tmp/friday_listening flag toggled per session (menubar/dashboard read it)
 LISTENING_FLAG = Path("/tmp/friday_listening")
 
+# Throttle for the Accessibility prompt — see the call site in boot().
+_AX_PROMPT_MARKER = Path("/tmp/friday_ax_prompt")
+_AX_PROMPT_INTERVAL_S = 3600
+
+
+def _prompt_due(marker: Path, interval_s: int) -> bool:
+    """True if `marker` is older than `interval_s` (or missing), touching it.
+    Survives the respawn because it lives outside the process."""
+    try:
+        if marker.exists() and (time.time() - marker.stat().st_mtime) < interval_s:
+            return False
+        marker.touch()
+    except OSError as e:
+        _LOGGER.debug("prompt marker %s: %s", marker, e)
+    return True
+
 
 # ---------------------------------------------------------------------------
 # Whisper wrapper
@@ -143,6 +159,38 @@ def _probe_microphone() -> bool:
                 pa.terminate()
         except Exception:
             pass
+
+
+def _accessibility_trusted(prompt: bool = False) -> bool:
+    """AXIsProcessTrusted for this process, optionally raising the system dialog
+    that registers it with TCC.
+
+    Accessibility is not the microphone. Mic TCC follows the *responsible
+    bundle*, which is the whole reason FridayVoice.app wraps the interpreter —
+    but Accessibility follows the *running binary*, and the launcher execv's
+    python, so by the time pynput asks there is no .app left to credit (the
+    listener runs with ppid=1). Worse, a python.org framework build re-execs
+    into Python.framework/.../Resources/Python.app/Contents/MacOS/Python, so
+    the binary that gets checked is not even the interpreter path in the conf.
+
+    A grant added by hand through System Settings is stored by bundle
+    identifier (client_type=0) and never matches a binary launchd exec'd
+    directly, which TCC identifies by path. Letting macOS raise the prompt is
+    what registers the identity it will actually check. Without this, voice
+    boots perfectly clean — mic OK, bridge connected, "PTT listener started" —
+    and the key silently does nothing.
+    """
+    try:
+        from ApplicationServices import (  # type: ignore[import-not-found]
+            AXIsProcessTrustedWithOptions,
+            kAXTrustedCheckOptionPrompt,
+        )
+    except ImportError as e:
+        # Missing pyobjc shouldn't block boot; PTT will warn on its own.
+        _LOGGER.warning("accessibility check unavailable: %s", e)
+        return True
+    options = {kAXTrustedCheckOptionPrompt: True} if prompt else {}
+    return bool(AXIsProcessTrustedWithOptions(options))
 
 
 def _transcribe_wav_bytes(model, wav_bytes: bytes) -> str:
@@ -295,6 +343,26 @@ class VoiceListener:
         new_session = self.bridge.get_session_string()
         if new_session and new_session != self.cfg.telegram_telethon_session:
             voice_config.persist_telethon_session(new_session)
+
+        # Global key monitoring needs Accessibility. Ask before pynput does, so
+        # the failure names itself instead of arriving as one buried warning.
+        if not _accessibility_trusted():
+            _LOGGER.error(
+                "Accessibility not granted to %s — push-to-talk will receive no "
+                "key events. Approve the system prompt, then restart voice "
+                "(`launchctl kickstart -k gui/$(id -u)/com.friday.voice`). "
+                "Adding python by hand in System Settings does not work: the "
+                "grant must be created by this prompt.",
+                sys.executable,
+            )
+            # Rate-limited because granting Accessibility makes TCC kill the
+            # process. KeepAlive respawns it, we prompt again, TCC kills it
+            # again — 35 respawns in four minutes, dialog each time. Once an
+            # hour is enough to be actionable without the storm.
+            if _prompt_due(_AX_PROMPT_MARKER, _AX_PROMPT_INTERVAL_S):
+                _accessibility_trusted(prompt=True)
+            else:
+                _LOGGER.info("accessibility prompt suppressed (shown recently)")
 
         # A bad key name must not take the whole listener down. boot() failing
         # returns 1 from main(), and the LaunchAgent's KeepAlive then respawns
