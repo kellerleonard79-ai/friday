@@ -181,6 +181,14 @@ So the mic is deaf for roughly the first 0.6 s of every press. `_run_session`
 therefore opens the device *before* loading config and reading `system_state`,
 so that work happens underneath the warm-up.
 
+The close is symmetric and matters just as much to the user, because the orange
+indicator tracks the stream, not the key. Closing in the `finally` block held
+the device through transcription, the bridge round trip, and TTS playback — the
+dot stayed lit for seconds after release, which reads as "it is still
+listening". `_run_session` now calls `stream.stop()` immediately after
+`record_while_held` returns; the `finally` still stops it, idempotently, for the
+early returns and crashes that never reach that line.
+
 `record_while_held` must not stop the instant the key lifts. It previously did,
 and every failed session in the log read exactly:
 

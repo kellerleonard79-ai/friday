@@ -599,6 +599,17 @@ class VoiceListener:
                     preroll_ms=cfg.preroll_ms,
                 )
 
+            # Capture is over — hand the device back now, not in the finally.
+            # Everything below (Whisper, the bridge round trip to Friday, TTS
+            # playback) runs for seconds with no further use for the mic, and
+            # macOS keeps the orange indicator lit for as long as the stream is
+            # open. Closing here makes the dot go out on key release, which is
+            # what the user reads as "it stopped listening". stop() is
+            # idempotent, so the finally block still covers the paths that
+            # never get here.
+            if ptt_owns_stream:
+                self.stream.stop()
+
             # Step 7: transcribe
             try:
                 transcript = _transcribe_wav_bytes(self.whisper, wav_bytes)
@@ -645,7 +656,8 @@ class VoiceListener:
             self._ptt_active.clear()
             self._ptt_release_event.clear()
             if ptt_owns_stream:
-                # Closes PyAudio → macOS's orange mic indicator turns off.
+                # Normally already closed right after capture; this covers the
+                # early returns (Friday offline, empty transcript) and crashes.
                 self.stream.stop()
             else:
                 self.stream.resume()
