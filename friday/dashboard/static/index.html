@@ -194,6 +194,20 @@
         <div id="jarvis-phrases"></div>
       </details>
     </section>
+
+    <!-- Phrases Friday learned over Telegram. There is no approval card on
+         add_quip, so this panel is the undo path for a phrase mangled by voice
+         transcription. -->
+    <section class="panel" id="panel-learned">
+      <h2>LEARNED PHRASES</h2>
+      <div class="row">
+        <input class="input" id="learned-input" type="text"
+               placeholder="Add a phrase Friday should use" maxlength="200">
+        <button class="btn btn-outline btn-sm" id="learned-add">ADD</button>
+      </div>
+      <div id="learned-error" class="field-label hidden"></div>
+      <div id="learned-phrases"></div>
+    </section>
   </template>
 
   <template id="page-integrations">

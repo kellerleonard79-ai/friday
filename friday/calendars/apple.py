@@ -17,6 +17,9 @@ from connectors.apple_calendar import events_for_day, events_in_window  # noqa: 
 
 logger = logging.getLogger("friday.applecal.write")
 _TIMEOUT_S = 15
+# Updates get a longer leash than creates: locating the event can fall back to
+# a whole-calendar uid scan, which alone measured ~11 s (see update_event).
+_UPDATE_TIMEOUT_S = 45
 
 
 def write_event(cfg: dict, calendar_name: str, title: str, start: datetime,
@@ -76,6 +79,112 @@ if (targets.length === 0) {{
         logger.error(f"Apple Calendar write error: {out['error']}")
         return None
     return out.get("uid")
+
+
+def update_event(cfg: dict, uid: str, calendar_name: str = "",
+                 title: str | None = None, start: datetime | None = None,
+                 end: datetime | None = None, location: str | None = None,
+                 description: str | None = None,
+                 all_day: bool | None = None) -> dict | None:
+    """Modify an existing event, found by its Apple UID. Only the fields passed
+    as non-None are touched; everything else keeps its current value. Returns
+    the event's post-update state, or None if it wasn't found / the write
+    failed.
+
+    Finding the event is the expensive half: `whose()` can't use an index, so
+    it walks every event in the calendar. Measured on the user's ~2.6k-event
+    calendar, matching on uid costs ~12.8 s against ~0.3 s for the property
+    write itself. Pre-filtering on a startDate window instead was tried and is
+    *slower* (~14.1 s) — evaluating two date comparisons per event beats one
+    string equality — so don't reintroduce it. The real fix is granting
+    EventKit access, which drops reads to milliseconds; see the reader in
+    connectors/apple_calendar.py.
+
+    `calendar_name` is what actually helps, keeping the walk to one calendar
+    instead of all of them. It's a hint, not a filter: on a miss the script
+    falls back to scanning every calendar rather than reporting a spurious
+    not-found, since the reader's `calendar` field can lag an event that was
+    moved between calendars.
+    """
+    changes: dict = {}
+    if title is not None:
+        changes["summary"] = title
+    if location is not None:
+        changes["location"] = location
+    if description is not None:
+        changes["description"] = description
+    if all_day is not None:
+        changes["allDay"] = bool(all_day)
+    if start is not None:
+        changes["startMs"] = int(start.timestamp() * 1000)
+    if end is not None:
+        changes["endMs"] = int(end.timestamp() * 1000)
+    if not changes:
+        logger.info(f"update_event — nothing to change for uid {uid}")
+        return None
+
+    req = {"uid": uid, "calendar": calendar_name or "", "changes": changes}
+    script = f"""
+const Calendar = Application('Calendar');
+const req = {json.dumps(req)};
+function findByUid(cals) {{
+  for (const c of cals) {{
+    const m = c.events.whose({{uid: req.uid}})();
+    if (m.length > 0) return {{event: m[0], cal: c.name()}};
+  }}
+  return null;
+}}
+const named = req.calendar ? Calendar.calendars.whose({{name: req.calendar}})() : [];
+let hit = null;
+if (named.length) hit = findByUid(named);
+if (!hit) hit = findByUid(Calendar.calendars());
+if (!hit) {{
+  JSON.stringify({{error: "event not found: " + req.uid}});
+}} else {{
+  try {{
+    const e = hit.event, ch = req.changes;
+    // startDate must be set before endDate: Calendar.app clamps an endDate
+    // that lands before the event's current start, silently dropping the move.
+    if ('startMs' in ch)      e.startDate   = new Date(ch.startMs);
+    if ('endMs' in ch)        e.endDate     = new Date(ch.endMs);
+    if ('summary' in ch)      e.summary     = ch.summary;
+    if ('location' in ch)     e.location    = ch.location;
+    if ('description' in ch)  e.description = ch.description;
+    if ('allDay' in ch)       e.alldayEvent = ch.allDay;
+    JSON.stringify({{
+      uid:       e.uid(),
+      calendar:  hit.cal,
+      title:     e.summary(),
+      start_iso: e.startDate().toISOString(),
+      end_iso:   e.endDate().toISOString(),
+      location:  (e.location() || "").toString(),
+      allDay:    e.alldayEvent()
+    }});
+  }} catch (err) {{
+    JSON.stringify({{error: err.toString()}});
+  }}
+}}
+"""
+    try:
+        result = subprocess.run(
+            ["osascript", "-l", "JavaScript", "-e", script],
+            capture_output=True, text=True, timeout=_UPDATE_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired:
+        logger.warning(f"Apple Calendar update timed out for uid {uid}")
+        return None
+    if result.returncode != 0:
+        logger.error(f"Apple Calendar update failed: {result.stderr.strip()[:200]}")
+        return None
+    try:
+        out = json.loads(result.stdout.strip())
+    except json.JSONDecodeError:
+        logger.error(f"Apple Calendar update — bad JSON: {result.stdout[:200]}")
+        return None
+    if "error" in out:
+        logger.error(f"Apple Calendar update error: {out['error']}")
+        return None
+    return out
 
 
 def _run_jxa(script: str) -> dict | None:

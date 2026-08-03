@@ -46,6 +46,7 @@ def _strip_internal_tags(body: str) -> str:
 
 
 from agent.core import FridayAgent
+from agent.tools import EVENING_BRIEFING_JOB, MORNING_BRIEFING_JOB
 from channels.telegram import TelegramHandler
 from memory.db import Database
 import memory.activity as activity
@@ -770,13 +771,18 @@ def main() -> None:
     agent._morning_briefing_runner = morning_briefing_job
     agent._evening_briefing_runner = briefing_job
 
+    # Named so the update_setting tool can find and replace them when the user
+    # moves a briefing time permanently — same remove-then-re-register dance
+    # reschedule_briefing does for one-off overrides.
     app.job_queue.run_daily(
         morning_briefing_job,
         time=datetime.time(mbh, mbm, tzinfo=local_tz),
+        name=MORNING_BRIEFING_JOB,
     )
     app.job_queue.run_daily(
         briefing_job,
         time=datetime.time(bh, bm, tzinfo=local_tz),
+        name=EVENING_BRIEFING_JOB,
     )
     app.job_queue.run_repeating(poll_connectors_job,    interval=900, first=60)
     app.job_queue.run_repeating(check_urgent_alerts_job, interval=60,  first=10)

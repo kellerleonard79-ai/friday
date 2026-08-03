@@ -160,7 +160,16 @@ def _eventkit_events(start: datetime, end: datetime) -> list[dict] | None:
                 "end_iso":   end_dt.isoformat() if end_dt else "",
                 "location":  str(e.location() or ""),
                 "calendar":  str(e.calendar().title() if e.calendar() else ""),
-                "uid":       str(e.calendarItemIdentifier() or ""),
+                # calendarItemExternalIdentifier is the iCal UID — the same
+                # string the JXA reader reports and the only one the JXA write
+                # path can look an event up by. calendarItemIdentifier is an
+                # EventKit-store-local handle in a different namespace, so
+                # returning it would silently break update_calendar_event the
+                # moment full Calendar access is granted and reads switch to
+                # EventKit. Kept as the fallback for events lacking an
+                # external id.
+                "uid":       str(e.calendarItemExternalIdentifier()
+                                 or e.calendarItemIdentifier() or ""),
             })
         return out
     except Exception as e:

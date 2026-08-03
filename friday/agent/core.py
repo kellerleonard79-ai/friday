@@ -124,6 +124,24 @@ def _compose_persona(base: str, config: dict) -> str:
                 f"{quoted}"
             )
 
+    # Phrases the user has taught Friday over Telegram. Deliberately NOT folded
+    # into the "Approved Phrases" block above — that block closes the list
+    # ("do not invent new flourishes outside this list"), so routing learned
+    # phrases through it would shrink Friday's voice down to whatever the user
+    # happened to add. This block is purely additive.
+    import self_edit
+    learned = self_edit.load()["voice_phrases"]
+    if learned:
+        quoted = "\n".join(f'- "{ph}"' for ph in learned)
+        parts.append(
+            "## Learned Phrases\n"
+            "The user has asked you to work these into your speech. Use them "
+            "verbatim, sparingly, and only where they actually fit — the same "
+            "rule as every other phrase: a line that contradicts the moment is "
+            "worse than none. They add to your voice; they do not replace it.\n"
+            f"{quoted}"
+        )
+
     if custom:
         parts.append("## Custom Instructions\n" + custom)
 
@@ -132,8 +150,12 @@ def _compose_persona(base: str, config: dict) -> str:
 
 class FridayAgent:
     def __init__(self, config: dict, conn=None):
-        base_persona = _load_persona_base()
-        self.persona  = _compose_persona(base_persona, config)
+        # AGENTS.md is a read-only bundled resource, so the base prose is read
+        # once. Only the composition around it is re-run — see the `persona`
+        # property below.
+        self._persona_base = _load_persona_base()
+        self._persona_cache: str | None = None
+        self._persona_key: tuple | None = None
         self.provider = config.get("provider", "ollama")
         self._config  = config
         self._conn    = conn
@@ -166,6 +188,24 @@ class FridayAgent:
             self._tools = None
 
         logger.info(f"Agent ready — {self.provider} / {self.model_name}")
+
+    # ── Persona ───────────────────────────────────────────────────────────
+
+    @property
+    def persona(self) -> str:
+        """The system instruction, recomposed whenever the voice file or the
+        config changes on disk.
+
+        Friday can edit both at runtime (self_edit.py), and it would be a poor
+        experience to answer "noted, sir" and then keep the old voice until the
+        next restart. Recomposition is a string join over a few KB, so it is
+        cheap enough to rebuild whenever self_edit.version() moves."""
+        import self_edit
+        key = self_edit.version()
+        if self._persona_cache is None or key != self._persona_key:
+            self._persona_cache = _compose_persona(self._persona_base, self._config)
+            self._persona_key = key
+        return self._persona_cache
 
     # ── Stats instrumentation ─────────────────────────────────────────────
 

@@ -38,7 +38,9 @@ from pydantic import BaseModel
 import compat
 import memory.state as state
 import paths
+import self_edit
 from connectors.groupme import normalize_priority
+from self_edit import sync_briefing_times as _sync_briefing_times
 
 logger = logging.getLogger("friday.dashboard")
 
@@ -215,17 +217,9 @@ def _mask_secrets(cfg: dict) -> dict:
     return masked
 
 
-def _sync_briefing_times(cfg: dict) -> None:
-    """Keep agent.{morning_briefing_time,briefing_time} in sync with the
-    notifications mirror. The agent block stays canonical for the job_queue."""
-    notif = cfg.get("notifications") or {}
-    agent_cfg = cfg.setdefault("agent", {})
-    morning = (notif.get("morning_briefing") or {}).get("time")
-    evening = (notif.get("evening_briefing") or {}).get("time")
-    if morning:
-        agent_cfg["morning_briefing_time"] = morning
-    if evening:
-        agent_cfg["briefing_time"] = evening
+# _sync_briefing_times now lives in self_edit.py and is imported above. The
+# update_setting tool writes briefing times too, so a mirror maintained by only
+# one of the two writers goes stale as soon as the other is used.
 
 
 # ── Today surface: activity feed, stats, what's-next ─────────────────────────
@@ -556,6 +550,31 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
         except Exception as e:
             raise HTTPException(500, f"Could not write config: {e}")
         return {"ok": True}
+
+    # ── Quips ────────────────────────────────────────────────────────────
+    # Friday adds quips over Telegram with no approval card, so this is the
+    # undo path: a phrase mangled by voice transcription can be deleted here
+    # instead of by hand-editing friday_voice.yaml.
+
+    @app.get("/api/quips")
+    def api_quips() -> dict:
+        return self_edit.list_phrases()
+
+    @app.post("/api/quips")
+    def api_quips_add(payload: dict = Body(...)) -> dict:
+        result = self_edit.add_phrase(payload.get("text", ""),
+                                      payload.get("target", "both"))
+        if not result.get("ok"):
+            raise HTTPException(400, result.get("error", "Could not add phrase"))
+        return result
+
+    @app.delete("/api/quips")
+    def api_quips_remove(text: str = Query(...),
+                         target: str = Query("both")) -> dict:
+        result = self_edit.remove_phrase(text, target)
+        if not result.get("ok"):
+            raise HTTPException(404, result.get("error", "Could not remove phrase"))
+        return result
 
     @app.get("/api/groupme/groups")
     def api_groupme_groups() -> dict:

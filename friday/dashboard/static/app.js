@@ -26,13 +26,28 @@ const api = {
       headers: { 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : null,
     });
-    if (!r.ok) {
-      const t = await r.text().catch(() => '');
-      throw new Error(`${path} → ${r.status} ${t.slice(0, 200)}`);
-    }
+    if (!r.ok) throw await apiError(path, r);
+    return r.json();
+  },
+  async del(path) {
+    const r = await fetch(path, { method: 'DELETE' });
+    if (!r.ok) throw await apiError(path, r);
     return r.json();
   },
 };
+
+// Errors keep their existing shape so current callers are unaffected, but also
+// carry `.detail` — FastAPI's human-readable message, which the learned-phrase
+// panel shows to the user verbatim ("Phrase contains emoji", not "400").
+async function apiError(path, r) {
+  const t = await r.text().catch(() => '');
+  let detail = '';
+  try { detail = JSON.parse(t).detail || ''; } catch { /* not JSON */ }
+  const e = new Error(`${path} → ${r.status} ${t.slice(0, 200)}`);
+  e.detail = detail;
+  e.status = r.status;
+  return e;
+}
 
 function flash(text = 'SAVED', isError = false) {
   FLASH.textContent = text;
@@ -716,6 +731,88 @@ function renderPersona() {
     p.custom_instructions = ci.value;
     await saveConfig();
   };
+
+  renderLearnedPhrases();
+}
+
+// ── Learned phrases ────────────────────────────────────────────────────
+// These live in friday_voice.yaml, not the config, so they save through their
+// own endpoint rather than saveConfig().
+
+async function renderLearnedPhrases() {
+  const container = document.getElementById('learned-phrases');
+  const input = document.getElementById('learned-input');
+  const addBtn = document.getElementById('learned-add');
+  const errBox = document.getElementById('learned-error');
+  if (!container) return;
+
+  const showError = (msg) => {
+    errBox.textContent = msg || '';
+    errBox.classList.toggle('hidden', !msg);
+  };
+
+  let data;
+  try {
+    data = await api.get('/api/quips');
+  } catch (e) {
+    container.innerHTML = '';
+    showError('Could not load phrases.');
+    return;
+  }
+  showError('');
+
+  const rows = [
+    ...data.voice.learned.map((p) => ({ text: p, target: 'voice', label: 'CONVERSATION' })),
+    ...data.confirmation.learned.map((p) => ({ text: p, target: 'confirmation', label: 'CALENDAR' })),
+    ...data.confirmation.disabled.map((p) => ({ text: p, target: 'confirmation', label: 'RETIRED', restore: true })),
+  ];
+
+  container.innerHTML = '';
+  if (!rows.length) {
+    const empty = document.createElement('div');
+    empty.className = 'phrase-row';
+    empty.innerHTML = '<div class="phrase-text">Nothing learned yet. Tell Friday to add a quip over Telegram, or use the box above.</div>';
+    container.appendChild(empty);
+  }
+
+  for (const r of rows) {
+    const row = document.createElement('div');
+    row.className = 'phrase-row';
+    row.innerHTML = `
+      <div class="phrase-text">"${escapeHtml(r.text)}" <span class="field-label">${r.label}</span></div>
+      <button class="btn btn-outline btn-sm">${r.restore ? 'RESTORE' : 'REMOVE'}</button>
+    `;
+    row.querySelector('button').onclick = async () => {
+      try {
+        if (r.restore) {
+          await api.post('/api/quips', { text: r.text, target: 'confirmation' });
+        } else {
+          await api.del(`/api/quips?text=${encodeURIComponent(r.text)}&target=${r.target}`);
+        }
+        flash(r.restore ? 'RESTORED' : 'REMOVED');
+        renderLearnedPhrases();
+      } catch (e) {
+        flash(e.detail || 'FAILED', true);
+      }
+    };
+    container.appendChild(row);
+  }
+
+  const submit = async () => {
+    const text = input.value.trim();
+    if (!text) return;
+    try {
+      await api.post('/api/quips', { text, target: 'both' });
+      input.value = '';
+      showError('');
+      flash('ADDED');
+      renderLearnedPhrases();
+    } catch (e) {
+      showError(e.detail || 'Could not add that phrase.');
+    }
+  };
+  addBtn.onclick = submit;
+  input.onkeydown = (ev) => { if (ev.key === 'Enter') submit(); };
 }
 
 function togglePhrases() {

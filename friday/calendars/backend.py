@@ -61,5 +61,15 @@ def write_event(calendar_name: str, title: str, start, end,
                               all_day=all_day)
 
 
+def update_event(uid: str, calendar_name: str = "", **fields) -> dict | None:
+    """Modify an existing event in place. `fields` accepts title/start/end/
+    location/description/all_day; anything left out keeps its current value.
+    `calendar_name` is a lookup hint — supply it when known, since the Apple
+    backend otherwise scans every calendar. Returns the event's post-update
+    state, or None on failure."""
+    return _mod().update_event(_CONFIG, uid, calendar_name=calendar_name,
+                               **fields)
+
+
 def calendar_exists(name: str) -> bool:
     return _mod().calendar_exists(_CONFIG, name)

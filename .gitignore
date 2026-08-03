@@ -7,6 +7,8 @@
 state.json
 
 friday/friday_config.yaml
+# Phrases Friday learned at runtime — user state, like the config and the db.
+friday/friday_voice.yaml
 com.friday.agent.plist
 com.friday.voice.plist
 

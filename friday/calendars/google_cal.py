@@ -272,3 +272,77 @@ def write_event(cfg: dict, calendar_name: str, title: str, start: datetime,
     except Exception as e:
         logger.error(f"Google Calendar write failed for {title!r}: {e}")
         return None
+
+
+def update_event(cfg: dict, uid: str, calendar_name: str = "",
+                 title: str | None = None, start: datetime | None = None,
+                 end: datetime | None = None, location: str | None = None,
+                 description: str | None = None,
+                 all_day: bool | None = None) -> dict | None:
+    """Modify an existing event, found by its Google event id. Only the fields
+    passed as non-None are touched. Returns the event's post-update state, or
+    None if it wasn't found / the write failed.
+
+    Uses patch(), so unspecified fields are left alone server-side rather than
+    being cleared. calendar_name narrows the lookup; without it every readable
+    calendar is tried, since a Google event id is only unique within its own
+    calendar's namespace.
+    """
+    service = _get_service()
+    if service is None:
+        return None
+    tz_name = (cfg.get("agent") or {}).get("timezone", "America/Chicago")
+
+    body: dict = {}
+    if title is not None:
+        body["summary"] = title
+    if location is not None:
+        body["location"] = location
+    if description is not None:
+        body["description"] = description
+    if start is not None or end is not None:
+        if all_day:
+            if start is not None:
+                body["start"] = {"date": start.date().isoformat()}
+            if end is not None:
+                end_date = end.date()
+                if start is not None and end_date <= start.date():
+                    end_date = start.date() + timedelta(days=1)
+                body["end"] = {"date": end_date.isoformat()}
+        else:
+            if start is not None:
+                body["start"] = {"dateTime": start.isoformat(), "timeZone": tz_name}
+            if end is not None:
+                body["end"] = {"dateTime": end.isoformat(), "timeZone": tz_name}
+    if not body:
+        logger.info(f"update_event — nothing to change for id {uid}")
+        return None
+
+    candidates: list[tuple[str, str]] = []
+    if calendar_name:
+        cal_id = _calendar_map().get(calendar_name)
+        if cal_id:
+            candidates.append((calendar_name, cal_id))
+    candidates += [c for c in _read_calendar_ids(cfg) if c not in candidates]
+
+    for name, cal_id in candidates:
+        try:
+            updated = service.events().patch(
+                calendarId=cal_id, eventId=uid, body=body).execute()
+        except Exception as e:
+            # 404 here just means "not in this calendar" — keep looking.
+            logger.debug(f"Google Calendar patch miss in {name!r}: {e}")
+            continue
+        start_raw = updated.get("start", {})
+        end_raw   = updated.get("end", {})
+        return {
+            "uid":       updated.get("id", ""),
+            "calendar":  name,
+            "title":     updated.get("summary", ""),
+            "start_iso": start_raw.get("dateTime") or start_raw.get("date", ""),
+            "end_iso":   end_raw.get("dateTime") or end_raw.get("date", ""),
+            "location":  updated.get("location", "") or "",
+            "allDay":    "date" in start_raw,
+        }
+    logger.error(f"Google Calendar update — event {uid} not found in any calendar")
+    return None

@@ -79,39 +79,49 @@ def _normalize_title(title: str) -> str:
     return " ".join(out)
 
 
-def _parse_event(event: dict) -> tuple[str, datetime, datetime, bool]:
-    """(title, start, end, all_day). Raises ValueError on bad input.
+def _resolve_times(date_str: str, start_str: str,
+                   end_str: str) -> tuple[datetime, datetime, bool]:
+    """(start, end, all_day) from the string forms the LLM supplies.
     Honors start_time/end_time as a single-day range; falls back to 1h
     duration when only start_time is given; treats no times as all-day.
     Overnight ranges (end <= start) are rejected for now."""
-    title = _normalize_title((event.get("title") or "").strip())
-    event["title"] = title
-    if not title:
-        raise ValueError("event.title required")
-    date_str = (event.get("date") or "").strip()
+    date_str = (date_str or "").strip()
     if not date_str:
         raise ValueError("event.date required (YYYY-MM-DD)")
     day = date_cls.fromisoformat(date_str)
-
-    start_str = (event.get("start_time") or event.get("time") or "").strip()
-    end_str   = (event.get("end_time") or "").strip()
+    start_str = (start_str or "").strip()
+    end_str   = (end_str or "").strip()
 
     if not start_str:
         if end_str:
             raise ValueError("end_time given without start_time")
         start = datetime(day.year, day.month, day.day)
-        return title, start, start + timedelta(days=1), True
+        return start, start + timedelta(days=1), True
 
     sh, sm = (int(x) for x in start_str.split(":", 1))
     start = datetime(day.year, day.month, day.day, sh, sm)
     if not end_str:
-        return title, start, start + _DEFAULT_DURATION, False
+        return start, start + _DEFAULT_DURATION, False
 
     eh, em = (int(x) for x in end_str.split(":", 1))
     end = datetime(day.year, day.month, day.day, eh, em)
     if end <= start:
         raise ValueError(f"end_time {end_str} must be after start_time {start_str}")
-    return title, start, end, False
+    return start, end, False
+
+
+def _parse_event(event: dict) -> tuple[str, datetime, datetime, bool]:
+    """(title, start, end, all_day). Raises ValueError on bad input."""
+    title = _normalize_title((event.get("title") or "").strip())
+    event["title"] = title
+    if not title:
+        raise ValueError("event.title required")
+    start, end, all_day = _resolve_times(
+        event.get("date") or "",
+        event.get("start_time") or event.get("time") or "",
+        event.get("end_time") or "",
+    )
+    return title, start, end, all_day
 
 
 def _friendly_date(date_str: str) -> str:
@@ -214,8 +224,9 @@ def auto_write(event: dict, telegram=None, default_calendar: str | None = None,
         return None
 
     notes = (event.get("notes") or "").strip()
+    where = (event.get("location") or "").strip()
     try:
-        uid = write_event(cal, title, start, end,
+        uid = write_event(cal, title, start, end, location=where,
                           description=notes, all_day=all_day)
     except Exception as e:
         logger.exception(f"auto_write — unexpected: {e}")
@@ -231,6 +242,102 @@ def auto_write(event: dict, telegram=None, default_calendar: str | None = None,
     if telegram:
         telegram.send(format_confirmation(event, quip))
     return uid
+
+
+def auto_update(uid: str, telegram=None, quip: str = "", calendar: str = "",
+                title: str | None = None, date: str | None = None,
+                start_time: str | None = None, end_time: str | None = None,
+                location: str | None = None,
+                notes: str | None = None) -> dict | None:
+    """Immediate in-place edit of an existing event, no approval gate. Returns
+    the event's post-update state, or None on failure.
+
+    Only the fields passed as non-None are touched. Timing is the exception:
+    start and end are derived together, so a caller changing either must pass
+    `date` as well — there is no way to recompute one end of a range without
+    knowing the day it sits on.
+
+    `calendar` is worth passing when known: it keeps the Apple backend's
+    lookup to one calendar instead of a scan across all of them.
+    """
+    if not uid:
+        logger.error("auto_update — uid required")
+        if telegram:
+            telegram.send("Couldn't edit that event, sir — I don't have a handle on it.")
+        return None
+
+    fields: dict = {}
+    if title is not None:
+        fields["title"] = _normalize_title(title.strip())
+    if location is not None:
+        fields["location"] = location.strip()
+    if notes is not None:
+        fields["description"] = notes.strip()
+
+    retimed = any(v is not None for v in (date, start_time, end_time))
+    if retimed:
+        try:
+            start, end, all_day = _resolve_times(
+                date or "", start_time or "", end_time or "")
+        except ValueError as e:
+            logger.error(f"auto_update — bad timing: {e}")
+            if telegram:
+                telegram.send(f"Couldn't edit that event, sir — {e}.")
+            return None
+        fields.update(start=start, end=end, all_day=all_day)
+
+    if not fields:
+        logger.info(f"auto_update — no changes requested for {uid}")
+        return None
+
+    try:
+        result = cal_backend.update_event(uid, calendar_name=calendar, **fields)
+    except Exception as e:
+        logger.exception(f"auto_update — unexpected: {e}")
+        result = None
+
+    if not result:
+        if telegram:
+            telegram.send("Couldn't update that event, sir — I wasn't able to find it.")
+        return None
+
+    # Attach the exact confirmation text to the result so callers can log what
+    # the user actually saw instead of rebuilding it and risking drift.
+    result["confirmation"] = format_update_confirmation(
+        result, fields, date, start_time, quip)
+    if telegram:
+        telegram.send(result["confirmation"])
+    return result
+
+
+def format_update_confirmation(result: dict, fields: dict,
+                               date: str | None = None,
+                               start_time: str | None = None,
+                               quip: str = "") -> str:
+    """One-line confirmation Friday sends after a successful edit. Names what
+    actually changed so the user can tell an edit from a fresh add — the whole
+    point of the update path is that it doesn't look like a duplicate."""
+    title = (result.get("title") or "Event").strip()
+    parts = []
+    if "title" in fields:
+        parts.append("renamed")
+    if "start" in fields:
+        when = _confirmation_date(date or "")
+        clock = _friendly_time(start_time or "")
+        moved = f"moved to {when}" if when else "moved"
+        if clock:
+            moved += f" at {clock}"
+        parts.append(moved)
+    if "location" in fields:
+        where = fields["location"]
+        parts.append(f"location set to {where}" if where else "location cleared")
+    if "description" in fields:
+        parts.append("notes updated" if fields["description"] else "notes cleared")
+
+    msg = f"{title} updated — {', '.join(parts)}." if parts else f"{title} updated."
+    if quip:
+        msg = f"{msg} {quip}"
+    return msg
 
 
 def gated_write(event: dict, conn: sqlite3.Connection, telegram,
