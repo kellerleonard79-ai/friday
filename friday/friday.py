@@ -57,6 +57,7 @@ from connectors import gcal_sync
 from connectors import groupme as groupme_connector
 from connectors import location
 from agent import briefings
+from agent import profiles
 from actions import calendar as apple_writer
 from dashboard import server as dashboard_server
 
@@ -331,7 +332,8 @@ def main() -> None:
                 f"{criteria}"
             )
             urgency = await loop.run_in_executor(
-                None, lambda: agent._think(prompt, use_tools=False, triggered_by="poll")
+                None, lambda: agent._think(prompt, use_tools=False, triggered_by="poll",
+                                           profile=profiles.CLASSIFY)
             )
             urgency = urgency.strip().upper()
             if urgency not in ("URGENT", "SOON", "NORMAL"):
@@ -392,7 +394,8 @@ def main() -> None:
                 f"- notes: short, include any location mentioned\n"
             )
             raw = await loop.run_in_executor(
-                None, lambda p=prompt: agent._think(p, use_tools=False, triggered_by="poll")
+                None, lambda p=prompt: agent._think(p, use_tools=False, triggered_by="poll",
+                                                    profile=profiles.CLASSIFY)
             )
             raw = (raw or "").strip()
             # Mark scanned regardless of outcome so we never retry the same row

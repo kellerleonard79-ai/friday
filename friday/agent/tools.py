@@ -213,9 +213,13 @@ def make_tools(conn, config, agent=None):
         disk every call — edit quips.yaml and the next action picks it up
         without a restart."""
         import phrases
+        from agent import profiles
         prompt, quips = phrases.quip_prompt(context)
-        raw = agent._think(prompt, use_tools=False,
-                           triggered_by="user_message") if agent else ""
+        # CLASSIFY, not COMPOSE: the model's job here is to return an index
+        # into the quip list, not to write in Friday's voice. The quips
+        # themselves already carry the personality.
+        raw = agent._think(prompt, use_tools=False, triggered_by="user_message",
+                           profile=profiles.CLASSIFY) if agent else ""
         return phrases.pick_quip(raw, quips)
 
     def add_calendar_event(

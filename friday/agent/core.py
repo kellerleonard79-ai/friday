@@ -579,7 +579,8 @@ class FridayAgent:
         )
 
         raw = (self._think(prompt, use_tools=False, triggered_by="media",
-                           images=images, response_json=True) or "").strip()
+                           images=images, response_json=True,
+                           profile=profiles.CLASSIFY) or "").strip()
         event = self._parse_media_event(raw)
         if event is None:
             telegram.send(
