@@ -55,6 +55,7 @@ from calendars import backend as calendar_backend
 from connectors import canvas as canvas_connector
 from connectors import gcal_sync
 from connectors import groupme as groupme_connector
+from connectors import location
 from agent import briefings
 from actions import calendar as apple_writer
 from dashboard import server as dashboard_server
@@ -455,6 +456,11 @@ def main() -> None:
         logger.info("Polling connectors...")
         loop = asyncio.get_running_loop()
 
+        # Refresh the machine's location so _system_instruction can inject it
+        # from cache. Done here, in an executor, because the lookup blocks for
+        # seconds — the prompt path reads the cache and never fetches.
+        await loop.run_in_executor(None, location.warm)
+
         canvas_cfg = config.get("canvas", {})
         if canvas_cfg.get("ical_url"):
             try:
@@ -487,7 +493,14 @@ def main() -> None:
                 logger.error(f"gcal_sync poll failed: {e}")
 
         groupme_cfg = config.get("groupme") or {}
-        if groupme_cfg.get("api_token") and groupme_cfg.get("groups"):
+        # notifications.groupme_polling is the kill switch (dashboard: "GroupMe
+        # polling"). Off means Friday never fetches — no new rows, so nothing
+        # for the urgency tagger or event extractor to spend LLM calls on.
+        # Existing rows and already-scheduled events are untouched.
+        groupme_enabled = (config.get("notifications") or {}).get("groupme_polling", True)
+        if not groupme_enabled:
+            logger.info("GroupMe: polling disabled (notifications.groupme_polling=false).")
+        elif groupme_cfg.get("api_token") and groupme_cfg.get("groups"):
             try:
                 count = await loop.run_in_executor(
                     None, groupme_connector.fetch, groupme_cfg, conn,

@@ -207,6 +207,87 @@ class FridayAgent:
             self._persona_key = key
         return self._persona_cache
 
+    def _system_instruction(self) -> str:
+        """The persona with the current wall-clock time appended.
+
+        This replaces the old get_now tool. A tool the model has to remember to
+        call is a tool it can skip, and skipping it left the model inferring the
+        date from training data — which is how relative phrases ("tomorrow",
+        "this Friday") resolved to the wrong day. Injecting the stamp makes it
+        unconditional and costs ~25 tokens against the ~2,900 the tool schema
+        entry was costing on every chat turn.
+
+        Appended rather than prepended: the persona stays a stable prefix
+        (a volatile first line would defeat prefix caching), and the tail of a
+        system instruction is where an authoritative fact carries most weight.
+        """
+        tz_name = (self._config.get("agent") or {}).get("timezone", "America/Chicago")
+        try:
+            now = datetime.now(ZoneInfo(tz_name))
+        except Exception:
+            # A bad tz string must not take down every LLM call — degrade to
+            # system-local time and say so rather than claiming a zone we
+            # did not actually apply.
+            logger.warning(f"Unknown timezone {tz_name!r} — stamping system-local time.")
+            now, tz_name = datetime.now(), "local time"
+        # %d/%H/%M only. %-d and %-I are glibc-only and would need
+        # compat.strftime() to survive Windows (see compat.py).
+        stamp = now.strftime("%A, %B %d %Y, %H:%M")
+        block = (
+            f"## Current Time\n"
+            f"Current time: {stamp} {tz_name}\n"
+            f"This is authoritative. Do not infer or guess the day of week."
+        )
+        loc = self._location_block()
+        if loc:
+            block += f"\n\n{loc}"
+        return f"{self.persona}\n\n{block}"
+
+    def _location_block(self) -> str:
+        """Where the machine is, or '' if no fix has been taken yet.
+
+        Cache-only by design — see connectors.location.cached(). The cache is
+        warmed by the connector poll job; before the first warm this returns ''
+        and the prompt simply carries no location, which is the honest state.
+
+        Carries the coordinates too. This block replaced the get_location tool,
+        and that tool returned lat/lon/accuracy_m — dropping them here would
+        have quietly cost the model the ability to answer "what are my exact
+        coordinates" at all.
+
+        The caveat is not optional. This is the Mac's position, not the user's,
+        and a bare "Current location: X" in a system prompt is read as the
+        user's whereabouts — the exact claim connectors/location.py goes out of
+        its way to forbid.
+        """
+        try:
+            from connectors import location
+            fix = location.cached()
+            if fix is None:
+                return ""
+            where = location.describe(fix).rstrip(".")
+            if not where:
+                return ""
+            coords = f"{fix['lat']:.4f}, {fix['lon']:.4f}"
+            hedge = (
+                "City-level and sometimes off by a city — hedge accordingly, "
+                "and do not read the coordinates as precise."
+                if fix.get("source") == "ip"
+                else "State the place plainly."
+            )
+            return (
+                f"## Current Location\n"
+                f"The machine running you is at: {where}.\n"
+                f"Coordinates: {coords}. {hedge}\n"
+                f"This is where the Mac is, NOT where the user is — it is only "
+                f"their location while they are with the machine. Never claim "
+                f"to know where the user personally is."
+            )
+        except Exception as e:
+            # A location problem must never cost us the LLM call.
+            logger.debug(f"Location block skipped: {e}")
+            return ""
+
     # ── Stats instrumentation ─────────────────────────────────────────────
 
     def _record_call(self, tokens_in: int = 0, tokens_out: int = 0) -> None:
@@ -309,7 +390,7 @@ class FridayAgent:
                         contents.append({"role": role, "parts": [{"text": turn["content"]}]})
                     contents.append({"role": "user", "parts": [{"text": prompt}]})
                 cfg_kwargs = dict(
-                    system_instruction=self.persona,
+                    system_instruction=self._system_instruction(),
                     max_output_tokens=self.max_tokens,
                 )
                 if response_json:
@@ -351,7 +432,7 @@ class FridayAgent:
                 return text
 
             else:  # ollama
-                messages = [{"role": "system", "content": self.persona}]
+                messages = [{"role": "system", "content": self._system_instruction()}]
                 for turn in (history or []):
                     messages.append({"role": turn["role"], "content": turn["content"]})
                 user_msg = {"role": "user", "content": prompt}

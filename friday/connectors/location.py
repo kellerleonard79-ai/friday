@@ -303,9 +303,47 @@ def fetch(max_age_s: float = _CACHE_TTL_S) -> dict | None:
     return fix
 
 
-def describe() -> str:
-    """One-line human summary of where this machine is, or '' on failure."""
-    fix = fetch()
+def cached(max_age_s: float | None = None) -> dict | None:
+    """The last fix, without ever performing a lookup. None if there isn't one.
+
+    fetch() can block for ~25 s in the worst case — the CoreLocation timeout
+    plus a geocode, or both IP providers timing out in series. That is fine in
+    a tool call the user is already waiting on, and unacceptable on the
+    system-instruction path, where every LLM call (including background jobs)
+    would pay it while a Telegram handler holds the semaphore. This is the
+    read-only half: no I/O, so hot-path callers take whatever warm() last left
+    behind and move on.
+
+    max_age_s defaults to unbounded. The 5-minute fetch() TTL exists to avoid
+    redundant lookups, not because a fix expires — an always-on Mac does not
+    move, so yesterday's fix is still the right answer.
+    """
+    with _cache_lock:
+        if _cache["fix"] is None:
+            return None
+        if max_age_s is not None and (time.monotonic() - _cache["at"]) >= max_age_s:
+            return None
+        return _cache["fix"]
+
+
+def warm() -> None:
+    """Populate the cache so cached() has an answer. Blocking — call from an
+    executor, never from the event loop. Never raises: a failed warm just
+    means the location line is omitted from the next prompts."""
+    try:
+        fetch()
+    except Exception as e:
+        logger.warning(f"Location cache warm failed: {e}")
+
+
+def describe(fix: dict | None = None) -> str:
+    """One-line human summary of where this machine is, or '' on failure.
+
+    Pass a fix to format one you already hold (e.g. from cached()); omit it to
+    fetch, which may block.
+    """
+    if fix is None:
+        fix = fetch()
     if fix is None:
         return ""
     place = fix.get("place") or f"{fix['lat']:.4f}, {fix['lon']:.4f}"

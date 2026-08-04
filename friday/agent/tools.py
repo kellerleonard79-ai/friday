@@ -22,7 +22,7 @@ import memory.activity as activity
 import memory.state as state
 import self_edit
 from calendars import backend as calendar_backend
-from connectors import location, weather
+from connectors import weather
 
 logger = logging.getLogger("friday.tools")
 
@@ -89,18 +89,9 @@ def make_tools(conn, config, agent=None):
         except ValueError:
             return iso_utc
 
-    def get_now() -> dict:
-        """Return the current local date, time, and day of week. Call this first
-        whenever the user mentions relative times like 'today', 'tomorrow',
-        'next week', 'in 3 days', 'this weekend'."""
-        now = datetime.now(local_tz)
-        return {
-            "iso":         now.isoformat(timespec="seconds"),
-            "date":        now.date().isoformat(),
-            "day_of_week": now.strftime("%A"),
-            "timezone":    tz_name,
-            "human":       compat.strftime(now, "%A, %B %-d %Y, %-I:%M %p %Z"),
-        }
+    # No get_now tool: the current time is injected into every system
+    # instruction by FridayAgent._system_instruction (agent/core.py). The model
+    # always has it, so there is nothing to call.
 
     def get_schedule(start_date: str, end_date: str) -> dict:
         """Return events from the user's calendar with start times in
@@ -140,32 +131,11 @@ def make_tools(conn, config, agent=None):
         text = weather.respond(config.get("weather", {}), query)
         return {"weather": text or "(weather unavailable)"}
 
-    def get_location() -> dict:
-        """Return where the machine running Friday currently is. Use for "where
-        am I", "what's my location", "what city am I in".
-
-        This is the location of the always-on Mac, NOT of the user's phone —
-        it is only the user's location while they are with the machine. Never
-        claim to know where the user personally is.
-
-        `source` sets how precisely you may speak:
-          - "corelocation": device positioning, accurate to `accuracy_m` metres.
-            State the place plainly.
-          - "ip": derived from the internet connection, city-level at best and
-            sometimes off by a city. Hedge — "your connection places the Mac
-            in ...".
-        On {"error": ...} say the location could not be determined; do not
-        guess a city from anything else in the conversation."""
-        fix = location.fetch()
-        if fix is None:
-            return {"error": "location unavailable"}
-        return {
-            "place":      fix.get("place") or "",
-            "latitude":   round(fix["lat"], 4),
-            "longitude":  round(fix["lon"], 4),
-            "accuracy_m": fix.get("accuracy_m"),
-            "source":     fix["source"],
-        }
+    # No get_location tool: the machine's position — place, coordinates,
+    # precision and how it was obtained — is injected into every system
+    # instruction by FridayAgent._location_block (agent/core.py). Keeping a
+    # tool as well let the model fetch a live fix that disagreed with the
+    # cache-warmed line already in its prompt.
 
     def get_pending_canvas() -> dict:
         """Return Canvas LMS assignments tagged URGENT or SOON that have not
@@ -264,8 +234,9 @@ def make_tools(conn, config, agent=None):
         need to describe the event again afterward.
 
         Use this for work shifts, appointments, meetings — anything the user
-        says they have coming up. Always call get_now() first to resolve
-        relative phrases like 'next Saturday', 'tomorrow', 'this Friday'.
+        says they have coming up. Resolve relative phrases like 'next Saturday',
+        'tomorrow', 'this Friday' against the current time given in your system
+        instruction.
 
         Only for events that do not exist yet. If the user is adding a detail
         to, correcting, or moving something already on the calendar, use
@@ -573,7 +544,7 @@ def make_tools(conn, config, agent=None):
         return result
 
     return [_instrument(fn) for fn in (
-        get_now, get_schedule, get_weather, get_location,
+        get_schedule, get_weather,
         get_pending_canvas, reschedule_briefing,
         add_calendar_event, update_calendar_event,
         add_quip, list_quips, remove_quip, update_setting,
