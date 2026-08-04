@@ -32,8 +32,27 @@ logger = logging.getLogger("friday.profiles")
 CHAT = "chat"
 COMPOSE = "compose"
 CLASSIFY = "classify"
+# ROUTE is the tool dispatcher's profile (agent/dispatcher.py). It is listed
+# here for the contract, not for _render_persona: no persona section is mapped
+# to it anywhere in _MEMBERSHIP, so it cannot pick up AGENTS.md prose or the
+# config-composed blocks — including voice_phrases — even by accident. The
+# dispatcher does not route through _think at all; it needs a different model,
+# a different timeout and a response schema, none of which _think carries.
+ROUTE = "route"
 
 ALL = (CHAT, COMPOSE, CLASSIFY)
+
+# The dispatcher's entire system instruction. Biased hard toward
+# over-selection on purpose: an extra tool costs ~200 tokens of schema, while
+# a missing one is a silent wrong answer — Friday chats about tennis instead
+# of putting it on the calendar.
+ROUTE_INSTRUCTION = (
+    "You route a user message to the tools that might be needed to answer it. "
+    "Reply with a JSON array of tool names and nothing else. When you are "
+    "uncertain whether a tool applies, INCLUDE it — an extra tool is cheap, a "
+    "missing one silently breaks the user's request. Reply with an empty array "
+    "only when no tool could plausibly apply."
+)
 
 # What CLASSIFY sends instead of a persona. Deliberately not empty: Gemma with
 # no system instruction at all drifts into conversational framing ("Sure! The

@@ -18,7 +18,7 @@ from google.genai import types
 
 import memory.activity as activity
 import memory.state as state
-from agent import profiles
+from agent import dispatcher, profiles
 
 logger = logging.getLogger("friday.core")
 
@@ -208,13 +208,26 @@ class FridayAgent:
             self.max_tokens = gemini_cfg.get("max_tokens", 1000)
             from agent.tools import make_tools
             self._tools = make_tools(conn, config, self)
+            # Hard failure, deliberately. A tool absent from the manifest is
+            # invisible to the dispatcher and silently stops working while
+            # everything still looks healthy — far worse to discover in
+            # production than at boot.
+            dispatcher.assert_manifest_matches_tools(self._tools)
         else:
             self.gemini_client = None
             ollama_cfg = config.get("ollama", {})
             self.model_name = ollama_cfg.get("model", "llama3.2:1b")
             self.max_tokens = ollama_cfg.get("max_tokens", 1000)
             self.ollama_url = ollama_cfg.get("base_url", "http://localhost:11434")
+            # No tools on the ollama path, so nothing for the dispatcher to
+            # narrow and nothing to validate the manifest against.
             self._tools = None
+
+        # Built regardless of provider so `dispatcher.enabled` reads the same
+        # either way; it is only consulted where tools exist.
+        gem_key = (config.get("gemini") or {}).get("api_key") or os.environ.get(
+            "GEMINI_API_KEY", "")
+        self.dispatcher = dispatcher.ToolDispatcher(config, gemini_api_key=gem_key)
 
         logger.info(f"Agent ready — {self.provider} / {self.model_name}")
 
