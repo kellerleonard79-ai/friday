@@ -149,10 +149,32 @@ class TelegramHandler:
             loop = asyncio.get_running_loop()
             self.agent._last_action_emitted = None  # reset before the call
             self.agent._last_calendar_confirmation = None
+
+            # Pick the tools this message might need before paying for their
+            # schemas. Runs in an executor — it is a blocking HTTP call, and it
+            # is inside the semaphore so it shares the same 150s ceiling.
+            # Every failure inside dispatch_detail falls back to the full list,
+            # so `selected` is only ever [] when the dispatcher genuinely
+            # decided no tool applies.
+            selected = None
+            if getattr(self.agent, "dispatcher", None) and self.agent.dispatcher.enabled:
+                try:
+                    decision = await asyncio.wait_for(
+                        loop.run_in_executor(
+                            None, self.agent.dispatcher.dispatch_detail, text),
+                        timeout=_EXECUTOR_TIMEOUT_S,
+                    )
+                    selected = decision.tools
+                except TimeoutError:
+                    logger.warning("Dispatcher exceeded the executor ceiling — "
+                                   "attaching all tools.")
+
             try:
                 response = await asyncio.wait_for(
                     loop.run_in_executor(
-                        None, self.agent._think, text, history, True, "user_message"
+                        None, lambda: self.agent._think(
+                            text, history, True, "user_message",
+                            tool_names=selected)
                     ),
                     timeout=_EXECUTOR_TIMEOUT_S,
                 )
@@ -176,6 +198,40 @@ class TelegramHandler:
                 self.conn.commit()
                 return
             action_emitted = getattr(self.agent, "_last_action_emitted", None)
+
+            # Dispatcher-miss recovery. The risky case is a message the
+            # dispatcher read as needing nothing, answered as plain chat, when
+            # it was actually a request to act — "I play tennis tonight"
+            # answered with small talk instead of a calendar entry. Retrying it
+            # once with everything attached costs a turn; not retrying loses
+            # the action silently.
+            #
+            # Only when the dispatcher returned []. A wrong non-empty set is
+            # not covered: the model had tools and chose not to use them, which
+            # is a legitimate answer and not something to second-guess. One
+            # retry, ever — if it also comes back as prose, that is the reply.
+            if selected == [] and response and action_emitted is None:
+                logger.warning(
+                    f"Dispatcher returned no tools but the reply was plain "
+                    f"text — retrying once with all tools. text={text[:120]!r}"
+                )
+                try:
+                    retry = await asyncio.wait_for(
+                        loop.run_in_executor(
+                            None, lambda: self.agent._think(
+                                text, history, True, "user_message",
+                                tool_names=None)
+                        ),
+                        timeout=_EXECUTOR_TIMEOUT_S,
+                    )
+                except TimeoutError:
+                    logger.warning("Dispatcher-miss retry timed out — keeping "
+                                   "the original reply.")
+                else:
+                    action_emitted = getattr(
+                        self.agent, "_last_action_emitted", None)
+                    if retry or action_emitted:
+                        response = retry
 
             now_iso = datetime.now().isoformat()
             self.conn.execute(

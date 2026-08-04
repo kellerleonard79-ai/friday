@@ -92,6 +92,24 @@ _MEMBERSHIP: dict[str, tuple[str, ...]] = {
     "custom instructions":            (CHAT, COMPOSE),
 }
 
+# Sections worth sending only when the tools they describe are attached. Once
+# the dispatcher narrows the tool list, prose explaining a tool the model
+# cannot call is the same dead weight as the schema would have been.
+#
+# NB: "Editing vs. Adding" is grouped with the calendar tools, not the
+# self-edit ones. Despite the name it is entirely about add_calendar_event vs.
+# update_calendar_event (AGENTS.md: "adding it again leaves them with
+# duplicates") and has nothing to do with Friday editing itself. Coupling it
+# to the quip tools would drop the duplicate-event guidance from exactly the
+# turns that need it.
+_TOOL_COUPLED: dict[str, frozenset[str]] = {
+    "calendar writes":        frozenset({"add_calendar_event", "update_calendar_event"}),
+    "editing vs. adding":     frozenset({"add_calendar_event", "update_calendar_event"}),
+    "calendar title hygiene": frozenset({"add_calendar_event", "update_calendar_event"}),
+    "self-editing":           frozenset({"add_quip", "list_quips", "remove_quip",
+                                         "update_setting"}),
+}
+
 # Where an unrecognized heading goes. Fail OPEN, not closed: AGENTS.md is
 # user-editable prose and Friday is an always-on daemon, so an unmapped
 # heading must never silently vanish from the persona, and must never be a
@@ -107,9 +125,20 @@ def normalize(heading: str) -> str:
     return heading.lstrip("#").strip().lower()
 
 
-def carries(heading: str, profile: str) -> bool:
-    """True if `profile` should include the section under `heading`."""
+def carries(heading: str, profile: str,
+            tool_names: list[str] | None = None) -> bool:
+    """True if `profile` should include the section under `heading`.
+
+    tool_names is the dispatcher's selection. Pass None — the default — to
+    skip tool-coupled narrowing entirely and get the profile's full slice,
+    which is what every non-CHAT caller wants and what CHAT falls back to when
+    the dispatcher is disabled.
+    """
     key = normalize(heading)
+    if tool_names is not None:
+        required = _TOOL_COUPLED.get(key)
+        if required is not None and not required.intersection(tool_names):
+            return False
     profiles = _MEMBERSHIP.get(key)
     if profiles is None:
         if key not in _warned:

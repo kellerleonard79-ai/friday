@@ -166,12 +166,18 @@ def _persona_blocks(base: str, config: dict) -> list[tuple[str, str]]:
     return blocks
 
 
-def _render_persona(blocks: list[tuple[str, str]], profile: str) -> str:
-    """Join the blocks this profile carries. CLASSIFY carries none of them."""
+def _render_persona(blocks: list[tuple[str, str]], profile: str,
+                    tool_names: list[str] | None = None) -> str:
+    """Join the blocks this profile carries. CLASSIFY carries none of them.
+
+    tool_names narrows further, dropping prose that explains tools the model
+    was not given. None means no narrowing.
+    """
     if profile == profiles.CLASSIFY:
         return profiles.CLASSIFY_INSTRUCTION
     return "\n\n".join(
-        text for heading, text in blocks if profiles.carries(heading, profile)
+        text for heading, text in blocks
+        if profiles.carries(heading, profile, tool_names)
     )
 
 
@@ -183,7 +189,7 @@ class FridayAgent:
         self._persona_base = _load_persona_base()
         # profile name → rendered persona, all invalidated together whenever
         # self_edit.version() moves.
-        self._persona_cache: dict[str, str] = {}
+        self._persona_cache: dict[tuple, str] = {}
         self._persona_key: tuple | None = None
         self.provider = config.get("provider", "ollama")
         self._config  = config
@@ -233,7 +239,8 @@ class FridayAgent:
 
     # ── Persona ───────────────────────────────────────────────────────────
 
-    def persona_for(self, profile: str) -> str:
+    def persona_for(self, profile: str,
+                    tool_names: list[str] | None = None) -> str:
         """The persona slice this call profile carries, recomposed whenever the
         voice file or the config changes on disk.
 
@@ -246,17 +253,22 @@ class FridayAgent:
         if key != self._persona_key:
             self._persona_cache = {}
             self._persona_key = key
-        if profile not in self._persona_cache:
+        # Keyed on the tool selection too: the same profile renders differently
+        # depending on which tool-coupled sections survive.
+        cache_key = (profile, None if tool_names is None else frozenset(tool_names))
+        if cache_key not in self._persona_cache:
             blocks = _persona_blocks(self._persona_base, self._config)
-            self._persona_cache[profile] = _render_persona(blocks, profile)
-        return self._persona_cache[profile]
+            self._persona_cache[cache_key] = _render_persona(
+                blocks, profile, tool_names)
+        return self._persona_cache[cache_key]
 
     @property
     def persona(self) -> str:
         """The full persona — the CHAT slice, which carries every section."""
         return self.persona_for(profiles.CHAT)
 
-    def _system_instruction(self, profile: str = profiles.CHAT) -> str:
+    def _system_instruction(self, profile: str = profiles.CHAT,
+                            tool_names: list[str] | None = None) -> str:
         """The persona with the current wall-clock time appended.
 
         This replaces the old get_now tool. A tool the model has to remember to
@@ -298,7 +310,7 @@ class FridayAgent:
             loc = self._location_block()
             if loc:
                 block += f"\n\n{loc}"
-        return f"{self.persona_for(profile)}\n\n{block}"
+        return f"{self.persona_for(profile, tool_names)}\n\n{block}"
 
     def _location_block(self) -> str:
         """Where the machine is, or '' if no fix has been taken yet.
@@ -344,6 +356,15 @@ class FridayAgent:
             # A location problem must never cost us the LLM call.
             logger.debug(f"Location block skipped: {e}")
             return ""
+
+    def _select_tools(self, tool_names: list[str] | None) -> list:
+        """The registered callables the dispatcher picked, in registration
+        order. None means all of them."""
+        if tool_names is None:
+            return self._tools
+        wanted = set(tool_names)
+        return [fn for fn in self._tools
+                if getattr(fn, "__name__", "") in wanted]
 
     # ── Stats instrumentation ─────────────────────────────────────────────
 
@@ -407,7 +428,8 @@ class FridayAgent:
     def _think(self, prompt: str, history: list | None = None,
                use_tools: bool = True, triggered_by: str = "unknown",
                images: list[tuple[bytes, str]] | None = None,
-               response_json: bool = False, profile: str = "") -> str:
+               response_json: bool = False, profile: str = "",
+               tool_names: list[str] | None = None) -> str:
         """Synchronous LLM call. Always run via run_in_executor inside async handlers.
 
         profile selects the system-instruction envelope — see agent/profiles.py.
@@ -418,6 +440,17 @@ class FridayAgent:
 
         use_tools controls whether Gemini gets the tool list. Set False for
         prompts that supply their own data explicitly (briefings, urgency tagging).
+
+        tool_names is the dispatcher's selection (agent/dispatcher.py). None
+        means attach everything, which is the pre-dispatcher behavior and what
+        runs when dispatcher.enabled is false. An EMPTY list is a real
+        decision, not a missing one: it attaches no tools at all, so "hello"
+        ships the persona alone. It also narrows the persona to match — prose
+        about a tool the model was not given is dead weight.
+
+        The SDK owns the tool loop and reuses one config object across every
+        hop, so a narrowed list attached here persists for the whole loop
+        without any further work.
 
         triggered_by labels the source of the call (user_message, briefing_morning,
         briefing_evening, poll, ...) — it is persisted on the llm_exchanges row and
@@ -455,13 +488,15 @@ class FridayAgent:
                         contents.append({"role": role, "parts": [{"text": turn["content"]}]})
                     contents.append({"role": "user", "parts": [{"text": prompt}]})
                 cfg_kwargs = dict(
-                    system_instruction=self._system_instruction(profile),
+                    system_instruction=self._system_instruction(profile, tool_names),
                     max_output_tokens=self.max_tokens,
                 )
                 if response_json:
                     cfg_kwargs["response_mime_type"] = "application/json"
                 elif use_tools and self._tools:
-                    cfg_kwargs["tools"] = self._tools
+                    selected = self._select_tools(tool_names)
+                    if selected:
+                        cfg_kwargs["tools"] = selected
                 resp = self._gemini_generate_with_retry(
                     contents=contents,
                     config=types.GenerateContentConfig(**cfg_kwargs),
@@ -497,7 +532,8 @@ class FridayAgent:
                 return text
 
             else:  # ollama
-                messages = [{"role": "system", "content": self._system_instruction(profile)}]
+                messages = [{"role": "system",
+                             "content": self._system_instruction(profile, tool_names)}]
                 for turn in (history or []):
                     messages.append({"role": turn["role"], "content": turn["content"]})
                 user_msg = {"role": "user", "content": prompt}
