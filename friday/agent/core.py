@@ -18,6 +18,7 @@ from google.genai import types
 
 import memory.activity as activity
 import memory.state as state
+from agent import profiles
 
 logger = logging.getLogger("friday.core")
 
@@ -94,15 +95,29 @@ def _load_persona_base() -> str:
     return base
 
 
-def _compose_persona(base: str, config: dict) -> str:
-    """AGENTS.md prose + a rendered block built from config['persona']."""
+def _persona_blocks(base: str, config: dict) -> list[tuple[str, str]]:
+    """AGENTS.md prose + the config-driven blocks, as [(heading, text)] pairs.
+
+    Returns blocks rather than one string so agent/profiles.py can drop the
+    sections a given call profile has no use for. Each text is stripped;
+    "\\n\\n".join of every text reproduces exactly what _compose_persona used
+    to return, which is what keeps the CHAT profile byte-identical to the old
+    single-envelope behavior.
+    """
     p = config.get("persona") or {}
     preset = (p.get("preset") or "friday").lower()
     snark  = (p.get("snark_level") or "medium").lower()
     phrases = p.get("jarvis_phrases") or {}
     custom = (p.get("custom_instructions") or "").strip()
 
-    parts = [base]
+    # AGENTS.md contributes many blocks; everything appended below contributes
+    # exactly one each, keyed by its own '## ' heading.
+    blocks: list[tuple[str, str]] = [
+        (heading, text.strip())
+        for heading, text in profiles.split_sections(base)
+        if text.strip()
+    ]
+    parts: list[str] = []
 
     preset_lines = {
         "professional": "## Mode\nProfessional secretary. Strictly utilitarian voice.",
@@ -145,7 +160,19 @@ def _compose_persona(base: str, config: dict) -> str:
     if custom:
         parts.append("## Custom Instructions\n" + custom)
 
-    return "\n\n".join(parts)
+    # Every config part opens with its own '## ' heading line, which is the
+    # key profiles._MEMBERSHIP filters on.
+    blocks.extend((part.split("\n", 1)[0], part) for part in parts)
+    return blocks
+
+
+def _render_persona(blocks: list[tuple[str, str]], profile: str) -> str:
+    """Join the blocks this profile carries. CLASSIFY carries none of them."""
+    if profile == profiles.CLASSIFY:
+        return profiles.CLASSIFY_INSTRUCTION
+    return "\n\n".join(
+        text for heading, text in blocks if profiles.carries(heading, profile)
+    )
 
 
 class FridayAgent:
@@ -154,7 +181,9 @@ class FridayAgent:
         # once. Only the composition around it is re-run — see the `persona`
         # property below.
         self._persona_base = _load_persona_base()
-        self._persona_cache: str | None = None
+        # profile name → rendered persona, all invalidated together whenever
+        # self_edit.version() moves.
+        self._persona_cache: dict[str, str] = {}
         self._persona_key: tuple | None = None
         self.provider = config.get("provider", "ollama")
         self._config  = config
@@ -191,10 +220,9 @@ class FridayAgent:
 
     # ── Persona ───────────────────────────────────────────────────────────
 
-    @property
-    def persona(self) -> str:
-        """The system instruction, recomposed whenever the voice file or the
-        config changes on disk.
+    def persona_for(self, profile: str) -> str:
+        """The persona slice this call profile carries, recomposed whenever the
+        voice file or the config changes on disk.
 
         Friday can edit both at runtime (self_edit.py), and it would be a poor
         experience to answer "noted, sir" and then keep the old voice until the
@@ -202,12 +230,20 @@ class FridayAgent:
         cheap enough to rebuild whenever self_edit.version() moves."""
         import self_edit
         key = self_edit.version()
-        if self._persona_cache is None or key != self._persona_key:
-            self._persona_cache = _compose_persona(self._persona_base, self._config)
+        if key != self._persona_key:
+            self._persona_cache = {}
             self._persona_key = key
-        return self._persona_cache
+        if profile not in self._persona_cache:
+            blocks = _persona_blocks(self._persona_base, self._config)
+            self._persona_cache[profile] = _render_persona(blocks, profile)
+        return self._persona_cache[profile]
 
-    def _system_instruction(self) -> str:
+    @property
+    def persona(self) -> str:
+        """The full persona — the CHAT slice, which carries every section."""
+        return self.persona_for(profiles.CHAT)
+
+    def _system_instruction(self, profile: str = profiles.CHAT) -> str:
         """The persona with the current wall-clock time appended.
 
         This replaces the old get_now tool. A tool the model has to remember to
@@ -220,6 +256,13 @@ class FridayAgent:
         Appended rather than prepended: the persona stays a stable prefix
         (a volatile first line would defeat prefix caching), and the tail of a
         system instruction is where an authoritative fact carries most weight.
+
+        The time block ships on every profile including CLASSIFY, which looks
+        like an exception to "CLASSIFY carries no persona" but is not: the
+        urgency tagger's whole rubric is relative ("URGENT = due within 24h"),
+        and with no clock it silently starts grading deadlines against a date
+        out of the training set. Location is CHAT/COMPOSE only — no classifier
+        prompt refers to where the machine is.
         """
         tz_name = (self._config.get("agent") or {}).get("timezone", "America/Chicago")
         try:
@@ -238,10 +281,11 @@ class FridayAgent:
             f"Current time: {stamp} {tz_name}\n"
             f"This is authoritative. Do not infer or guess the day of week."
         )
-        loc = self._location_block()
-        if loc:
-            block += f"\n\n{loc}"
-        return f"{self.persona}\n\n{block}"
+        if profile != profiles.CLASSIFY:
+            loc = self._location_block()
+            if loc:
+                block += f"\n\n{loc}"
+        return f"{self.persona_for(profile)}\n\n{block}"
 
     def _location_block(self) -> str:
         """Where the machine is, or '' if no fix has been taken yet.
@@ -350,8 +394,14 @@ class FridayAgent:
     def _think(self, prompt: str, history: list | None = None,
                use_tools: bool = True, triggered_by: str = "unknown",
                images: list[tuple[bytes, str]] | None = None,
-               response_json: bool = False) -> str:
+               response_json: bool = False, profile: str = "") -> str:
         """Synchronous LLM call. Always run via run_in_executor inside async handlers.
+
+        profile selects the system-instruction envelope — see agent/profiles.py.
+        It defaults to CHAT when tools are on and COMPOSE when they are off,
+        which is exactly the old behavior for every caller that does not pass
+        one; CLASSIFY must be asked for explicitly, because dropping the voice
+        is visible in the output and should never happen by inference.
 
         use_tools controls whether Gemini gets the tool list. Set False for
         prompts that supply their own data explicitly (briefings, urgency tagging).
@@ -367,6 +417,8 @@ class FridayAgent:
         skipped on that path; JSON mode and function calling don't mix).
         """
         self._last_error = None
+        if not profile:
+            profile = profiles.CHAT if use_tools else profiles.COMPOSE
         # Tools only ever run on the chat path; stamp the source so the tool
         # wrappers (agent/tools.py) can attribute their rows to this call.
         self._tool_triggered_by = triggered_by
@@ -390,7 +442,7 @@ class FridayAgent:
                         contents.append({"role": role, "parts": [{"text": turn["content"]}]})
                     contents.append({"role": "user", "parts": [{"text": prompt}]})
                 cfg_kwargs = dict(
-                    system_instruction=self._system_instruction(),
+                    system_instruction=self._system_instruction(profile),
                     max_output_tokens=self.max_tokens,
                 )
                 if response_json:
@@ -432,7 +484,7 @@ class FridayAgent:
                 return text
 
             else:  # ollama
-                messages = [{"role": "system", "content": self._system_instruction()}]
+                messages = [{"role": "system", "content": self._system_instruction(profile)}]
                 for turn in (history or []):
                     messages.append({"role": turn["role"], "content": turn["content"]})
                 user_msg = {"role": "user", "content": prompt}
