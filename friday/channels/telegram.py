@@ -16,6 +16,7 @@ import requests
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ForceReply, Update
 from telegram.ext import ContextTypes
 
+import memory.activity as activity
 import memory.state as state
 
 logger = logging.getLogger("friday.telegram")
@@ -157,6 +158,7 @@ class TelegramHandler:
             # so `selected` is only ever [] when the dispatcher genuinely
             # decided no tool applies.
             selected = None
+            dispatch_row = None
             if getattr(self.agent, "dispatcher", None) and self.agent.dispatcher.enabled:
                 try:
                     decision = await asyncio.wait_for(
@@ -165,6 +167,8 @@ class TelegramHandler:
                         timeout=_EXECUTOR_TIMEOUT_S,
                     )
                     selected = decision.tools
+                    dispatch_row = activity.record_dispatch(
+                        self.conn, raw_message=text, decision=decision)
                 except TimeoutError:
                     logger.warning("Dispatcher exceeded the executor ceiling — "
                                    "attaching all tools.")
@@ -215,6 +219,7 @@ class TelegramHandler:
                     f"Dispatcher returned no tools but the reply was plain "
                     f"text — retrying once with all tools. text={text[:120]!r}"
                 )
+                activity.mark_dispatch_fallback(self.conn, dispatch_row)
                 try:
                     retry = await asyncio.wait_for(
                         loop.run_in_executor(

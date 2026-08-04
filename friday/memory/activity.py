@@ -12,6 +12,8 @@ All timestamps are local-naive ISO strings (datetime.now().isoformat()), matchin
 the convention already used by conversation_history / events / pending_actions.
 """
 
+import hashlib
+import json
 import logging
 import sqlite3
 from datetime import datetime, timedelta
@@ -51,6 +53,57 @@ def record_llm_exchange(conn: sqlite3.Connection, *, model: str, prompt: str,
         conn.commit()
     except Exception as e:
         logger.debug(f"record_llm_exchange failed: {e}")
+
+
+def normalize_message(text: str) -> str:
+    """Lowercased, trimmed, whitespace collapsed — the form the duplicate-rate
+    query groups on, so "Brief me" and "brief  me " count as one message."""
+    return " ".join((text or "").lower().split())
+
+
+def record_dispatch(conn: sqlite3.Connection, *, raw_message: str, decision) -> int | None:
+    """One row per dispatcher decision. Returns the row id so the caller can
+    flag it if the miss-recovery fallback later fires; None if unrecorded.
+
+    `decision` is an agent.dispatcher.DispatchResult. tokens_in/out pass
+    through as None on failure rather than being coerced to 0 — see the table
+    comment in memory/db.py.
+    """
+    if conn is None:
+        return None
+    try:
+        norm = normalize_message(raw_message)
+        cur = conn.execute(
+            "INSERT INTO dispatch_log "
+            "(created_at, raw_message, normalized_message, message_hash, "
+            " selected_tools, tool_count, provider, model, latency_ms, "
+            " tokens_in, tokens_out, outcome, fallback_triggered) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)",
+            (datetime.now().isoformat(), raw_message or "", norm,
+             hashlib.sha256(norm.encode()).hexdigest(),
+             json.dumps(decision.tools), len(decision.tools),
+             decision.provider, decision.model, int(decision.latency_ms or 0),
+             decision.tokens_in, decision.tokens_out, decision.outcome),
+        )
+        conn.commit()
+        return cur.lastrowid
+    except Exception as e:
+        logger.debug(f"record_dispatch failed: {e}")
+        return None
+
+
+def mark_dispatch_fallback(conn: sqlite3.Connection, row_id: int | None) -> None:
+    """Flag a dispatch row as having needed the all-tools retry."""
+    if conn is None or row_id is None:
+        return
+    try:
+        conn.execute(
+            "UPDATE dispatch_log SET fallback_triggered = 1 WHERE id = ?",
+            (row_id,),
+        )
+        conn.commit()
+    except Exception as e:
+        logger.debug(f"mark_dispatch_fallback failed: {e}")
 
 
 def record_tool_call(conn: sqlite3.Connection, *, tool_name: str, args_json: str,

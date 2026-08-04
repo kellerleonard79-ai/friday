@@ -92,6 +92,33 @@ CREATE TABLE IF NOT EXISTS tool_calls (
     triggered_by   TEXT
 );
 
+-- One row per tool-dispatcher decision (agent/dispatcher.py), including the
+-- failures — those are the interesting rows. Exists to answer two questions:
+-- how often the same message is dispatched twice (is a cache worth building),
+-- and how often the dispatcher missed (fallback_triggered).
+--
+-- tokens_in/tokens_out are NULL, never 0, when the call failed: a failed call
+-- has no usage metadata, and writing 0 would average in as a free call.
+CREATE TABLE IF NOT EXISTS dispatch_log (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at          TEXT,
+    raw_message         TEXT,     -- verbatim, as received
+    normalized_message  TEXT,     -- lowercased, trimmed, whitespace collapsed
+    message_hash        TEXT,     -- sha256 of normalized_message
+    selected_tools      TEXT,     -- JSON array, as returned
+    tool_count          INTEGER,
+    provider            TEXT,
+    model               TEXT,
+    latency_ms          INTEGER,  -- dispatcher call only
+    tokens_in           INTEGER,
+    tokens_out          INTEGER,
+    outcome             TEXT,     -- ok | parse_fail | timeout | dropped_invalid
+                                  -- | provider_error | disabled
+    fallback_triggered  INTEGER DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_dispatch_hash ON dispatch_log (message_hash);
+
 -- Every briefing actually sent (morning/evening), with the full body.
 CREATE TABLE IF NOT EXISTS briefings_sent (
     id                 INTEGER PRIMARY KEY AUTOINCREMENT,
