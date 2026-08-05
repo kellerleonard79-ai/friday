@@ -5,330 +5,282 @@
 - **Context Gathering:** Use the Graphify snapshot to identify component relationships first, then perform targeted reads on specific files.
 
 ## What is Friday?
- 
-Friday is a personal AI secretary running on an always-on Mac. It ingests information from multiple sources (Canvas, GroupMe, and eventually Gmail), manages Apple Calendar, delivers proactive briefings and urgent alerts via Telegram, and drafts replies for user review. The user interacts with Friday exclusively through Telegram.
- 
-Friday is **not** a simple chatbot. It is a structured, event-driven agent with a tool layer, memory layer, and a proactive alert system.
- 
+
+Friday is a personal AI secretary running on an always-on Mac (and, since the Windows port, on a friend's PC). It ingests information from multiple sources (Canvas, GroupMe, Google Calendar subscriptions), manages the user's calendar, delivers proactive briefings and urgent alerts via Telegram, and asks for approval before writing anything it inferred rather than was told. The user interacts with Friday through Telegram, a local web dashboard, and a voice satellite.
+
+Friday is **not** a simple chatbot. It is a structured, event-driven agent with a tool layer, a memory layer, a proactive alert system, and a cost-aware LLM call layer.
+
 ---
- 
+
 ## Core Architecture Principles
- 
-- **Telegram is the sole UI.** All interaction — briefings, alerts, approvals, drafts, conversational queries — happens through Telegram.
-- **PTB JobQueue is the only scheduler.** `python-telegram-bot` is fully async. Never introduce a second scheduling library (`apscheduler`, `schedule`, `while True: sleep()`). All scheduled jobs (briefings, reminders, connector polling) register directly on `application.job_queue`. This guarantees they share the same async event loop and Telegram connection without conflicts.
-- **The semaphore lives at the entry point.** `asyncio.Semaphore(1)` is placed at the very top of the Telegram message handler — before SQLite queries, before context assembly, before anything. Messages wait in line from the first byte. It is never placed only around the LLM call.
-- **The LLM is the single decision maker for all ingested data.** Deterministic code handles the mechanical parts — fetching, parsing API responses into raw records, writing to SQLite. The LLM processes everything after that: deciding urgency, filtering announcements, parsing natural language input, and formatting all output. It is never bypassed for "simple" structured data.
-- **Apple Calendar is the event store.** Due dates, work shifts, appointments, and any other calendar-type data live in Apple Calendar — not SQLite. SQLite tracks operational state only.
-- **SQLite is the operational backbone.** No `state.json`. No vector store. No RAG. No Redis. SQLite tracks: runtime key-value state, conversation history, raw ingested events buffer, and last_seen cursors. The `system_state` table replaces `state.json` entirely.
-- **No iMessage in the automated pipeline.** iMessage is not polled, not read programmatically, and not drafted to. It is out of scope for all phases.
+
+- **Telegram is the primary UI.** Briefings, alerts, approvals, and conversational queries all happen there. Two secondary surfaces exist and are read/control planes, not conversation: the local web dashboard (`dashboard/`, 127.0.0.1:5174) and the voice satellite (`voice/`), which bridges speech back in as an ordinary Telegram message.
+- **PTB JobQueue is the only scheduler.** `python-telegram-bot` is fully async. Never introduce a second scheduling library (`apscheduler`, `schedule`, `while True: sleep()`). All scheduled jobs register directly on `application.job_queue`. The dashboard's web server runs inside that same loop — it is not a second process.
+- **The semaphore lives at the entry point.** `asyncio.Semaphore(1)` at the very top of `channels/telegram.py::on_message()` — before SQLite queries, before context assembly, before anything.
+- **The LLM is the decision maker for ingested data.** Deterministic code fetches, parses, and writes rows. The LLM decides urgency, filters announcements, extracts events from natural language, and writes every user-facing sentence.
+- **The calendar backend is the event store.** Due dates, shifts, appointments live in Apple Calendar (macOS) or Google Calendar (Windows) — never in SQLite. See `calendars/backend.py`.
+- **SQLite is the operational backbone.** No `state.json`. No vector store. No RAG. No Redis. It holds runtime key-value state, conversation history, the raw events buffer, cursors, pending approvals, and activity/observability rows.
+- **No iMessage anywhere.** Not polled, not read, not drafted to. Out of scope permanently.
+
 ---
- 
+
 ## File Structure
 
-The Python package is at `friday/friday/` — one level below the repo root,
-which holds only packaging, the `.app` bundle, and LaunchAgent plists. Run
-`ls friday/friday` for the current layout.
+The repo root (`/Users/keller/friday`) holds only packaging, the `FridayVoice.app`
+bundle, LaunchAgent plists, and `graphify-out/`. The Python package is the
+`friday/` directory inside it — `friday/friday.py` is the core entry point. Run
+`ls friday/` for the current layout.
 
-Non-obvious placements: the calendar backend dispatcher and its two
-implementations are in `calendars/`; the web dashboard is a package
-(`dashboard/`), not a Tkinter script; `paths.py` and `compat.py` are the
-cross-platform seams.
- 
+Non-obvious placements:
+- `agent/` — `core.py` (LLM client + `_think`), `tools.py` (function-calling tools), `briefings.py` (prompt composers + deterministic context bundling), `dispatcher.py` and `profiles.py` (the call layer, below).
+- `calendars/` — backend dispatcher plus the two implementations (`apple.py`, `google_cal.py`). Distinct from `actions/calendar.py`, which is the write API both backends sit behind, and from `connectors/apple_calendar.py`, which is the reader.
+- `dashboard/` — a FastAPI package, not a Tkinter script.
+- `memory/activity.py` — best-effort instrumentation writes. Never raises into the hot path.
+- `self_edit.py` + `phrases.py` + `quips.yaml` + `friday_voice.yaml` — the narrow slice of itself Friday may rewrite at runtime.
+- `paths.py` and `compat.py` — the cross-platform seams.
+- Entry points differ per platform: `friday.py` (core), `mac_app.py` (packaged .app supervisor), `tray.py` (Windows), `menubar.py` (rumps, source checkout), `macos_setup.py` (renders LaunchAgent templates), `setup_wizard.py` (first run, both platforms).
+
 ---
- 
+
 ## SQLite Schema
 
 Defined in `friday/memory/db.py` — read it there rather than trusting a copy.
-SQLite holds operational state only: runtime key-value state, conversation
-history, the raw ingested-events buffer, and per-source cursors. Calendar-type
-data (due dates, shifts, appointments) never lives here — see the event-store
-rule above.
- 
+Two families of table:
+
+- **Operational** — `system_state`, `conversation_history`, `events`, `last_seen`,
+  `pending_actions`, `synced_events`.
+- **Activity capture** — `llm_exchanges`, `tool_calls`, `dispatch_log`,
+  `briefings_sent`, `urgent_alerts_sent`. These record what Friday actually *did*
+  and power the dashboard's Today surface. Written through `memory/activity.py`,
+  which swallows its own errors by design; a nightly job trims each to 30 days.
+
+Calendar-type data never lives here — see the event-store rule above.
+
 ---
- 
+
 ## Async Architecture
- 
+
 ```
 friday.py
 └── builds PTB Application
     ├── MessageHandler → telegram.py::on_message()
     │     └── asyncio.Semaphore(1)  ← gate is HERE, before everything
     │           ├── query SQLite for context
+    │           ├── dispatcher.dispatch() → tool shortlist
     │           ├── agent/core.py::_think()
     │           └── telegram.send()
     │
+    ├── CallbackQueryHandler → approval-card buttons (confirm/cancel)
+    │
+    ├── dashboard web server (same loop, 127.0.0.1:5174)
+    │
     └── job_queue
-          ├── run_daily        → send_morning_briefing()   (fixed time, from config)
-          ├── run_daily        → send_evening_briefing()   (fixed time, from config)
-          ├── run_repeating    → poll_connectors()         (every 15 min)
-          └── run_repeating    → check_urgent_alerts()     (every 1 min)
+          ├── run_daily        → morning_briefing_job     (tz-window guarded)
+          ├── run_daily        → briefing_job (evening)   (tz-window guarded)
+          ├── run_daily        → activity cleanup
+          ├── run_repeating    → poll_connectors_job      (15 min)
+          ├── run_repeating    → check_urgent_alerts_job  (1 min)
+          └── run_once         → briefing overrides + missed-briefing catch-up
 ```
- 
-All scheduled work runs through PTB's `JobQueue`. No threads. No secondary loops. No `schedule` library.
- 
+
+Briefings are guarded twice: a timezone sanity window (a briefing firing well
+outside its hour is almost always a clock/DST bug, not a real trigger) and a
+catch-up path that redelivers a briefing missed to sleep or an outage, up to
+`agent.briefing_catchup_max_minutes`. `run_daily` owns the on-time minute so the
+catch-up poll can never double-send.
+
 ---
- 
+
+## The LLM Call Layer
+
+Two mechanisms sit between a message and the model. Both exist for the same
+reason: the naive envelope — full persona plus all ten tool schemas — cost
+thousands of tokens on every call, re-sent on every hop of the tool loop.
+
+### Call profiles (`agent/profiles.py`)
+
+Every LLM call declares a profile that selects which slice of the persona it
+carries. Sections are addressed by their Markdown heading, so `_MEMBERSHIP` is
+the single table deciding what each profile gets.
+
+- **CHAT** — the user is talking to Friday. Voice is the product and tools are live; carries everything.
+- **COMPOSE** — Friday writes prose the user reads (briefings, urgent alerts). Voice matters, tool-usage sections do not, because these calls run with tools off by construction.
+- **CLASSIFY** — the model returns a label, an index, or JSON (urgency tagging, GroupMe/media extraction, quip selection). Carries `CLASSIFY_INSTRUCTION` and no persona at all. Butler voice on a call whose contract is to return exactly `URGENT` is not merely wasted spend — it is a parse failure and a mis-tagged event.
+- **ROUTE** — the dispatcher's own profile. Deliberately mapped to no persona section anywhere.
+
+Unrecognized headings **fail open** to CHAT+COMPOSE and log once. AGENTS.md is
+user-editable prose and Friday is an always-on daemon: an unmapped heading must
+never silently vanish from the persona, and must never be a startup failure.
+
+Some sections are tool-coupled (`_TOOL_COUPLED`) — shipped only when the tool
+they describe is actually attached.
+
+### Tool dispatcher (`agent/dispatcher.py`)
+
+A cheap call against a small model (`models/gemini-2.5-flash-lite` by default)
+returns a shortlist of tool names; the real call attaches only those schemas.
+`TOOL_MANIFEST` is a hand-maintained one-line-per-tool table — deliberately NOT
+derived from the docstrings, because deriving it would reintroduce the exact
+cost the dispatcher exists to avoid.
+
+Rules that must not be relaxed:
+- **Every failure falls back to the FULL tool list, never to `[]`.** Timeout, parse failure, hallucinated name, dead provider — all attach everything. An empty list from a garbled response is indistinguishable from a genuine "no tools needed", and guessing wrong silently drops the user's request.
+- **The manifest and the registered tools must match exactly, both directions.** `assert_manifest_matches_tools()` raises at startup. A tool missing from the manifest is invisible to the dispatcher and silently stops working while everything still looks healthy.
+- The dispatcher is biased toward over-selection on purpose: an extra tool costs ~200 tokens of schema, a missing one is a wrong answer.
+- Every decision, including failures, is logged to `dispatch_log`. `tools_verify_dispatch.py` reads it back paired with the chat call it produced.
+
+### Time and location are injected, not tools
+
+`get_now` and `get_location` no longer exist. `_system_instruction()` appends the
+authoritative wall-clock stamp to every profile (including CLASSIFY — the urgency
+rubric is entirely relative) and the cached machine location to CHAT/COMPOSE. A
+tool the model has to remember to call is a tool it can skip, and skipping the
+clock is how "this Friday" resolved to a date out of the training set. Appended,
+not prepended, so the persona stays a stable cacheable prefix.
+
+Provider reality: the tool layer is Gemini-only. On the `ollama` provider
+`_tools` is `None` and there is nothing for the dispatcher to narrow.
+
+---
+
 ## LLM Processing Flow
- 
+
 ```
 Connector fetches raw data
         ↓
 Write raw record to events table (unprocessed)
         ↓
-LLM evaluates record:
+LLM evaluates record (CLASSIFY profile):
   - Assigns urgency (URGENT / SOON / NORMAL)
-  - Decides action (calendar write / alert / briefing entry / ignore)
   - For Canvas announcements: determines if actionable
-  - For GroupMe: considers group priority tier
+  - For GroupMe: considers group priority tier, extracts any event
         ↓
-If URGENT → immediate Telegram interrupt, set notified = 1
-If calendar action → approval gate (except Canvas due dates = auto)
+If URGENT → immediate Telegram interrupt (COMPOSE), set notified = 1
+If an inferred calendar event → gated_write approval card
 If briefing entry → sits in events table until next briefing
         ↓
-Apple Calendar ← receives all confirmed calendar writes
+Calendar backend ← receives all confirmed writes
 ```
- 
+
 Deterministic code only handles: HTTP requests, iCal parsing, raw SQL writes, API auth.
-The LLM handles everything else.
- 
+
 ---
- 
-## Phase Implementation Plan
- 
-### Phase 1 — Foundation
- 
-**Goal:** Friday runs reliably, survives restarts, and processes messages safely.
- 
-- [ ] **SQLite schema** (`memory/db.py`) — create all tables above, write migration helper
-- [ ] **`system_state` helpers** (`memory/state.py`) — `get(key)`, `set(key, value)` backed by SQLite. Complete replacement for `state.json`.
-- [ ] **Semaphore at entry point** (`channels/telegram.py`) — `asyncio.Semaphore(1)` is the first thing acquired inside `on_message()`. Messages queue here before any processing begins.
-- [ ] **PTB JobQueue setup** (`friday.py`) — register all scheduled jobs on `application.job_queue`. Remove all uses of `schedule` library and background threads.
-- [ ] **Catch-up logic** (`friday.py`) — on startup use PTB's `drop_pending_updates=False`. The semaphore handles the backlog sequentially. No custom Telegram update tracking needed.
-- [ ] **LaunchAgent plist** — must point to the absolute path of the venv Python binary (e.g. `/Users/username/friday/.venv/bin/python`). Never `/usr/bin/python3`. Include `KeepAlive = true` and `RunAtLoad = true`.
-- [ ] **Menu bar app** (`menubar.py`) — rumps-based. Shows Friday status in menu bar. Buttons: Brief Me Now, Pause Friday, Open Dashboard, Quit. Provider submenu: Gemini / Ollama toggle (writes to config, restarts Friday process).
-- [ ] **Dashboard** (`dashboard.py`) — Tkinter. Full config editing with form fields. Launched from menu bar. Reads/writes `friday_config.yaml`. Replaces standalone dashboard. Includes GroupMe group priority management.
-- [ ] **Persona** (`AGENTS.md`) — define Friday's voice, urgency policy, briefing format, announcement filtering policy, and decision-making rules.
+
+## Calendar Writes: which path gates
+
+`actions/calendar.py` has two public modes, and the split is about who asserted
+the fact, not how important it is.
+
+- **`auto_write` — no gate.** Canvas due dates (the user's school published them) and the `add_calendar_event` tool (the user just said it out loud in chat; a confirmation card for something they explicitly asked for is friction, not safety). Friday replies with a one-line confirmation plus a quip.
+- **`gated_write` — approval card, staged in `pending_actions`.** Anything Friday *inferred*: events extracted from GroupMe messages, and events extracted from an image or PDF the user sent. `confirm_pending()` performs the write when ✅ is tapped; the dashboard can also resolve these.
+
 ---
- 
-### Phase 2 — Read-Only Integrations
- 
-**Goal:** Friday knows what is happening in the user's world.
- 
-- [ ] **Canvas** (`connectors/canvas.py`) — fetch Canvas iCal feed using API token. Parse with `icalendar` library. Write raw records to `events` table. LLM evaluates each record: tags urgency, decides if due date goes to calendar or announcement goes to briefing.
-- [ ] **Weather** (`connectors/weather.py`) — stateless, no storage. Called on demand or injected into briefing payload.
-- [ ] **Gmail** — deprioritized. School Gmail is inaccessible via API (locked down, no 3rd party sign-in, forwarding disabled). Do not implement until a clean access path exists.
-- [ ] **iMessage** — **not implemented. Do not add under any circumstances.**
-All connectors must:
-- Read and update their cursor in the `last_seen` table
-- Write raw records to `events` table before any LLM processing
-- Never call the LLM directly — the agent processes `events` table records
-- Be called from `poll_connectors()` registered on PTB's `job_queue`
+
+## Implementation Status
+
+Phases 1–4 and 6 are built and running in production. What follows is the
+current state, not a plan.
+
+**Done — Phase 1 (Foundation):** SQLite schema + migrations, `system_state`
+helpers, semaphore at the entry point, JobQueue-only scheduling, catch-up on
+restart, LaunchAgents generated from templates by `macos_setup.py`, rumps
+menubar, FastAPI web dashboard, persona in `AGENTS.md`.
+
+**Done — Phase 2 (Read-only ingest):** Canvas iCal, weather, GroupMe, Google
+Calendar iCal mirroring, location.
+
+**Done — Phase 3 (Briefings & alerts):** morning/evening briefings with
+timezone-window guards and missed-briefing catch-up, on-demand "brief me"
+(composed in-process from a deterministic bundle), urgent interrupts.
+
+**Done — Phase 4 (Writing & GroupMe):** calendar writes through the backend
+dispatcher, gated and auto paths, manual work-shift entry via chat, GroupMe
+polling with priority tiers and a per-group enable switch.
+
+**Done — Phase 6 (Voice):** standalone `voice/listen.py` — wake word, clap
+detection, push-to-talk, local Whisper, TTS, Telegram bridge. Never imported by
+the core.
+
+**Not built:**
+- **Phase 5 (Drafting & sending)** — no `actions/groupme_send.py`, no Gmail drafts. Gmail stays deprioritized: no accessible API path for locked-down school accounts. The config block exists only to keep the shape stable.
+- **Proactive due-date reminders (5/3/1 days)** — `notifications.reminder_thresholds` is written and editable in the dashboard, but no job consumes it. This is the largest gap between the config surface and behavior.
+
+**Ongoing — Phase 7 (Hardening):** urgency/filtering accuracy, briefing format,
+connector error recovery, observability, and the LLM cost work (profiles +
+dispatcher) that is the current branch.
+
 ---
- 
-### Phase 3 — Briefings & Proactive Alerts
- 
-**Goal:** Friday speaks first when it matters.
- 
-- [ ] **Morning briefing** — registered on `job_queue.run_daily()` at morning time from config. Format: "Good morning, sir. Here is your day:" followed by chronological calendar items for the day. Pulls from Apple Calendar, not SQLite events.
-- [ ] **Evening briefing** — registered on `job_queue.run_daily()` at `briefing_time` from config. Summarizes tomorrow's calendar, pending Canvas due dates, unresolved alerts.
-- [ ] **On-demand briefing** — user sends "brief me" → agent pulls Apple Calendar + unnotified events → single LLM call → Telegram response.
-- [ ] **Proactive reminders** — `job_queue.run_repeating()` checks Apple Calendar for items due in 5 days, 3 days, and 1 day. Fires once per threshold per event. Example: "Sir, your History paper is due tomorrow at 11:59 PM."
-- [ ] **Urgent interrupt** — LLM tags event as URGENT during processing → immediate Telegram message fires without waiting for briefing cycle → `notified = 1`.
----
- 
-### Phase 4 — Calendar Writing & GroupMe
- 
-**Goal:** Friday can modify Apple Calendar and read GroupMe.
- 
-- [ ] **Apple Calendar write** (`actions/calendar.py`) — writes to user's default Apple Calendar. Canvas due dates written automatically (no gate). All other calendar writes go through `send_permission_request`. Uses `caldav` library or AppleScript via subprocess.
-- [ ] **Manual Nation entry** — user sends work schedule via Telegram text. LLM parses into structured event, proposes calendar entry, approval gate, then writes. Nation has no API and sends no emails. Always manual.
-- [ ] **GroupMe reading** (`connectors/groupme.py`) — polls GroupMe API for new messages since `last_seen` cursor. Writes to `events` table. LLM evaluates with awareness of group priority tier. High priority groups: urgent items interrupt immediately. Low priority groups: briefing only.
----
- 
-### Phase 5 — Drafting & Sending
- 
-**Goal:** Friday composes replies with full context, user approves before anything is sent or saved.
- 
-- [ ] **Gmail drafts** — Friday composes reply via LLM. Shows draft in Telegram for approval. On confirm, saves to Gmail native Drafts folder via API. Never sends directly.
-- [ ] **GroupMe replies** (`actions/groupme_send.py`) — Friday shows the original thread context alongside the proposed reply in Telegram. Format:
-  ```
-  📨 GroupMe — [Group Name]
-  [Person]: "original message"
- 
-  ✏️ Suggested reply:
-  "proposed reply text"
- 
-  ✅ Confirm  ✏️ Edit  ❌ Cancel
-  ```
-  On confirm, sends via GroupMe API immediately.
-- [ ] **No iMessage drafting** — not implemented.
----
- 
-### Phase 6 — Voice Interface
- 
-**Goal:** User can speak to Friday as an alternative to typing in Telegram.
- 
-- [ ] **Separate script** (`voice/listen.py`) — fully standalone. Never imported by `friday.py`. Has no knowledge of Friday's internals.
-- [ ] **Wake word** — "Hey Friday" detected using lightweight local model (e.g. `openwakeword`)
-- [ ] **Transcription** — audio captured and transcribed locally using `whisper` (small or base model)
-- [ ] **Telegram bridge** — transcription sent as Telegram message to the bot. Friday processes it identically to a typed message. Friday's core requires zero changes.
----
- 
-### Phase 7 — Hardening & Polish
- 
-**Goal:** Improve reliability, observability, and experience across all existing features.
- 
-- [ ] Improve LLM urgency and announcement filtering accuracy based on real usage
-- [ ] Refine briefing format and timing based on user preference
-- [ ] Robust error handling and recovery across all connectors
-- [ ] Menu bar and dashboard improvements
-- [ ] Logging and observability improvements
----
- 
+
 ## Key Constraints & Rules for Claude Code
- 
-1. **Never remove or move the semaphore.** It lives at the top of `on_message()` in `telegram.py`. No exceptions.
+
+1. **Never remove or move the semaphore.** Top of `on_message()` in `telegram.py`. No exceptions.
 2. **Never use a second scheduling library.** No `schedule`, no raw `apscheduler`, no background threads for timing. PTB `JobQueue` only.
 3. **Never poll iMessage.** Not via AppleScript, not via `chat.db`, not via any method.
-4. **Never write externally without an approval gate** — except Canvas due dates to Apple Calendar which are auto-written.
-5. **Never use `/usr/bin/python3` in the LaunchAgent plist.** Always the absolute venv binary path.
-6. **Canvas uses the iCal feed.** Never HTML scraping. Use `icalendar` library.
-7. **The LLM processes all ingested data.** Never bypass the LLM for urgency, filtering, or calendar decisions — even for clean structured data.
-8. **Apple Calendar is the event store.** Briefings and reminders pull from Apple Calendar, not the SQLite events table.
-9. **GroupMe confirm = send immediately.** Show thread context with every draft. Use `actions/groupme_send.py`.
-10. **Gmail confirm = save to Drafts only.** Never send Gmail directly.
-11. **SQLite is the operational backbone only.** No state.json. No vector store. No Redis.
-12. **Voice is a standalone satellite script.** Never imports from Friday's core.
-13. **Nation has no API and sends no emails.** Work schedule entry is always manual via Telegram text.
-14. **Gmail is deprioritized.** School Gmail has no accessible API path. Do not implement until a clean solution exists.
-15. **All secrets** live in `friday_config.yaml` or environment variables. Never hardcoded.
+4. **Never write an *inferred* event without an approval gate.** Explicitly requested writes and Canvas due dates use `auto_write`; everything Friday deduced uses `gated_write`. See the calendar-writes section.
+5. **Never hardcode a Python path in a LaunchAgent.** `macos_setup.py` renders the plists against the interpreter resolved on the running machine. Never `/usr/bin/python3`.
+6. **Canvas uses the iCal feed.** Never HTML scraping. Use `icalendar`.
+7. **The LLM processes all ingested data.** Never bypass it for urgency, filtering, or calendar decisions — even for clean structured data.
+8. **The calendar backend is the event store.** Briefings and reminders read from it, not from the SQLite events table.
+9. **Briefings run with tools OFF.** If a briefing is thin, expand `bundle_briefing_context` — never re-enable tools on that path.
+10. **The dispatcher fails open.** Any change that lets a failure path return `[]` instead of the full tool list is a bug, however clean it looks.
+11. **`TOOL_MANIFEST` must stay in sync with the registered tools.** Adding a tool means adding a manifest line in the same commit.
+12. **SQLite is the operational backbone only.** No state.json. No vector store. No Redis.
+13. **Voice is a standalone satellite.** Never imports from Friday's core.
+14. **Friday does not edit its own Python source.** `self_edit.py` writes YAML only — learned quips and a whitelist of settings. The core is relaunched on exit by launchd/tray, so a syntax error would be a silent restart loop rather than a visible failure.
+15. **All secrets** live in `friday_config.yaml` or environment variables. Never hardcoded. That file is gitignored; `friday_config.yaml.example` is the documented template.
+16. **`compat.strftime()` for any format string with `%-`.** `%-d`/`%-I` are glibc-only and crash on Windows.
+
 ---
- 
-## Config Structure (`friday_config.yaml`)
- 
-```yaml
-agent:
-  name: Friday
-  morning_briefing_time: '08:00'
-  briefing_time: '21:45'
-  timezone: America/Chicago
- 
-telegram:
-  bot_token: ''
-  chat_id: ''
- 
-memory:
-  db_path: memory/friday_memory.db
-  short_term_turns: 20
- 
-provider: ollama  # ollama | gemini
- 
-ollama:
-  model: llama3.2:1b
-  base_url: http://localhost:11434
-  max_tokens: 1000
- 
-gemini:
-  model: gemma-4-31b-it
-  max_tokens: 1000
-  api_key: ''
- 
-canvas:
-  ical_url: ''
-  api_token: ''
- 
-gmail:
-  credentials_path: 'gmail_credentials.json'
-  token_path: 'gmail_token.json'
- 
-groupme:
-  api_token: ''
-  groups:
-    - id: ''
-      name: ''
-      priority: high   # high | low
-    - id: ''
-      name: ''
-      priority: low
- 
-weather:
-  api_key: ''
-  location: ''
-```
- 
+
+## Config
+
+`friday/friday_config.yaml.example` is the canonical, commented template — read
+it rather than a copy here. Startup hard-fails only on `telegram.bot_token`,
+`telegram.chat_id`, and a Gemini key when `provider: gemini`. Every other block
+is optional; an unconfigured connector is skipped, not an error.
+
+Blocks worth knowing about:
+- `dispatcher` — `enabled: false` restores pre-dispatcher behavior exactly (all tools, no extra call).
+- `calendar.backend` — `apple` | `google`. Defaults to google on win32, apple elsewhere.
+- `notifications` — the dashboard-facing mirror. `groupme_polling: false` is a real kill switch read by `poll_connectors_job`; the `agent` block stays canonical for the JobQueue and wins if the two disagree.
+- `groupme.groups[].priority` — `high` (can interrupt) | `normal` (briefings only) | `muted` (ingested, never surfaced). `low` is the legacy spelling of `muted`.
+- `voice` — read only by `voice/listen.py`, which does not reload it. Restart the voice agent after changing it.
+
 ---
- 
-## Persona Notes (`AGENTS.md`)
- 
-Friday's persona must convey:
-- Concise, direct, professional tone — a real secretary, not a chatbot
-- Addresses the user as "sir" unless told otherwise
-- Proactive about urgency, conservative about unnecessary interruptions
-- Always states the source of information ("Your Canvas feed shows...", "From GroupMe...")
-- Never hallucinates events or deadlines — if uncertain, says so and asks
-- Morning briefing format: "Good morning, sir. Here is your day:" followed by chronological items
-- Canvas announcements: err on the side of caution — surface anything potentially actionable
-- GroupMe: high priority groups treated with same urgency as direct messages
- 
- ## Google Calendar Sync
 
-### Overview
-Friday polls three Google Calendar iCal subscription URLs and mirrors new events into the
-corresponding Apple Calendar. Sync is **one-directional: Google → Apple only**. There is no
-reverse sync. The secret iCal URLs require no OAuth, no API key, and no school account
-authentication — just the URL.
+## Persona (`AGENTS.md`)
 
-### Calendar Mapping
-| Google Calendar         | Apple Calendar          |
-|-------------------------|-------------------------|
-| PHS SGA                 | PHS SGA                 |
-| FBLA Officer Calendar   | FBLA Officer Calendar   |
-| Keller Leonard          | Keller Leonard          |
+`AGENTS.md` is the single source: the butler voice from the old `Soul.md` was
+merged into it, and `phrases.py` reads the shared quip palette. Friday is
+concise and direct, addresses the user as "sir", states its sources, and never
+invents an event or a deadline.
 
-Apple Calendars must be created manually by the user before Friday attempts to write to them.
-Friday never creates Apple Calendars — it only writes events into existing ones.
+Two things make this file load-bearing beyond prose:
+- **Its headings are an API.** `profiles._MEMBERSHIP` keys off them. Renaming a heading in `AGENTS.md` without updating the table silently reroutes that section (fail-open to CHAT+COMPOSE, logged once).
+- **Learned voice is separate.** Bundled quips live in `quips.yaml` (read-only in a frozen build); anything Friday learns at runtime goes to `friday_voice.yaml` under `paths.data_dir()`. Never append to the bundled file.
 
-### Implementation
-- **Connector:** `connectors/gcal_sync.py`
-- **Action:** `actions/calendar.py` (reuses existing Apple Calendar write logic)
-- **Deduplication:** `synced_events` table in SQLite tracks every Google event ID that has
-  already been written to Apple Calendar. Friday never writes the same event twice.
-- **Poll frequency:** Every 15 minutes via PTB `job_queue`, alongside `poll_connectors()`
-- **No approval gate:** Google Calendar sync writes to Apple Calendar automatically without
-  user confirmation. These are events the user already created themselves on Google.
+---
 
-### SQLite Addition
-```sql
--- Deduplication table for Google → Apple calendar sync
-CREATE TABLE synced_events (
-    google_event_id  TEXT PRIMARY KEY,
-    calendar_name    TEXT,       -- 'PHS SGA', 'FBLA Officer Calendar', 'Keller Leonard'
-    apple_event_id   TEXT,
-    synced_at        TEXT
-);
-```
+## Google Calendar Sync
 
-### Config Addition
-```yaml
-gcal_sync:
-  calendars:
-    - name: PHS SGA
-      ical_url: ''
-    - name: FBLA Officer Calendar
-      ical_url: ''
-    - name: Keller Leonard
-      ical_url: ''
-```
+Friday polls Google Calendar iCal subscription URLs and mirrors new events into
+same-named Apple Calendars. **One-directional: Google → Apple only.** The secret
+iCal URLs need no OAuth and no API key — just the URL, which makes them
+credentials.
 
-### Rules
-- Secret iCal URLs are treated as secrets — stored in `friday_config.yaml`, never hardcoded.
-- If an iCal URL returns an error, log it and skip that calendar silently. Never crash.
-- Event deduplication is based on the iCal `UID` field, which Google Calendar always provides.
-- Friday does not delete Apple Calendar events if they are removed from Google Calendar.
-  Deletion sync is out of scope.
-- Friday does not modify existing Apple Calendar events. If a Google event changes, Friday
-  logs it but does not attempt to update the Apple Calendar entry. Update sync is out of scope
-  for now.
+Apple Calendars must be created manually by the user first. Friday never creates
+Apple Calendars on the apple backend; it only writes into existing ones. (The
+google backend does auto-create, and skips gcal_sync entirely — Google already
+*is* the event store there.)
+
+- **Connector:** `connectors/gcal_sync.py`; writes via `actions/calendar.py`.
+- **Deduplication:** the `synced_events` table, keyed on the iCal `UID` Google always provides.
+- **Poll frequency:** every 15 minutes, alongside `poll_connectors()`.
+- **No approval gate:** these are events the user already created themselves.
+- **Out of scope:** deletion sync and update sync. A changed or removed Google event is logged, not mirrored.
+- A failing iCal URL is logged and skipped. Never crash the poll.
+
+---
 
 ## Apple Calendar: two readers, one writer
 
@@ -380,16 +332,27 @@ LaunchAgent (`launchctl kickstart -k gui/$(id -u)/com.friday.voice`) for it to t
 effect. The boot-time `_probe_microphone` call briefly opens the mic to trigger the TCC
 dialog — this is by design and does not mean the always-on stream is running.
 
+Push-to-talk needs Accessibility and Input Monitoring, and those grants follow the
+*running* process identity — the launcher must fork, never `execv`, or the .app identity
+is thrown away and hand-added Settings grants stop matching.
+
 If a process appears running via `launchctl print` but the menubar reports voice offline,
 the menubar polls `/api/voice/status` every few seconds and may have cached an earlier
 failed boot. Wait ~10 seconds or restart via the menubar's "Restart Voice" item.
+
 ## Location
 
-`connectors/location.py` answers "where am I", exposed as the `get_location` tool.
-It reports where the **Mac** is, not where the user is — there is no passive way to
-read a phone's position from here, so the answer is "home" whenever the machine is
-home and it does not move when the user does. The tool docstring instructs the LLM
-never to claim knowledge of the user's personal whereabouts.
+`connectors/location.py` answers "where am I". It is no longer a tool — the
+poll job calls `location.warm()` in an executor every 15 minutes, and
+`_system_instruction` injects the *cached* fix into CHAT/COMPOSE prompts. The
+prompt path never fetches: a cold lookup blocks for seconds. Before the first
+warm the block is simply absent, which is the honest state.
+
+It reports where the **Mac** is, not where the user is — there is no passive way
+to read a phone's position from here, so the answer is "home" whenever the
+machine is home and it does not move when the user does. The injected block
+carries that caveat explicitly; a bare "Current location: X" in a system prompt
+reads as the user's whereabouts, which is the exact claim this module forbids.
 
 Two backends, tried in order, both lazy-imported so a failure degrades instead of
 crashing:
@@ -406,37 +369,38 @@ crashing:
   in order because these services throttle by source IP without warning (ipapi.co
   returned 429 on the very first request and was dropped).
 
-Fixes are cached for 5 minutes; an always-on Mac does not move, and a CoreLocation
-round trip costs seconds.
+Fixes are cached for 5 minutes; an always-on Mac does not move.
+
+## Packaging
+
+Both platforms ship a supervised GUI process that owns the core, plus a
+Tkinter first-run wizard (`setup_wizard.py`).
+
+- **macOS** — `packaging/macos/` (`friday.spec`, `build.sh`, `make_icon.py`, `BUILD_MACOS.md`) and `.github/workflows/build-macos.yml` produce a `.app`/`.dmg`. `mac_app.py` is the bundle entry point: it runs the wizard on first launch, then supervises `Friday.app --core` and shows the menu bar. A source checkout does not need it — `menubar.py` plus LaunchAgents installed by `macos_setup.py` is the developer path. The bundle version comes from `$VERSION`, never hardcoded.
+- **Windows** — `packaging/windows/` (spec, `installer.iss`, `build.ps1`, `BUILD_WINDOWS.md`) and `.github/workflows/build-windows.yml` produce `FridaySetup.exe` (Inno Setup around a PyInstaller onedir build), with Velopack for updates. The Google OAuth desktop client JSON is created once by the maintainer and bundled at build time.
 
 ## Windows Port (friend's build)
 
-The same codebase runs on Windows, packaged as `FridaySetup.exe` (Inno Setup wrapping a
-PyInstaller onedir build). Architecture differences are isolated behind small seams:
+The same codebase runs on Windows. Architecture differences are isolated behind
+small seams:
 
 - **Calendar backend dispatch** (`calendars/backend.py`): config `calendar.backend`
-  selects `apple` (JXA, the existing code, now in `calendars/apple.py`) or `google`
-  (`calendars/google_cal.py`, Google Calendar API + OAuth installed-app flow). Default
-  is google on win32, apple elsewhere. All reads/writes — tools, briefings, Canvas due
-  dates, gated writes — go through this dispatcher. On the google backend, gcal_sync is
-  skipped (Google already IS the event store) and missing calendars are auto-created.
-- **Paths** (`paths.py`): mutable state (config, db, logs, Google token) lives in
-  `%APPDATA%\Friday` on Windows/frozen builds, in the package dir on macOS. Bundled
-  read-only resources (AGENTS.md, quips.yaml, dashboard static) resolve via
-  `paths.resource_path()` (PyInstaller `_MEIPASS`-aware).
-- **compat.py**: `compat.strftime()` translates glibc `%-d`/`%-I` to Windows `%#d`;
-  always use it for format strings with `%-`. Also `IS_WINDOWS` and the listening-flag
-  temp path.
-- **Process model**: `tray.py` (pystray) is the Windows entry point — it supervises the
-  core (`Friday.exe --core`) and auto-restarts it on exit. The dashboard's
-  `/api/friday/restart` on Windows just raises SIGINT in-process; the tray brings it
-  back. Quit sets a flag so the exit is final. No launchd, no services.
+  selects `apple` (JXA, `calendars/apple.py`) or `google` (`calendars/google_cal.py`,
+  Google Calendar API + OAuth installed-app flow). Default is google on win32, apple
+  elsewhere. All reads/writes — tools, briefings, Canvas due dates, gated writes — go
+  through this dispatcher. On the google backend, gcal_sync is skipped and missing
+  calendars are auto-created.
+- **Paths** (`paths.py`): mutable state (config, db, logs, Google token, learned voice)
+  lives in `%APPDATA%\Friday` on Windows/frozen builds, in the package dir on a macOS
+  source checkout. Bundled read-only resources (AGENTS.md, quips.yaml, dashboard static)
+  resolve via `paths.resource_path()` (PyInstaller `_MEIPASS`-aware). Never write through
+  `resource_path()`.
+- **compat.py**: `compat.strftime()` translates glibc `%-d`/`%-I` to Windows `%#d`.
+  Also `IS_WINDOWS` and the listening-flag temp path.
+- **Process model**: `tray.py` (pystray) supervises the core (`Friday.exe --core`) and
+  auto-restarts it on exit. The dashboard's `/api/friday/restart` on Windows just raises
+  SIGINT in-process; the tray brings it back. Quit sets a flag so the exit is final.
+  No launchd, no services.
 - **run_polling on Windows must NOT receive stop_signals** — Proactor loops have no
   `add_signal_handler`; friday.py only passes them on non-Windows.
-- **First run**: `setup_wizard.py` (Tkinter) collects Telegram token (+ chat-id
-  auto-detect), Gemini key, Google OAuth + calendar pickers, optional Canvas/weather.
-- **Packaging**: `packaging/windows/` (spec, installer.iss, build.ps1, BUILD_WINDOWS.md)
-  and `.github/workflows/build-windows.yml` (CI build, artifact `FridaySetup.exe`).
-  The Google OAuth desktop client JSON is created once by the maintainer (friend added
-  as test user) and bundled at build time; see BUILD_WINDOWS.md.
 - **Out of scope on Windows**: voice, menubar.py/rumps, iMessage (still banned everywhere).
