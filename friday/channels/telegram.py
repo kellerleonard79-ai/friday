@@ -163,7 +163,8 @@ class TelegramHandler:
             try:
                 response = await asyncio.wait_for(
                     loop.run_in_executor(
-                        None, lambda: self.agent._think(prompt, "user_message")
+                        None, lambda: self.agent.complete(
+                            prompt, triggered_by="user_message")
                     ),
                     timeout=_EXECUTOR_TIMEOUT_S,
                 )

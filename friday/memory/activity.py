@@ -36,7 +36,7 @@ def _preview(text: str | None, n: int = _PREVIEW) -> str:
 def record_llm_exchange(conn: sqlite3.Connection, *, model: str, prompt: str,
                         response: str, tokens_in: int, tokens_out: int,
                         duration_ms: int, triggered_by: str) -> None:
-    """One row per _think() call. Full prompt/response stored verbatim so
+    """One row per FridayAgent.complete() call. Full prompt/response stored verbatim so
     /api/llm/last can show the most recent exchange exactly as it ran."""
     if conn is None:
         return

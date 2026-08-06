@@ -1,6 +1,20 @@
 """
 agent/core.py
-LLM calls only. No routing, no state, no Telegram references.
+The transport seam to the model. Nothing else.
+
+This module is deliberately narrow. There is no prompt layer, no persona, no
+tool layer, and no conversation-history layer in it — all four were torn down
+on branch llm-layer-teardown and are being rebuilt. What is left is the part
+that talks to a provider and the instrumentation around that call:
+
+    complete(prompt, *, images=None, json=False, triggered_by="unknown") -> str
+
+Callers hand it a finished string and get a string back. Whether and how to
+inject history, a system instruction, or tool schemas is a rewrite decision,
+and this layer must not assume one.
+
+Synchronous by design. Every caller runs it via loop.run_in_executor from an
+async handler; do not make it async.
 """
 
 import base64
@@ -18,23 +32,21 @@ import memory.state as state
 
 logger = logging.getLogger("friday.core")
 
-# Features in this module:
+# What survives here:
 #   • Dual provider support — Gemini or local Ollama — selected by
 #     config['provider'].
-#   • Transient-error retry/backoff for Gemini (500/503/504/429).
-#   • Token/call stats persisted to system_state for the dashboard/menubar.
-#   • _think() is the single synchronous LLM entry point; callers run it in an
-#     executor from the async handlers.
+#   • Transient-error retry/backoff for Gemini (500/503/504/429) and the
+#     bounded transport retry. Both are load-bearing; see the constants.
+#   • Token/call stats persisted to system_state for the dashboard/menubar,
+#     and the llm_exchanges row written per call.
+#   • The "" return and _last_error sentinel the handlers branch on.
 #
-# TORN DOWN on branch llm-layer-teardown, and being rebuilt from scratch:
-#   • the function-calling tool layer (agent/tools.py) and the tool dispatcher
-#     (agent/dispatcher.py) — no call attaches function declarations
-#   • persona and system-instruction assembly — AGENTS.md loading, the
-#     config-driven blocks (preset / snark / approved / learned phrases /
-#     custom instructions), the wall-clock stamp and the location block.
-#     The model now receives NO system instruction at all. Deliberate.
-# AGENTS.md and quips.yaml stay in the repo and in the bundle as the source
-# material for the rewrite; nothing reads AGENTS.md any more.
+# What was removed, and is being rebuilt from scratch: the tool layer
+# (agent/tools.py) and dispatcher (agent/dispatcher.py); persona and
+# system-instruction assembly (agent/profiles.py, AGENTS.md loading, the
+# config-driven blocks, the wall-clock stamp, the location block); every
+# prompt string. AGENTS.md and quips.yaml stay in the repo and in the bundle
+# as source material — nothing reads AGENTS.md any more.
 
 # Google API transient errors worth retrying. 500/503/504 = server-side
 # blip, 429 = rate limit. Everything else (400 bad request, 401 auth, etc.)
@@ -120,7 +132,7 @@ class FridayAgent:
         """Call Gemini generate_content with backoff on transient 503/504/429
         and on timeout/transport errors (bounded harder — see
         _GEMINI_TRANSPORT_MAX_RETRIES). On final failure the exception
-        propagates to _think's except block, which returns the "" sentinel the
+        propagates to complete()'s except block, which returns the "" sentinel the
         handlers turn into the "LLM error, sir" reply."""
         attempt = 0
         transport_retries_left = _GEMINI_TRANSPORT_MAX_RETRIES
@@ -156,25 +168,27 @@ class FridayAgent:
                 time.sleep(delay)
                 attempt += 1
 
-    def _think(self, prompt: str, history: list | None = None,
-               triggered_by: str = "unknown",
-               images: list[tuple[bytes, str]] | None = None,
-               response_json: bool = False) -> str:
-        """Synchronous LLM call. Always run via run_in_executor inside async handlers.
+    def complete(self, prompt: str, *,
+                 images: list[tuple[bytes, str]] | None = None,
+                 json: bool = False,
+                 triggered_by: str = "unknown") -> str:
+        """One model call. Text in, text out. Run it via run_in_executor.
 
-        Plain text in, plain text out. No function declarations are attached to
-        any call — the tool layer was torn down (see the module header).
+        The prompt is sent verbatim as a single user turn. No system
+        instruction, no tool schemas, no conversation history — a caller that
+        wants context in the call puts it in `prompt`.
 
-        No system instruction is sent, and there is no call profile to pick
-        one — agent/profiles.py is gone with the persona it sliced.
+        images is a list of (bytes, mime_type) attached to that same turn.
+        json asks Gemini for application/json output.
 
-        triggered_by labels the source of the call (user_message, briefing_morning,
-        briefing_evening, poll, ...) — it is persisted on the llm_exchanges row.
+        triggered_by labels the source of the call (user_message,
+        briefing_morning, poll, ...) and is persisted on the llm_exchanges row.
         Instrumentation only; it never changes what the model sees or does.
 
-        images is a list of (bytes, mime_type) attached to the user turn.
-        On the multimodal path history is not supported — the call is a single
-        turn. response_json asks Gemini for application/json output.
+        Returns "" on any failure, with the first line of the error left on
+        self._last_error. Handlers branch on exactly that pair — an empty
+        string with _last_error set is an outage, an empty string without one
+        is a model that produced no text. Do not change the contract.
         """
         self._last_error = None
         # llm_exchanges stores text only — mark attachments so the dashboard
@@ -191,13 +205,9 @@ class FridayAgent:
                         for data, mime in images
                     ] + [prompt]
                 else:
-                    contents = []
-                    for turn in (history or []):
-                        role = "user" if turn["role"] == "user" else "model"
-                        contents.append({"role": role, "parts": [{"text": turn["content"]}]})
-                    contents.append({"role": "user", "parts": [{"text": prompt}]})
+                    contents = [{"role": "user", "parts": [{"text": prompt}]}]
                 cfg_kwargs = dict(max_output_tokens=self.max_tokens)
-                if response_json:
+                if json:
                     cfg_kwargs["response_mime_type"] = "application/json"
                 resp = self._gemini_generate_with_retry(
                     contents=contents,
@@ -227,9 +237,6 @@ class FridayAgent:
                 return text
 
             else:  # ollama
-                messages = []
-                for turn in (history or []):
-                    messages.append({"role": turn["role"], "content": turn["content"]})
                 user_msg = {"role": "user", "content": prompt}
                 if images:
                     # Ollama's chat API takes base64 images; only vision-capable
@@ -237,7 +244,7 @@ class FridayAgent:
                     user_msg["images"] = [
                         base64.b64encode(data).decode() for data, _ in images
                     ]
-                messages.append(user_msg)
+                messages = [user_msg]
                 r = requests.post(
                     f"{self.ollama_url}/api/chat",
                     json={
