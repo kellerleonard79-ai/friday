@@ -14,7 +14,6 @@ import os
 import re
 import signal
 import sys
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import yaml

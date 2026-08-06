@@ -19,7 +19,7 @@ runs PyInstaller, signs, and assembles the disk image.
 |---|---|
 | `Friday.app/Contents/MacOS/Friday` | `mac_app.py` — menu bar + core supervisor |
 | `Friday.app/Contents/Resources/FridayVoice.app` | the voice satellite's TCC wrapper |
-| `Friday.app/Contents/Resources/` | `AGENTS.md`, `Soul.md`, `quips.yaml`, `dashboard/static` |
+| `Friday.app/Contents/Resources/` | `AGENTS.md`, `quips.yaml`, `dashboard/static` |
 
 Three invocations of the same binary:
 

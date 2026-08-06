@@ -2,6 +2,10 @@
 *.pyc
 *.pyo
 
+# macOS Finder metadata.
+.DS_Store
+**/.DS_Store
+
 *.db
 *.log
 state.json

@@ -1,12 +1,20 @@
 """
 agent/tools.py
-Synchronous tool functions Gemini can invoke. The google-genai SDK auto-handles
-the call loop when these are passed as `tools=[...]` to generate_content.
+Synchronous tool functions Gemini can invoke. The SDK infers their schemas from
+these signatures, but the call loop is ours — see FridayAgent._gemini_exchange
+in agent/core.py.
 
 Each tool:
   - Has a clear docstring (Gemini's tool description)
   - Has typed parameters (Gemini's schema inference uses annotations)
   - Returns a JSON-serializable dict — never raises
+
+A tool that has itself sent the user their reply for this turn (the calendar
+writers, which ship a confirmation with a quip) returns "user_notified": True.
+That ends the loop: the result is not fed back and the model is not asked for
+text it has no reason to produce. Set it ONLY on the branches that actually
+messaged the user — a validation error the model is expected to recover from
+must come back without it.
 """
 
 import functools
@@ -309,20 +317,22 @@ def make_tools(conn, config, agent=None):
             return {"status": "error",
                     "message": "Calendar write failed — see logs"}
         # Flag the handler that the confirmation message already went out, so
-        # an empty LLM follow-up isn't treated as a failure and we don't
-        # double-message the user. Stash the exact text we sent so the
-        # Telegram layer can write it into conversation_history — past rows
-        # train the LLM's future output, so the row must match what shipped.
+        # the empty _think return isn't treated as a failure. Stash the exact
+        # text we sent so the Telegram layer can write it into
+        # conversation_history — past rows train the LLM's future output, so
+        # the row must match what shipped.
         if agent is not None:
             agent._last_action_emitted = "calendar_added"
             agent._last_calendar_confirmation = cal_action.format_confirmation(
                 event, quip,
             )
+        # user_notified ends the turn in agent/core.py — this result is never
+        # sent back to the model, so the old "say nothing now" instructions it
+        # used to carry are gone along with the call that read them.
         return {
             "status": "added",
             "apple_event_uid": uid,
-            "user_already_sees": "a one-line confirmation message from Friday naming the event, day, and time, with a quip appended",
-            "next_action": "Do not produce any further output for this turn. Friday has already replied.",
+            "user_notified": True,
         }
 
     def update_calendar_event(
@@ -422,8 +432,7 @@ def make_tools(conn, config, agent=None):
         return {
             "status": "updated",
             "apple_event_uid": result.get("uid", ""),
-            "user_already_sees": "a one-line confirmation message from Friday naming the event and what changed, with a quip appended",
-            "next_action": "Do not produce any further output for this turn. Friday has already replied.",
+            "user_notified": True,
         }
 
     # ── Self-editing ─────────────────────────────────────────────────────

@@ -22,7 +22,6 @@ SRC_DIR = os.path.join(REPO_ROOT, "friday")
 datas = [
     (os.path.join(SRC_DIR, "AGENTS.md"), "."),
     (os.path.join(SRC_DIR, "quips.yaml"), "."),
-    (os.path.join(SRC_DIR, "Soul.md"), "."),
     (os.path.join(SRC_DIR, "dashboard", "static"), os.path.join("dashboard", "static")),
 ]
 

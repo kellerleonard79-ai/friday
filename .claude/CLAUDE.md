@@ -129,6 +129,45 @@ Rules that must not be relaxed:
 - The dispatcher is biased toward over-selection on purpose: an extra tool costs ~200 tokens of schema, a missing one is a wrong answer.
 - Every decision, including failures, is logged to `dispatch_log`. `tools_verify_dispatch.py` reads it back paired with the chat call it produced.
 
+### The tool loop is ours, not the SDK's (`_gemini_exchange`)
+
+`automatic_function_calling` is disabled on every tool-bearing call. The SDK
+still infers the schemas from the callables; only its execute-and-re-ask loop is
+off. `FridayAgent._gemini_exchange` runs the loop by hand because the SDK's has
+exactly one exit — append the tool result, call the model again, take its text —
+and that last hop re-sends the full envelope (persona, every attached schema,
+history) to ask a question that is already answered.
+
+The traffic controller:
+- **Getter** (`get_schedule`, `get_weather`, …) — append the model's
+  function-call turn plus a `{"result": …}` function response, call again for
+  the prose. The `{"result": …}` wrapper matches what AFC used to send; don't
+  change its shape.
+- **Terminal** — any tool result carrying `"user_notified": True`. Stop. The
+  tool already sent the user their reply (the calendar writers ship a
+  confirmation with a quip), so `_think` returns `""` and the caller's
+  empty-response branch handles it. This is success, not an error.
+
+Rules:
+- **`user_notified` is a per-branch fact, not a property of the tool.**
+  `add_calendar_event` both writes-and-notifies AND returns validation errors
+  ("uid required — call `get_schedule` first") the model must see to recover
+  from. Terminating on the tool's *name* would answer those with silence. Only
+  the branches that actually messaged the user set the flag.
+- Failure branches inside the calendar writers deliberately do NOT set it —
+  `auto_write`/`auto_update` send their own failure note, but the model still
+  gets the error so it can explain itself.
+- A tool that raises, or a name the model invented, comes back as
+  `{"error": …}` and the loop continues. Never crash the turn.
+- `_TOOL_MAX_HOPS` bounds a runaway loop. Usage is summed across hops — each
+  hop is its own billed request.
+
+This refactor is what removed the "silent residue" bug: asked to produce nothing
+after a calendar write, the model would answer with an empty Markdown fence or a
+stray CJK token, which shipped to Telegram as the reply. There is no longer a
+hop in which it can. Do not reintroduce a downstream filter for it; fix the loop
+instead.
+
 ### Time and location are injected, not tools
 
 `get_now` and `get_location` no longer exist. `_system_instruction()` appends the

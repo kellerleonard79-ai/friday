@@ -43,7 +43,7 @@ _LISTS = ("confirm_quips", "voice_phrases", "disabled_quips")
 MAX_PHRASE_LEN = 200
 MAX_PHRASES    = 60
 
-# Markdown/emoji are banned in Friday's output by AGENTS.md and Soul.md, so a
+# Markdown/emoji are banned in Friday's output by AGENTS.md, so a
 # phrase containing them can never be used as written. Reject at the door
 # rather than storing something that will read wrong later.
 _EMOJI_RE    = re.compile(

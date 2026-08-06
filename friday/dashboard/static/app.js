@@ -553,16 +553,6 @@ function fmtNum(n) {
   return v.toLocaleString();
 }
 
-function fmtUptime(secs) {
-  if (secs == null) return '—';
-  const d = Math.floor(secs / 86400);
-  const h = Math.floor((secs % 86400) / 3600);
-  const m = Math.floor((secs % 3600) / 60);
-  if (d) return `${d}d ${h}h`;
-  if (h) return `${h}h ${m}m`;
-  return `${m}m`;
-}
-
 // ── AI Model ───────────────────────────────────────────────────────────
 
 function renderAI() {

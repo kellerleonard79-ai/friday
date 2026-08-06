@@ -25,6 +25,9 @@ logger = logging.getLogger("friday.core")
 # Features in this module:
 #   • Dual provider support — Gemini (with function-calling tools) or local
 #     Ollama — selected by config['provider'].
+#   • A hand-rolled function-calling loop (_gemini_exchange) in place of the
+#     SDK's automatic_function_calling, so a tool that has already replied to
+#     the user ends the turn instead of buying another full-envelope round trip.
 #   • Persona assembly: AGENTS.md base prose + a config-driven block (preset,
 #     snark level, approved JARVIS phrases, custom instructions).
 #   • Transient-error retry/backoff for Gemini (500/503/504/429).
@@ -51,6 +54,24 @@ _GEMINI_TRANSPORT_MAX_RETRIES = 1
 # Only the first few PDF pages are rasterized for the vision model — flyers
 # and schedules front-load their content, and each page adds latency + payload.
 _PDF_MAX_PAGES = 3
+
+# Ceiling on tool-executing hops in one manual tool loop (see
+# _gemini_exchange). Friday's real flows are one or two hops — get_schedule
+# then update_calendar_event is the longest — so this only exists to bound a
+# model that has started calling the same tool forever. Mirrors the SDK's own
+# default cap in spirit; lower because our tool set is small.
+_TOOL_MAX_HOPS = 5
+
+# The key a tool sets in its return value to say "I have already sent the user
+# their reply for this turn." It ends the loop: the result is NOT fed back to
+# the model, so no further request is made and _think returns "".
+#
+# This is a contract, not a list of tool names, on purpose. add_calendar_event
+# both writes-and-notifies AND returns validation errors ("uid required, call
+# get_schedule first") that the model must see to recover from — keying off the
+# name would terminate the turn on those too, leaving the user with silence.
+# Only the branches that actually messaged the user set the flag.
+_TOOL_TERMINAL_KEY = "user_notified"
 
 
 def _pdf_to_png_pages(pdf_bytes: bytes) -> list[bytes]:
@@ -425,6 +446,102 @@ class FridayAgent:
                 time.sleep(delay)
                 attempt += 1
 
+    @staticmethod
+    def _invoke_tool(tool_map: dict, call) -> dict:
+        """Execute one model-requested function call.
+
+        Mirrors the SDK's error contract: a tool that raises comes back to the
+        model as {"error": ...} rather than taking the whole turn down. A name
+        the model invented (it does, occasionally, under a narrowed tool list)
+        is reported the same way, so the model can correct itself on the next
+        hop instead of the loop crashing on a KeyError.
+        """
+        fn = tool_map.get(call.name)
+        if fn is None:
+            logger.warning(f"Model called unregistered tool {call.name!r}")
+            return {"error": f"No tool named {call.name!r} is available."}
+        try:
+            return fn(**(call.args or {}))
+        except Exception as e:
+            logger.exception(f"Tool {call.name} raised: {e}")
+            return {"error": str(e)}
+
+    def _gemini_exchange(self, *, contents, config, tool_map: dict):
+        """One logical Gemini turn: the initial call, plus the function-calling
+        loop when tools are attached. Returns (response, tokens_in, tokens_out),
+        where response is None if a tool ended the turn itself.
+
+        We drive this loop instead of the SDK's automatic_function_calling
+        because that loop has exactly one exit: append the tool result, call the
+        model again, take its text. For a setter that has already messaged the
+        user — add_calendar_event sends its own confirmation with a quip — that
+        last hop re-sends the entire envelope (persona, every attached tool
+        schema, the whole history) for the sole purpose of being told to say
+        nothing. It cost a full-price request per calendar write, and it is
+        where the "silent residue" came from: asked to produce nothing, the
+        model would sometimes answer with an empty Markdown fence or a stray
+        CJK token, which then shipped to Telegram as the reply.
+
+        So the loop is a traffic controller:
+          • getter (get_schedule, get_weather, …) → append the model's
+            function-call turn and the result, call again for the prose.
+          • terminal (any result carrying _TOOL_TERMINAL_KEY) → stop here. The
+            user already has their answer; there is nothing left to say and no
+            reason to pay for the model to say it.
+
+        Usage is summed across hops. Each hop is its own billed request, and
+        counting only the last one under-reported a tool turn by most of its
+        cost — the SDK's single usage_metadata hid that.
+        """
+        contents = list(contents)
+        tokens_in = tokens_out = 0
+        hops = 0
+        while True:
+            resp = self._gemini_generate_with_retry(contents=contents, config=config)
+            usage = getattr(resp, "usage_metadata", None)
+            tokens_in += getattr(usage, "prompt_token_count", 0) or 0
+            tokens_out += getattr(usage, "candidates_token_count", 0) or 0
+
+            calls = list(resp.function_calls or []) if tool_map else []
+            if not calls:
+                return resp, tokens_in, tokens_out
+
+            hops += 1
+            # The model's own turn must go back verbatim — a function response
+            # with no preceding function call is a 400 from the API.
+            func_call_content = resp.candidates[0].content
+            response_parts = []
+            terminal = False
+            for call in calls:
+                result = self._invoke_tool(tool_map, call)
+                if isinstance(result, dict) and result.get(_TOOL_TERMINAL_KEY):
+                    terminal = True
+                # {"result": ...} is the exact envelope the SDK's AFC used, so
+                # the model sees tool output in the shape it always has.
+                response_parts.append(types.Part.from_function_response(
+                    name=call.name, response={"result": result},
+                ))
+
+            if terminal:
+                # Deliberate silence, not a failure: the caller's empty-response
+                # branch pairs with the tool's own message to the user.
+                logger.info(
+                    f"Tool turn ended by {[c.name for c in calls]} — user "
+                    f"already notified, skipping the follow-up call."
+                )
+                return None, tokens_in, tokens_out
+
+            if hops >= _TOOL_MAX_HOPS:
+                logger.warning(
+                    f"Tool loop hit {_TOOL_MAX_HOPS} hops "
+                    f"({[c.name for c in calls]}) — returning without a final "
+                    f"model turn."
+                )
+                return resp, tokens_in, tokens_out
+
+            contents.append(func_call_content)
+            contents.append(types.Content(role="user", parts=response_parts))
+
     def _think(self, prompt: str, history: list | None = None,
                use_tools: bool = True, triggered_by: str = "unknown",
                images: list[tuple[bytes, str]] | None = None,
@@ -448,9 +565,11 @@ class FridayAgent:
         ships the persona alone. It also narrows the persona to match — prose
         about a tool the model was not given is dead weight.
 
-        The SDK owns the tool loop and reuses one config object across every
-        hop, so a narrowed list attached here persists for the whole loop
-        without any further work.
+        The tool loop is ours, not the SDK's (see _gemini_exchange), and reuses
+        one config object across every hop, so a narrowed list attached here
+        persists for the whole loop without any further work. A turn that ends
+        in a tool which already messaged the user returns "" — that is success,
+        not an error, and callers must treat it as such.
 
         triggered_by labels the source of the call (user_message, briefing_morning,
         briefing_evening, poll, ...) — it is persisted on the llm_exchanges row and
@@ -491,37 +610,39 @@ class FridayAgent:
                     system_instruction=self._system_instruction(profile, tool_names),
                     max_output_tokens=self.max_tokens,
                 )
+                tool_map: dict = {}
                 if response_json:
                     cfg_kwargs["response_mime_type"] = "application/json"
                 elif use_tools and self._tools:
                     selected = self._select_tools(tool_names)
                     if selected:
                         cfg_kwargs["tools"] = selected
-                resp = self._gemini_generate_with_retry(
+                        # Schemas are still inferred from these callables; only
+                        # the SDK's execute-and-re-ask loop is turned off. We
+                        # run it ourselves so a tool that already replied to the
+                        # user can end the turn instead of buying one more
+                        # full-envelope round trip to say nothing.
+                        cfg_kwargs["automatic_function_calling"] = \
+                            types.AutomaticFunctionCallingConfig(disable=True)
+                        tool_map = {fn.__name__: fn for fn in selected}
+                resp, tin, tout = self._gemini_exchange(
                     contents=contents,
                     config=types.GenerateContentConfig(**cfg_kwargs),
+                    tool_map=tool_map,
                 )
-                usage = getattr(resp, "usage_metadata", None)
-                tin  = getattr(usage, "prompt_token_count", 0) or 0
-                tout = getattr(usage, "candidates_token_count", 0) or 0
                 self._record_call(tokens_in=tin, tokens_out=tout)
-                text = (resp.text or "").strip()
-                # Gemma sometimes emits an empty Markdown fence (```\n```) as its
-                # post-tool reply instead of empty text, even when the tool
-                # result tells it to stay silent (see propose_calendar_event in
-                # agent/tools.py). That fence renders as six literal backticks
-                # in Telegram. Treat any backtick-only response as empty so the
-                # caller's empty-response branch handles it correctly.
-                if text and not text.replace("`", "").strip():
-                    text = ""
-                if not text:
+                # resp is None when a tool ended the turn — the user has their
+                # reply already, so "" is the correct, expected answer.
+                text = (resp.text or "").strip() if resp is not None else ""
+                if not text and resp is not None:
                     finish = None
                     try:
                         finish = resp.candidates[0].finish_reason
                     except Exception:
                         pass
                     logger.warning(
-                        f"Gemini returned empty text. finish_reason={finish} usage={usage}"
+                        f"Gemini returned empty text. finish_reason={finish} "
+                        f"usage={getattr(resp, 'usage_metadata', None)}"
                     )
                 activity.record_llm_exchange(
                     self._conn, model=self.model_name, prompt=log_prompt, response=text,

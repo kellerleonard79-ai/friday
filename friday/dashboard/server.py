@@ -19,7 +19,6 @@ import shutil
 import signal
 import sqlite3
 import subprocess
-import sys
 import tempfile
 import threading
 from collections import deque
@@ -31,7 +30,7 @@ import requests
 import uvicorn
 import yaml
 from fastapi import Body, FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 

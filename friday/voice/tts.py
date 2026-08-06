@@ -9,7 +9,7 @@ import logging
 import re
 import subprocess
 import threading
-from typing import List, Optional
+from typing import List
 
 import pyaudio
 

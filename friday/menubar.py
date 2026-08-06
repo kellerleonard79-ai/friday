@@ -20,8 +20,13 @@ import requests
 import rumps
 from AppKit import NSApplication, NSImage
 
+import compat
 import menubar_icon
 import paths
+
+# Before FridayMenuBar() — its Dock-icon swap is the first thing here to touch
+# NSApplication, and by then LaunchServices has already recorded the name.
+compat.set_mac_app_name()
 
 # voice/listen.py creates this for the duration of every wake/PTT session
 # (recording → transcription → bridge → TTS). Treat its presence as an

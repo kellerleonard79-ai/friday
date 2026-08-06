@@ -37,13 +37,6 @@ def _load_quips() -> list[str]:
     return quips or [_FALLBACK]
 
 
-def random_quip() -> str:
-    quips = _load_quips()
-    if quips:
-        return random.choice(quips)
-    return _FALLBACK
-
-
 def quip_prompt(context: str) -> tuple[str, list[str]]:
     """
     Returns (prompt_string, quips_list).

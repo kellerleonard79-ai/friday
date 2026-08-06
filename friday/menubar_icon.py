@@ -20,7 +20,6 @@ PyObjC is already a transitive dep of rumps — no new requirements.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from AppKit import (
@@ -84,33 +83,6 @@ def _scaled_to_height(src: NSImage, height_pt: float) -> NSImage:
     out.lockFocus()
     src.drawInRect_fromRect_operation_fraction_(
         NSMakeRect(0, 0, new.width, new.height),
-        NSMakeRect(0, 0, sz.width, sz.height),
-        NSCompositingOperationSourceOver,
-        1.0,
-    )
-    out.unlockFocus()
-    return out
-
-
-def rounded_square_crop(src: NSImage, radius_ratio: float = 0.2237) -> NSImage:
-    """Center-crop to a square and mask with a rounded rectangle.
-    `radius_ratio` ≈ 0.2237 matches the macOS app-icon (squircle) curvature.
-    """
-    sz = src.size()
-    side = min(sz.width, sz.height)
-    out = NSImage.alloc().initWithSize_(NSSize(side, side))
-    out.lockFocus()
-    ctx = NSGraphicsContext.currentContext()
-    if ctx is not None:
-        ctx.setImageInterpolation_(NSImageInterpolationHigh)
-    radius = side * radius_ratio
-    NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
-        NSMakeRect(0, 0, side, side), radius, radius,
-    ).addClip()
-    dst_x = (side - sz.width) / 2.0
-    dst_y = (side - sz.height) / 2.0
-    src.drawInRect_fromRect_operation_fraction_(
-        NSMakeRect(dst_x, dst_y, sz.width, sz.height),
         NSMakeRect(0, 0, sz.width, sz.height),
         NSCompositingOperationSourceOver,
         1.0,
@@ -310,10 +282,6 @@ def regenerate() -> dict[str, str]:
     for p in CACHE_DIR.glob("*.png"):
         p.unlink()
     return ensure_icons()
-
-
-def using_user_icon() -> bool:
-    return USER_ICON_PATH.exists()
 
 
 def ensure_favicon(out_path: Path, size: int = 128) -> Path | None:

@@ -13,8 +13,45 @@ layer, and a proactive alert system.
 
 ---
 
+## Start here
+
+Everything that runs lives in the `friday/` directory. The repository root holds only
+packaging, launch configuration, and docs.
+
+**The file you run is `friday/friday.py`** — that is the core process. The other
+entry points wrap it rather than replace it: `mac_app.py` is the packaged macOS
+`.app` supervisor, `tray.py` is its Windows counterpart, `menubar.py` is the macOS
+menu bar for a source checkout, and `setup_wizard.py` is the first-run configuration
+window. If you are just getting the thing running, see [Installation](#installation).
+
+What each directory is for:
+
+| Directory | What lives there |
+|---|---|
+| `agent/` | The brain. Talking to the LLM, choosing tools, writing briefings. |
+| `connectors/` | **Information coming in.** One file per source: Canvas, GroupMe, weather, location. |
+| `channels/` | **Talking to the user.** Telegram — the interface Friday speaks through. |
+| `actions/` | **Things Friday does to the world.** Currently calendar writes. |
+| `calendars/` | The calendar itself — Apple or Google, chosen by config. This is where events are actually stored. |
+| `memory/` | The SQLite database and everything that reads or writes it. |
+| `dashboard/` | The local web page at `127.0.0.1:5174` for status and settings. |
+| `voice/` | The speech satellite: wake word, listening, speaking. Runs on its own and is never imported by the rest. |
+
+Two of these are easy to mix up. `connectors/` is data arriving; `channels/` is Friday
+speaking to you. And calendars touch three directories on purpose — `connectors/` reads
+events, `actions/` decides whether a write needs your approval, and `calendars/` performs
+the write against whichever backend you configured.
+
+Loose files in `friday/` worth knowing: `AGENTS.md` is Friday's personality — and its
+section headings are load-bearing, so renaming one changes behaviour, not just prose.
+`paths.py` and `compat.py` are the macOS/Windows differences. `friday_config.yaml` is
+your settings.
+
+---
+
 ## Table of contents
 
+- [Start here](#start-here)
 - [How it works](#how-it-works)
 - [Requirements](#requirements)
 - [Installation](#installation)
@@ -861,8 +898,8 @@ the raw `python3` binary running `friday.py`, or vice versa.
 - **Truncated replies** — raise `max_tokens` for the active provider.
 - **Ollama connection refused** — the daemon isn't running, or `base_url` is wrong. Test
   with `curl http://localhost:11434/api/tags`.
-- Persona and decision rules live in `AGENTS.md` and `Soul.md`, loaded from the resource
-  path. Editing those changes Friday's voice and urgency policy.
+- Persona and decision rules live in `AGENTS.md`, loaded from the resource path. Editing it
+  changes Friday's voice and urgency policy.
 
 ### Database issues
 

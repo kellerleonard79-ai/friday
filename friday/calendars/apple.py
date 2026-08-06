@@ -228,13 +228,6 @@ JSON.stringify({
             for i, n in enumerate(names) if n]
 
 
-def list_calendars(cfg: dict | None = None,
-                   writable_only: bool = False) -> list[str]:
-    """Calendar names only. See list_calendars_detailed for the caveats."""
-    return [n for n, w in list_calendars_detailed(cfg)
-            if w or not writable_only]
-
-
 def calendar_exists(cfg: dict, name: str) -> bool:
     out = _run_jxa(f"""
 const Calendar = Application('Calendar');

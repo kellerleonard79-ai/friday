@@ -131,21 +131,6 @@ def _friendly_date(date_str: str) -> str:
         return date_str
 
 
-def _friendly_date_phrase(date_str: str) -> str:
-    """Spoken-form date for confirmations: 'today', 'tomorrow', or
-    'on Tuesday, June 3' for anything further out."""
-    try:
-        d = date_cls.fromisoformat(date_str)
-    except ValueError:
-        return date_str
-    today = date_cls.today()
-    if d == today:
-        return "today"
-    if d == today + timedelta(days=1):
-        return "tomorrow"
-    return compat.strftime(d, "on %A, %B %-d")
-
-
 def _confirmation_date(date_str: str) -> str:
     """'today' / 'tomorrow' / 'Thursday, June 18' — bare, no preposition."""
     try:

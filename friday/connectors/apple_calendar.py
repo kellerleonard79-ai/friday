@@ -29,7 +29,7 @@ import json
 import logging
 import subprocess
 import threading
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 
 logger = logging.getLogger("friday.applecal")
 

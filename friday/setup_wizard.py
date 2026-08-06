@@ -36,7 +36,11 @@ from tkinter import filedialog, messagebox, ttk
 import requests
 import yaml
 
+import compat
 import paths
+
+# Before the first tk.Tk(), which is what registers this process with the Dock.
+compat.set_mac_app_name()
 
 logger = logging.getLogger("friday.wizard")
 
