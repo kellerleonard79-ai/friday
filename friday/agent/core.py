@@ -18,22 +18,24 @@ from google.genai import types
 
 import memory.activity as activity
 import memory.state as state
-from agent import dispatcher, profiles
+from agent import profiles
 
 logger = logging.getLogger("friday.core")
 
 # Features in this module:
-#   • Dual provider support — Gemini (with function-calling tools) or local
-#     Ollama — selected by config['provider'].
-#   • A hand-rolled function-calling loop (_gemini_exchange) in place of the
-#     SDK's automatic_function_calling, so a tool that has already replied to
-#     the user ends the turn instead of buying another full-envelope round trip.
+#   • Dual provider support — Gemini or local Ollama — selected by
+#     config['provider'].
 #   • Persona assembly: AGENTS.md base prose + a config-driven block (preset,
 #     snark level, approved JARVIS phrases, custom instructions).
 #   • Transient-error retry/backoff for Gemini (500/503/504/429).
 #   • Token/call stats persisted to system_state for the dashboard/menubar.
 #   • _think() is the single synchronous LLM entry point; callers run it in an
 #     executor from the async handlers.
+#
+# TORN DOWN on branch llm-layer-teardown: the function-calling tool layer
+# (agent/tools.py) and the tool dispatcher (agent/dispatcher.py) are gone. No
+# LLM call made from here attaches function declarations. Both are being
+# rebuilt from scratch.
 
 # Google API transient errors worth retrying. 500/503/504 = server-side
 # blip, 429 = rate limit. Everything else (400 bad request, 401 auth, etc.)
@@ -54,24 +56,6 @@ _GEMINI_TRANSPORT_MAX_RETRIES = 1
 # Only the first few PDF pages are rasterized for the vision model — flyers
 # and schedules front-load their content, and each page adds latency + payload.
 _PDF_MAX_PAGES = 3
-
-# Ceiling on tool-executing hops in one manual tool loop (see
-# _gemini_exchange). Friday's real flows are one or two hops — get_schedule
-# then update_calendar_event is the longest — so this only exists to bound a
-# model that has started calling the same tool forever. Mirrors the SDK's own
-# default cap in spirit; lower because our tool set is small.
-_TOOL_MAX_HOPS = 5
-
-# The key a tool sets in its return value to say "I have already sent the user
-# their reply for this turn." It ends the loop: the result is NOT fed back to
-# the model, so no further request is made and _think returns "".
-#
-# This is a contract, not a list of tool names, on purpose. add_calendar_event
-# both writes-and-notifies AND returns validation errors ("uid required, call
-# get_schedule first") that the model must see to recover from — keying off the
-# name would terminate the turn on those too, leaving the user with silence.
-# Only the branches that actually messaged the user set the flag.
-_TOOL_TERMINAL_KEY = "user_notified"
 
 
 def _pdf_to_png_pages(pdf_bytes: bytes) -> list[bytes]:
@@ -187,18 +171,13 @@ def _persona_blocks(base: str, config: dict) -> list[tuple[str, str]]:
     return blocks
 
 
-def _render_persona(blocks: list[tuple[str, str]], profile: str,
-                    tool_names: list[str] | None = None) -> str:
-    """Join the blocks this profile carries. CLASSIFY carries none of them.
-
-    tool_names narrows further, dropping prose that explains tools the model
-    was not given. None means no narrowing.
-    """
+def _render_persona(blocks: list[tuple[str, str]], profile: str) -> str:
+    """Join the blocks this profile carries. CLASSIFY carries none of them."""
     if profile == profiles.CLASSIFY:
         return profiles.CLASSIFY_INSTRUCTION
     return "\n\n".join(
         text for heading, text in blocks
-        if profiles.carries(heading, profile, tool_names)
+        if profiles.carries(heading, profile)
     )
 
 
@@ -215,10 +194,6 @@ class FridayAgent:
         self.provider = config.get("provider", "ollama")
         self._config  = config
         self._conn    = conn
-        # Source label the tool wrappers stamp onto tool_calls rows. Set per
-        # call in _think (tools only run on the use_tools=True chat path, which
-        # the semaphore serializes, so a plain attribute is race-safe here).
-        self._tool_triggered_by = "unknown"
 
         if self.provider == "gemini":
             gemini_cfg = config.get("gemini", {})
@@ -233,35 +208,18 @@ class FridayAgent:
             )
             self.model_name = gemini_cfg.get("model", "gemma-4-31b-it")
             self.max_tokens = gemini_cfg.get("max_tokens", 1000)
-            from agent.tools import make_tools
-            self._tools = make_tools(conn, config, self)
-            # Hard failure, deliberately. A tool absent from the manifest is
-            # invisible to the dispatcher and silently stops working while
-            # everything still looks healthy — far worse to discover in
-            # production than at boot.
-            dispatcher.assert_manifest_matches_tools(self._tools)
         else:
             self.gemini_client = None
             ollama_cfg = config.get("ollama", {})
             self.model_name = ollama_cfg.get("model", "llama3.2:1b")
             self.max_tokens = ollama_cfg.get("max_tokens", 1000)
             self.ollama_url = ollama_cfg.get("base_url", "http://localhost:11434")
-            # No tools on the ollama path, so nothing for the dispatcher to
-            # narrow and nothing to validate the manifest against.
-            self._tools = None
-
-        # Built regardless of provider so `dispatcher.enabled` reads the same
-        # either way; it is only consulted where tools exist.
-        gem_key = (config.get("gemini") or {}).get("api_key") or os.environ.get(
-            "GEMINI_API_KEY", "")
-        self.dispatcher = dispatcher.ToolDispatcher(config, gemini_api_key=gem_key)
 
         logger.info(f"Agent ready — {self.provider} / {self.model_name}")
 
     # ── Persona ───────────────────────────────────────────────────────────
 
-    def persona_for(self, profile: str,
-                    tool_names: list[str] | None = None) -> str:
+    def persona_for(self, profile: str) -> str:
         """The persona slice this call profile carries, recomposed whenever the
         voice file or the config changes on disk.
 
@@ -274,30 +232,22 @@ class FridayAgent:
         if key != self._persona_key:
             self._persona_cache = {}
             self._persona_key = key
-        # Keyed on the tool selection too: the same profile renders differently
-        # depending on which tool-coupled sections survive.
-        cache_key = (profile, None if tool_names is None else frozenset(tool_names))
-        if cache_key not in self._persona_cache:
+        if profile not in self._persona_cache:
             blocks = _persona_blocks(self._persona_base, self._config)
-            self._persona_cache[cache_key] = _render_persona(
-                blocks, profile, tool_names)
-        return self._persona_cache[cache_key]
+            self._persona_cache[profile] = _render_persona(blocks, profile)
+        return self._persona_cache[profile]
 
     @property
     def persona(self) -> str:
         """The full persona — the CHAT slice, which carries every section."""
         return self.persona_for(profiles.CHAT)
 
-    def _system_instruction(self, profile: str = profiles.CHAT,
-                            tool_names: list[str] | None = None) -> str:
+    def _system_instruction(self, profile: str = profiles.CHAT) -> str:
         """The persona with the current wall-clock time appended.
 
-        This replaces the old get_now tool. A tool the model has to remember to
-        call is a tool it can skip, and skipping it left the model inferring the
-        date from training data — which is how relative phrases ("tomorrow",
-        "this Friday") resolved to the wrong day. Injecting the stamp makes it
-        unconditional and costs ~25 tokens against the ~2,900 the tool schema
-        entry was costing on every chat turn.
+        The stamp is injected rather than fetched, so the model always has it.
+        Without it, relative phrases ("tomorrow", "this Friday") resolved
+        against a date out of the training set.
 
         Appended rather than prepended: the persona stays a stable prefix
         (a volatile first line would defeat prefix caching), and the tail of a
@@ -331,7 +281,7 @@ class FridayAgent:
             loc = self._location_block()
             if loc:
                 block += f"\n\n{loc}"
-        return f"{self.persona_for(profile, tool_names)}\n\n{block}"
+        return f"{self.persona_for(profile)}\n\n{block}"
 
     def _location_block(self) -> str:
         """Where the machine is, or '' if no fix has been taken yet.
@@ -377,15 +327,6 @@ class FridayAgent:
             # A location problem must never cost us the LLM call.
             logger.debug(f"Location block skipped: {e}")
             return ""
-
-    def _select_tools(self, tool_names: list[str] | None) -> list:
-        """The registered callables the dispatcher picked, in registration
-        order. None means all of them."""
-        if tool_names is None:
-            return self._tools
-        wanted = set(tool_names)
-        return [fn for fn in self._tools
-                if getattr(fn, "__name__", "") in wanted]
 
     # ── Stats instrumentation ─────────────────────────────────────────────
 
@@ -446,147 +387,29 @@ class FridayAgent:
                 time.sleep(delay)
                 attempt += 1
 
-    @staticmethod
-    def _invoke_tool(tool_map: dict, call) -> dict:
-        """Execute one model-requested function call.
-
-        Mirrors the SDK's error contract: a tool that raises comes back to the
-        model as {"error": ...} rather than taking the whole turn down. A name
-        the model invented (it does, occasionally, under a narrowed tool list)
-        is reported the same way, so the model can correct itself on the next
-        hop instead of the loop crashing on a KeyError.
-        """
-        fn = tool_map.get(call.name)
-        if fn is None:
-            logger.warning(f"Model called unregistered tool {call.name!r}")
-            return {"error": f"No tool named {call.name!r} is available."}
-        try:
-            return fn(**(call.args or {}))
-        except Exception as e:
-            logger.exception(f"Tool {call.name} raised: {e}")
-            return {"error": str(e)}
-
-    def _gemini_exchange(self, *, contents, config, tool_map: dict):
-        """One logical Gemini turn: the initial call, plus the function-calling
-        loop when tools are attached. Returns (response, tokens_in, tokens_out),
-        where response is None if a tool ended the turn itself.
-
-        We drive this loop instead of the SDK's automatic_function_calling
-        because that loop has exactly one exit: append the tool result, call the
-        model again, take its text. For a setter that has already messaged the
-        user — add_calendar_event sends its own confirmation with a quip — that
-        last hop re-sends the entire envelope (persona, every attached tool
-        schema, the whole history) for the sole purpose of being told to say
-        nothing. It cost a full-price request per calendar write, and it is
-        where the "silent residue" came from: asked to produce nothing, the
-        model would sometimes answer with an empty Markdown fence or a stray
-        CJK token, which then shipped to Telegram as the reply.
-
-        So the loop is a traffic controller:
-          • getter (get_schedule, get_weather, …) → append the model's
-            function-call turn and the result, call again for the prose.
-          • terminal (any result carrying _TOOL_TERMINAL_KEY) → stop here. The
-            user already has their answer; there is nothing left to say and no
-            reason to pay for the model to say it.
-
-        Usage is summed across hops. Each hop is its own billed request, and
-        counting only the last one under-reported a tool turn by most of its
-        cost — the SDK's single usage_metadata hid that.
-        """
-        contents = list(contents)
-        tokens_in = tokens_out = 0
-        hops = 0
-        while True:
-            resp = self._gemini_generate_with_retry(contents=contents, config=config)
-            usage = getattr(resp, "usage_metadata", None)
-            tokens_in += getattr(usage, "prompt_token_count", 0) or 0
-            tokens_out += getattr(usage, "candidates_token_count", 0) or 0
-
-            calls = list(resp.function_calls or []) if tool_map else []
-            if not calls:
-                return resp, tokens_in, tokens_out
-
-            hops += 1
-            # The model's own turn must go back verbatim — a function response
-            # with no preceding function call is a 400 from the API.
-            func_call_content = resp.candidates[0].content
-            response_parts = []
-            terminal = False
-            for call in calls:
-                result = self._invoke_tool(tool_map, call)
-                if isinstance(result, dict) and result.get(_TOOL_TERMINAL_KEY):
-                    terminal = True
-                # {"result": ...} is the exact envelope the SDK's AFC used, so
-                # the model sees tool output in the shape it always has.
-                response_parts.append(types.Part.from_function_response(
-                    name=call.name, response={"result": result},
-                ))
-
-            if terminal:
-                # Deliberate silence, not a failure: the caller's empty-response
-                # branch pairs with the tool's own message to the user.
-                logger.info(
-                    f"Tool turn ended by {[c.name for c in calls]} — user "
-                    f"already notified, skipping the follow-up call."
-                )
-                return None, tokens_in, tokens_out
-
-            if hops >= _TOOL_MAX_HOPS:
-                logger.warning(
-                    f"Tool loop hit {_TOOL_MAX_HOPS} hops "
-                    f"({[c.name for c in calls]}) — returning without a final "
-                    f"model turn."
-                )
-                return resp, tokens_in, tokens_out
-
-            contents.append(func_call_content)
-            contents.append(types.Content(role="user", parts=response_parts))
-
     def _think(self, prompt: str, history: list | None = None,
-               use_tools: bool = True, triggered_by: str = "unknown",
+               triggered_by: str = "unknown",
                images: list[tuple[bytes, str]] | None = None,
-               response_json: bool = False, profile: str = "",
-               tool_names: list[str] | None = None) -> str:
+               response_json: bool = False,
+               profile: str = profiles.CHAT) -> str:
         """Synchronous LLM call. Always run via run_in_executor inside async handlers.
 
+        Plain text in, plain text out. No function declarations are attached to
+        any call — the tool layer was torn down (see the module header).
+
         profile selects the system-instruction envelope — see agent/profiles.py.
-        It defaults to CHAT when tools are on and COMPOSE when they are off,
-        which is exactly the old behavior for every caller that does not pass
-        one; CLASSIFY must be asked for explicitly, because dropping the voice
-        is visible in the output and should never happen by inference.
-
-        use_tools controls whether Gemini gets the tool list. Set False for
-        prompts that supply their own data explicitly (briefings, urgency tagging).
-
-        tool_names is the dispatcher's selection (agent/dispatcher.py). None
-        means attach everything, which is the pre-dispatcher behavior and what
-        runs when dispatcher.enabled is false. An EMPTY list is a real
-        decision, not a missing one: it attaches no tools at all, so "hello"
-        ships the persona alone. It also narrows the persona to match — prose
-        about a tool the model was not given is dead weight.
-
-        The tool loop is ours, not the SDK's (see _gemini_exchange), and reuses
-        one config object across every hop, so a narrowed list attached here
-        persists for the whole loop without any further work. A turn that ends
-        in a tool which already messaged the user returns "" — that is success,
-        not an error, and callers must treat it as such.
+        CLASSIFY must be asked for explicitly, because dropping the voice is
+        visible in the output and should never happen by inference.
 
         triggered_by labels the source of the call (user_message, briefing_morning,
-        briefing_evening, poll, ...) — it is persisted on the llm_exchanges row and
-        stamped onto any tool_calls this exchange spawns. Instrumentation only;
-        it never changes what the model sees or does.
+        briefing_evening, poll, ...) — it is persisted on the llm_exchanges row.
+        Instrumentation only; it never changes what the model sees or does.
 
         images is a list of (bytes, mime_type) attached to the user turn.
         On the multimodal path history is not supported — the call is a single
-        turn. response_json asks Gemini for application/json output (tools are
-        skipped on that path; JSON mode and function calling don't mix).
+        turn. response_json asks Gemini for application/json output.
         """
         self._last_error = None
-        if not profile:
-            profile = profiles.CHAT if use_tools else profiles.COMPOSE
-        # Tools only ever run on the chat path; stamp the source so the tool
-        # wrappers (agent/tools.py) can attribute their rows to this call.
-        self._tool_triggered_by = triggered_by
         # llm_exchanges stores text only — mark attachments so the dashboard
         # feed shows why this prompt produced what it did.
         log_prompt = f"[{len(images)} image(s) attached]\n{prompt}" if images else prompt
@@ -607,34 +430,21 @@ class FridayAgent:
                         contents.append({"role": role, "parts": [{"text": turn["content"]}]})
                     contents.append({"role": "user", "parts": [{"text": prompt}]})
                 cfg_kwargs = dict(
-                    system_instruction=self._system_instruction(profile, tool_names),
+                    system_instruction=self._system_instruction(profile),
                     max_output_tokens=self.max_tokens,
                 )
-                tool_map: dict = {}
                 if response_json:
                     cfg_kwargs["response_mime_type"] = "application/json"
-                elif use_tools and self._tools:
-                    selected = self._select_tools(tool_names)
-                    if selected:
-                        cfg_kwargs["tools"] = selected
-                        # Schemas are still inferred from these callables; only
-                        # the SDK's execute-and-re-ask loop is turned off. We
-                        # run it ourselves so a tool that already replied to the
-                        # user can end the turn instead of buying one more
-                        # full-envelope round trip to say nothing.
-                        cfg_kwargs["automatic_function_calling"] = \
-                            types.AutomaticFunctionCallingConfig(disable=True)
-                        tool_map = {fn.__name__: fn for fn in selected}
-                resp, tin, tout = self._gemini_exchange(
+                resp = self._gemini_generate_with_retry(
                     contents=contents,
                     config=types.GenerateContentConfig(**cfg_kwargs),
-                    tool_map=tool_map,
                 )
+                usage = getattr(resp, "usage_metadata", None)
+                tin = getattr(usage, "prompt_token_count", 0) or 0
+                tout = getattr(usage, "candidates_token_count", 0) or 0
                 self._record_call(tokens_in=tin, tokens_out=tout)
-                # resp is None when a tool ended the turn — the user has their
-                # reply already, so "" is the correct, expected answer.
-                text = (resp.text or "").strip() if resp is not None else ""
-                if not text and resp is not None:
+                text = (resp.text or "").strip()
+                if not text:
                     finish = None
                     try:
                         finish = resp.candidates[0].finish_reason
@@ -654,7 +464,7 @@ class FridayAgent:
 
             else:  # ollama
                 messages = [{"role": "system",
-                             "content": self._system_instruction(profile, tool_names)}]
+                             "content": self._system_instruction(profile)}]
                 for turn in (history or []):
                     messages.append({"role": turn["role"], "content": turn["content"]})
                 user_msg = {"role": "user", "content": prompt}
@@ -748,7 +558,7 @@ class FridayAgent:
             '- If there is no event, or its date cannot be resolved, reply {"title": null}.'
         )
 
-        raw = (self._think(prompt, use_tools=False, triggered_by="media",
+        raw = (self._think(prompt, triggered_by="media",
                            images=images, response_json=True,
                            profile=profiles.CLASSIFY) or "").strip()
         event = self._parse_media_event(raw)

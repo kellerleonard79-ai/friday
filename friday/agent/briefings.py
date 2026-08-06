@@ -9,16 +9,14 @@ whether to send).
 Context bundling (bundle_briefing_context / format_briefing_context):
     A briefing needs a known-complete dataset. Rather than leave the model to
     decide whether to call tools, we pre-fetch everything a briefing needs
-    (calendar, Canvas, weather, briefing-visible GroupMe) by reusing the same
-    underlying functions the LLM tools wrap, and inject it as a structured
-    block at the top of the prompt. The briefing call runs with tools OFF
-    (use_tools=False) — a hard guarantee of zero tool calls. The model has no
-    discretion over what data to pull, so a weak briefing is always a bundle
-    problem, never a "did the model drill into a tool" rabbit hole. If a
-    briefing turns up thin, expand the bundler — don't re-enable tools.
+    (calendar, Canvas, weather, briefing-visible GroupMe) and inject it as a
+    structured block at the top of the prompt. The model has no discretion
+    over what data to pull, so a weak briefing is always a bundle problem. If
+    a briefing turns up thin, expand the bundler.
 
-    This applies to briefings ONLY — the chat handler (agent/core.py) and the
-    GroupMe event-extraction path are deliberately untouched.
+    The tool layer is gone entirely as of the llm-layer-teardown branch, so
+    "briefings run with tools off" is now true of every call Friday makes.
+    The bundler is the layer that survives the rewrite.
 
 Synchronous — wrap in run_in_executor when called from async.
 """
@@ -29,6 +27,7 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import compat
+from agent import profiles
 from calendars import backend as calendar_backend
 from connectors import weather as weather_connector
 
@@ -470,9 +469,8 @@ def format_briefing_context(bundle: dict) -> str:
 
 def compose_morning(agent, bundle: dict) -> str:
     """Morning briefing from the pre-bundled context. The deterministic block is
-    injected above the existing instructions; tools stay registered as a
-    fallback but the context is complete, so a normal day needs zero tool calls.
-    """
+    injected above the existing instructions and is the model's only source of
+    data."""
     now = bundle.get("now")
     today = now.date() if isinstance(now, datetime) else date.today()
     today_label = compat.strftime(today, "%A, %B %-d")
@@ -504,7 +502,8 @@ def compose_morning(agent, bundle: dict) -> str:
         f"  - One short weather note if notable.\n"
         f"  - If today has no events, say so plainly and pivot to the week ahead."
     )
-    return agent._think(prompt, use_tools=False, triggered_by="briefing_morning")
+    return agent._think(prompt, triggered_by="briefing_morning",
+                        profile=profiles.COMPOSE)
 
 
 def compose_evening(agent, bundle: dict) -> str:
@@ -543,7 +542,8 @@ def compose_evening(agent, bundle: dict) -> str:
         f"\"in N days\". Surface anything close-in or any pending Canvas URGENT/SOON.\n"
         f"  - End with a brief, professional sign-off (e.g. \"Rest well, sir.\")."
     )
-    return agent._think(prompt, use_tools=False, triggered_by="briefing_evening")
+    return agent._think(prompt, triggered_by="briefing_evening",
+                        profile=profiles.COMPOSE)
 
 
 def compose_on_demand(agent, bundle: dict) -> str:
@@ -581,7 +581,8 @@ def compose_on_demand(agent, bundle: dict) -> str:
         f"<weekday>\" rather than \"in N days\". Include any pending Canvas urgency. "
         f"If everything is empty, say so plainly."
     )
-    return agent._think(prompt, use_tools=False, triggered_by="briefing_on_demand")
+    return agent._think(prompt, triggered_by="briefing_on_demand",
+                        profile=profiles.COMPOSE)
 
 
 # ── Urgent alerts ─────────────────────────────────────────────────────────────
@@ -621,7 +622,8 @@ def compose_urgent_alert(agent, source: str, title: str, body: str) -> str:
         f"Sir, in the SGA GroupMe, Heather Horn wants to know if anyone is "
         f"available to help on Tuesday, August 5 for freshman Orientation."
     )
-    return agent._think(prompt, use_tools=False, triggered_by="urgent_alert")
+    return agent._think(prompt, triggered_by="urgent_alert",
+                        profile=profiles.COMPOSE)
 
 
 def _strip_groupme_scaffolding(body: str) -> str:

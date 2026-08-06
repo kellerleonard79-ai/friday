@@ -45,7 +45,6 @@ def _strip_internal_tags(body: str) -> str:
 
 
 from agent.core import FridayAgent
-from agent.tools import EVENING_BRIEFING_JOB, MORNING_BRIEFING_JOB
 from channels.telegram import TelegramHandler
 from memory.db import Database
 import memory.activity as activity
@@ -59,6 +58,12 @@ from agent import briefings
 from agent import profiles
 from actions import calendar as apple_writer
 from dashboard import server as dashboard_server
+
+# Names of the two recurring briefing jobs. They lived in agent/tools.py while
+# the update_setting tool needed to replace the jobs in place; that tool is
+# gone, so they live with the only remaining registrant.
+MORNING_BRIEFING_JOB = "morning_briefing_daily"
+EVENING_BRIEFING_JOB = "evening_briefing_daily"
 
 
 def load_config() -> dict:
@@ -97,7 +102,7 @@ def check_environment(config: dict) -> None:
 #                                                GroupMe, then LLM tagging +
 #                                                GroupMe event extraction)
 #       run_repeating→ check_urgent_alerts_job  (1 min: fire URGENT interrupts)
-#   • One-shot briefing overrides (reschedule tool) + missed-briefing catch-up
+#   • One-shot briefing overrides + missed-briefing catch-up
 #   • run_polling owns the only event loop (no second scheduler, no threads)
 def main() -> None:
     logger.info("=" * 50)
@@ -114,7 +119,7 @@ def main() -> None:
 
     agent   = FridayAgent(config, conn=conn)
     handler = TelegramHandler(config, agent, conn)
-    agent.telegram_handler = handler  # late-bound for propose_calendar_event tool
+    agent.telegram_handler = handler  # late-bound for the media → gated_write path
 
     bot_token  = handler.bot_token
     chat_id    = handler.chat_id
@@ -331,7 +336,7 @@ def main() -> None:
                 f"{criteria}"
             )
             urgency = await loop.run_in_executor(
-                None, lambda: agent._think(prompt, use_tools=False, triggered_by="poll",
+                None, lambda: agent._think(prompt, triggered_by="poll",
                                            profile=profiles.CLASSIFY)
             )
             urgency = urgency.strip().upper()
@@ -393,7 +398,7 @@ def main() -> None:
                 f"- notes: short, include any location mentioned\n"
             )
             raw = await loop.run_in_executor(
-                None, lambda p=prompt: agent._think(p, use_tools=False, triggered_by="poll",
+                None, lambda p=prompt: agent._think(p, triggered_by="poll",
                                                     profile=profiles.CLASSIFY)
             )
             raw = (raw or "").strip()

@@ -37,32 +37,17 @@ def _load_quips() -> list[str]:
     return quips or [_FALLBACK]
 
 
-def quip_prompt(context: str) -> tuple[str, list[str]]:
-    """
-    Returns (prompt_string, quips_list).
-    Caller passes prompt to _think(), gets back an integer string,
-    then calls pick_quip(response, quips_list) to resolve it.
+def random_quip(context: str = "") -> str:
+    """One quip, chosen at random. Reloaded from disk every call — a quip added
+    over Telegram is in play on the very next action, with no restart.
+
+    `context` describes the event the quip will be appended to. It is accepted
+    and ignored: the LLM-driven selection that used to read it was torn down
+    with the rest of the prompt layer. Keeping the parameter means the call
+    sites already pass what a context-aware selector will need, and it marks
+    the places where a contradictory quip ("touch grass" on an outdoor event)
+    can currently ship — that is a known regression of the teardown, not an
+    oversight.
     """
     quips = _load_quips()
-    numbered = "\n".join(f"{i+1}. {q}" for i, q in enumerate(quips))
-    prompt = (
-        f"{context}\n\n"
-        f"Pick the quip that best fits this specific event. "
-        f"Avoid contradictions — e.g. a 'touch grass' quip is wrong for an "
-        f"outdoor event, a 'sleep schedule' or 'all-nighter' quip is wrong "
-        f"for a daytime event, an 'academic' quip is wrong for an errand. "
-        f"Reply with a single integer and nothing else.\n\n"
-        f"{numbered}"
-    )
-    return prompt, quips
-
-
-def pick_quip(response: str, quips: list[str]) -> str:
-    """Resolves the model's integer response to a quip string."""
-    try:
-        idx = int(response.strip()) - 1
-        if 0 <= idx < len(quips):
-            return quips[idx]
-    except (ValueError, IndexError):
-        pass
     return random.choice(quips) if quips else _FALLBACK

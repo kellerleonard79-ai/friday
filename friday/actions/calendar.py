@@ -391,7 +391,13 @@ def confirm_pending(pending_key: str, conn: sqlite3.Connection, telegram) -> boo
         logger.error(f"confirm_pending — bad payload for {pending_key}")
         return False
 
-    uid = auto_write(event, telegram=telegram)
+    # The approval-card confirmation is the one surviving user-facing calendar
+    # write, so it is where the quip palette still ships. Selection is random
+    # now — the LLM index pick went with agent/tools.py.
+    import phrases
+    title = (event.get("title") or "that event").strip()
+    uid = auto_write(event, telegram=telegram,
+                     quip=phrases.random_quip(f"Just added '{title}' to the calendar."))
     conn.execute(
         "UPDATE pending_actions SET status = ?, resolved_at = ? WHERE id = ?",
         ("confirmed" if uid else "failed", datetime.now().isoformat(), pending_key),
