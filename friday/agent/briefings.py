@@ -2,9 +2,9 @@
 agent/briefings.py
 Briefing and alert prompt composers + deterministic context bundling.
 
-Each composer shapes one LLM call. Persona comes from agent._think()'s
-system_instruction. Returns the model's prose, or "" on failure (caller decides
-whether to send).
+TORN DOWN: the composers no longer make an LLM call. They render the bundle
+as plain labeled text. Context bundling below is untouched and is the layer
+this teardown is preserving.
 
 Context bundling (bundle_briefing_context / format_briefing_context):
     A briefing needs a known-complete dataset. Rather than leave the model to
@@ -27,7 +27,6 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import compat
-from agent import profiles
 from calendars import backend as calendar_backend
 from connectors import weather as weather_connector
 
@@ -77,53 +76,6 @@ def _is_all_day(evt: dict) -> bool:
         if span >= 86400 and span % 86400 == 0:
             return True
     return False
-
-
-def _fmt_evt(evt: dict) -> str:
-    """One line per event: '9:00 AM — Title (Calendar)[, Location]'."""
-    dt = _local(evt.get("start_iso", ""))
-    when = compat.strftime(dt, "%-I:%M %p") if dt else "??:??"
-    title = evt.get("title", "(untitled)")
-    line = f"{when} — {title} ({evt.get('calendar', '?')})"
-    if evt.get("location"):
-        line += f", {evt['location']}"
-    return line
-
-
-def _fmt_upcoming(evt: dict, today: date) -> str:
-    """'Mon Jun 1 — Title'. The LLM phrases proximity naturally from the date."""
-    dt = _local(evt.get("start_iso", ""))
-    day_label = compat.strftime(dt, "%a %b %-d") if dt else "??"
-    title = evt.get("title", "(untitled)")
-    return f"{day_label} — {title}"
-
-
-def _fmt_canvas(row: tuple) -> str:
-    """SQLite row: (title, due_at, urgency)."""
-    title, due_at, urgency = row
-    when = ""
-    if due_at:
-        dt = _local(due_at)
-        when = f" (due {compat.strftime(dt, '%a %b %-d, %-I:%M %p')})" if dt else f" (due {due_at})"
-    return f"[{urgency}] {title}{when}"
-
-
-def _events_block(evts: list[dict]) -> str:
-    if not evts:
-        return "  (none)"
-    return "\n".join("  " + _fmt_evt(e) for e in evts)
-
-
-def _upcoming_block(evts: list[dict], today: date) -> str:
-    if not evts:
-        return "  (none)"
-    return "\n".join("  " + _fmt_upcoming(e, today) for e in evts)
-
-
-def _canvas_block(rows: list[tuple]) -> str:
-    if not rows:
-        return "  (none)"
-    return "\n".join("  " + _fmt_canvas(r) for r in rows)
 
 
 # ── Deterministic context bundling ────────────────────────────────────────────
@@ -464,166 +416,97 @@ def format_briefing_context(bundle: dict) -> str:
     return "\n".join(parts)
 
 
-# ── Composers ─────────────────────────────────────────────────────────────────
+# ── Renderers (deterministic) ─────────────────────────────────────────────────
+#
+# TORN DOWN: these three used to compose an LLM prompt around the bundle and
+# return the model's prose. They now render the bundle directly — labeled
+# sections, one line per item, no voice. The bundling above is the layer that
+# survives; this is a placeholder so the daemon keeps delivering briefings
+# while the prompt layer is rebuilt.
+#
+# Each keeps its (agent, bundle) signature so friday.py's run_in_executor call
+# sites are unchanged. `agent` is unused and deliberately still there: the
+# rewrite puts a model back on this seam.
+
+
+def _render_sections(sections: list[tuple[str, str]]) -> str:
+    """[(label, block)] → the labeled body. Blocks come from the _block_*
+    helpers above, so a failed fetch renders as "unavailable" rather than
+    silently reading as an empty day."""
+    out = []
+    for label, block in sections:
+        out.append(f"{label}:")
+        out.append(block)
+        out.append("")
+    return "\n".join(out).rstrip()
+
+
+def _header(bundle: dict, title: str) -> str:
+    now = bundle.get("now")
+    when = (
+        compat.strftime(now, "%A, %B %-d, %Y, %-I:%M %p %Z")
+        if isinstance(now, datetime) else "?"
+    )
+    return f"{title} — {when}"
+
+
+def _groupme_section(bundle: dict) -> tuple[str, str]:
+    return (
+        f"GroupMe (high + normal priority, last {_GROUPME_WINDOW_HOURS}h)",
+        _block_groupme(bundle.get("groupme_surfaced")),
+    )
 
 
 def compose_morning(agent, bundle: dict) -> str:
-    """Morning briefing from the pre-bundled context. The deterministic block is
-    injected above the existing instructions and is the model's only source of
-    data."""
-    now = bundle.get("now")
-    today = now.date() if isinstance(now, datetime) else date.today()
-    today_label = compat.strftime(today, "%A, %B %-d")
-    today_evts = _safe_list(bundle.get("today_calendar"))
-    upcoming_evts = _safe_list(bundle.get("week_preview"))
-    weather_str = bundle.get("weather_today")
-    weather_line = (
-        f"Weather: {weather_str}" if weather_str and weather_str != _UNAVAILABLE
-        else "Weather: (unavailable)"
-    )
-
-    context_block = format_briefing_context(bundle)
-    prompt = (
-        f"{context_block}\n\n"
-        f"Compose the morning briefing from the context above. It is complete and "
-        f"authoritative — do not ask for or assume any other data. Begin with the "
-        f"established opener.\n\n"
-        f"Compose the morning briefing for {today_label}.\n\n"
-        f"{weather_line}\n\n"
-        f"Today's scheduled events:\n{_events_block(today_evts)}\n\n"
-        f"Upcoming this week:\n{_upcoming_block(upcoming_evts, today)}\n\n"
-        f"Today is {today.strftime('%A')}, {today.isoformat()}. Use this weekday "
-        f"verbatim — never infer or guess the day of week.\n\n"
-        f"Start with exactly: \"Good morning, sir. Here is your day:\"\n"
-        f"Then in plain prose (no bullets, no markdown), 3-5 sentences:\n"
-        f"  - Walk through today's events chronologically.\n"
-        f"  - Surface upcoming items naturally — say \"tomorrow\", \"this Thursday\", "
-        f"\"next Monday\" rather than \"in 3 days\". Emphasize anything close.\n"
-        f"  - One short weather note if notable.\n"
-        f"  - If today has no events, say so plainly and pivot to the week ahead."
-    )
-    return agent._think(prompt, triggered_by="briefing_morning",
-                        profile=profiles.COMPOSE)
+    """Morning briefing, rendered straight from the bundle."""
+    return "\n\n".join([
+        _header(bundle, "MORNING BRIEFING"),
+        _render_sections([
+            ("Today's calendar", _block_day_events(bundle.get("today_calendar"))),
+            ("Week ahead (next 3 days)", _block_week(bundle.get("week_preview"))),
+            ("Canvas pending", _block_canvas(bundle.get("canvas_pending"))),
+            ("Weather today", _block_weather(bundle.get("weather_today"))),
+            _groupme_section(bundle),
+        ]),
+    ])
 
 
 def compose_evening(agent, bundle: dict) -> str:
-    """Evening briefing from the pre-bundled context (see compose_morning)."""
-    now = bundle.get("now")
-    today = now.date() if isinstance(now, datetime) else date.today()
-    tomorrow = today + timedelta(days=1)
-    tomorrow_label = compat.strftime(tomorrow, "%A, %B %-d")
-    tomorrow_evts = _safe_list(bundle.get("tomorrow_calendar"))
-    upcoming_evts = _safe_list(bundle.get("week_ahead"))
-    canvas_pending = _safe_list(bundle.get("canvas_pending"))
-    weather_str = bundle.get("weather_tomorrow")
-    weather_line = (
-        f"Tomorrow's weather: {weather_str}"
-        if weather_str and weather_str != _UNAVAILABLE else ""
-    )
-
-    context_block = format_briefing_context(bundle)
-    prompt = (
-        f"{context_block}\n\n"
-        f"Compose the evening briefing from the context above. It is complete and "
-        f"authoritative — do not ask for or assume any other data. Begin with the "
-        f"established opener.\n\n"
-        f"Compose the evening briefing. Looking ahead to {tomorrow_label}.\n\n"
-        f"{weather_line}\n\n"
-        f"Tomorrow's scheduled events:\n{_events_block(tomorrow_evts)}\n\n"
-        f"Upcoming this week:\n{_upcoming_block(upcoming_evts, today)}\n\n"
-        f"Pending Canvas items (SOON or URGENT, not yet alerted):\n"
-        f"{_canvas_block(canvas_pending)}\n\n"
-        f"Today is {today.strftime('%A')}, {today.isoformat()}; tomorrow is "
-        f"{tomorrow.strftime('%A')}, {tomorrow.isoformat()}. Use these weekdays "
-        f"verbatim — never infer or guess the day of week.\n\n"
-        f"Write in plain prose, no markdown, 3-5 sentences:\n"
-        f"  - Preview tomorrow chronologically.\n"
-        f"  - Refer to upcoming items by weekday or \"next <weekday>\" rather than "
-        f"\"in N days\". Surface anything close-in or any pending Canvas URGENT/SOON.\n"
-        f"  - End with a brief, professional sign-off (e.g. \"Rest well, sir.\")."
-    )
-    return agent._think(prompt, triggered_by="briefing_evening",
-                        profile=profiles.COMPOSE)
+    """Evening briefing, rendered straight from the bundle."""
+    return "\n\n".join([
+        _header(bundle, "EVENING BRIEFING"),
+        _render_sections([
+            ("Tomorrow's calendar", _block_day_events(bundle.get("tomorrow_calendar"))),
+            ("Week ahead (next 5 days)", _block_week(bundle.get("week_ahead"))),
+            ("Canvas pending", _block_canvas(bundle.get("canvas_pending"))),
+            ("Weather tomorrow", _block_weather(bundle.get("weather_tomorrow"))),
+            _groupme_section(bundle),
+        ]),
+    ])
 
 
 def compose_on_demand(agent, bundle: dict) -> str:
-    """Briefing asked for at an arbitrary time — dashboard button, or "brief me"
-    in Telegram. Same pre-bundled context as its scheduled siblings; the caller
-    must not record it as a briefing_sent, or the real scheduled one is skipped.
-    """
-    now = bundle.get("now")
-    today = now.date() if isinstance(now, datetime) else date.today()
-    tomorrow = today + timedelta(days=1)
-    today_evts = _safe_list(bundle.get("today_calendar"))
-    tomorrow_evts = _safe_list(bundle.get("tomorrow_calendar"))
-    upcoming_evts = _safe_list(bundle.get("week_preview"))
-    canvas_pending = _safe_list(bundle.get("canvas_pending"))
-    weather_str = bundle.get("weather_today")
-    weather_line = (
-        f"Weather: {weather_str}" if weather_str and weather_str != _UNAVAILABLE
-        else ""
-    )
-
-    context_block = format_briefing_context(bundle)
-    prompt = (
-        f"{context_block}\n\n"
-        f"The user asked for a briefing. Give him a concise current snapshot from "
-        f"the context above — it is complete and authoritative, do not ask for or "
-        f"assume any other data.\n\n"
-        f"{weather_line}\n\n"
-        f"Today ({compat.strftime(today, '%A, %B %-d')}):\n{_events_block(today_evts)}\n\n"
-        f"Tomorrow ({compat.strftime(tomorrow, '%A, %B %-d')}):\n{_events_block(tomorrow_evts)}\n\n"
-        f"Upcoming this week:\n{_upcoming_block(upcoming_evts, today)}\n\n"
-        f"Pending Canvas items (SOON or URGENT):\n{_canvas_block(canvas_pending)}\n\n"
-        f"Today's date is {today.isoformat()} ({today.strftime('%A')}).\n\n"
-        f"Plain prose, no markdown, 3-5 sentences. Cover today, tomorrow, and "
-        f"any upcoming items worth flagging — refer to them by weekday or \"next "
-        f"<weekday>\" rather than \"in N days\". Include any pending Canvas urgency. "
-        f"If everything is empty, say so plainly."
-    )
-    return agent._think(prompt, triggered_by="briefing_on_demand",
-                        profile=profiles.COMPOSE)
+    """On-demand briefing (dashboard button, menubar), rendered straight from
+    the bundle. The caller must still not record it as a briefing_sent, or the
+    real scheduled one is skipped."""
+    return "\n\n".join([
+        _header(bundle, "BRIEFING"),
+        _render_sections([
+            ("Today's calendar", _block_day_events(bundle.get("today_calendar"))),
+            ("Tomorrow's calendar", _block_day_events(bundle.get("tomorrow_calendar"))),
+            ("Rest of the week", _block_week(bundle.get("week_preview"))),
+            ("Canvas pending", _block_canvas(bundle.get("canvas_pending"))),
+            ("Weather today", _block_weather(bundle.get("weather_today"))),
+            _groupme_section(bundle),
+        ]),
+    ])
 
 
 # ── Urgent alerts ─────────────────────────────────────────────────────────────
 #
-# An urgent alert interrupts the user, so it gets the same treatment as a
-# briefing: the LLM writes it. The raw material is scaffolding meant for the
-# model — a GroupMe body carries "Group: …/From: …" lines that the title already
-# repeats — and reads as a machine dump if forwarded verbatim.
-
-
-def compose_urgent_alert(agent, source: str, title: str, body: str) -> str:
-    """One or two sentences announcing a single URGENT event, in Friday's voice.
-
-    `body` must already have internal tags stripped (see friday._strip_internal_tags).
-    Returns "" on model failure — callers fall back to fallback_urgent_alert().
-    """
-    prompt = (
-        f"An urgent item just arrived. Announce it to the user.\n\n"
-        f"Source: {source}\n"
-        f"Title: {title}\n"
-        f"Details:\n{(body or '(none)')[:1000]}\n\n"
-        f"Write one or two sentences of plain prose. No emoji, no markdown, no "
-        f"header line, no bullets, no sign-off, no follow-up question, no quip — "
-        f"this is an interruption, so it stays crisp.\n\n"
-        f"Rules:\n"
-        f"- Address him as sir.\n"
-        f"- Name the source inside the sentence, not as a label: \"in the SGA "
-        f"GroupMe\", \"your Canvas feed shows\".\n"
-        f"- Shorten an unwieldy group or course name to how a person would say it "
-        f"out loud.\n"
-        f"- Paraphrase what was said. Do not quote the whole message back.\n"
-        f"- Use only what is above. Never invent a date, time, name, place, or "
-        f"detail, and keep any date or time exactly as written.\n\n"
-        f"Example — a GroupMe message titled \"Executive SGA Officers 26-27: "
-        f"Heather Horn\" reading \"Who is available to help on Tuesday Aug 5 for "
-        f"freshman Orientation?\" becomes:\n"
-        f"Sir, in the SGA GroupMe, Heather Horn wants to know if anyone is "
-        f"available to help on Tuesday, August 5 for freshman Orientation."
-    )
-    return agent._think(prompt, triggered_by="urgent_alert",
-                        profile=profiles.COMPOSE)
+# TORN DOWN: compose_urgent_alert asked the model to announce the item in
+# Friday's voice. Every urgent alert now takes the deterministic path below,
+# which was already the model-unavailable fallback.
 
 
 def _strip_groupme_scaffolding(body: str) -> str:

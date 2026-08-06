@@ -55,7 +55,6 @@ from connectors import gcal_sync
 from connectors import groupme as groupme_connector
 from connectors import location
 from agent import briefings
-from agent import profiles
 from actions import calendar as apple_writer
 from dashboard import server as dashboard_server
 
@@ -99,8 +98,10 @@ def check_environment(config: dict) -> None:
 #       run_daily    → morning_briefing_job   (08:00-ish, tz-window guarded)
 #       run_daily    → briefing_job (evening)  (21:45-ish, tz-window guarded)
 #       run_repeating→ poll_connectors_job     (15 min: Canvas, gcal_sync,
-#                                                GroupMe, then LLM tagging +
-#                                                GroupMe event extraction)
+#                                                GroupMe. The LLM tagging and
+#                                                GroupMe event extraction that
+#                                                followed are torn down and
+#                                                currently no-ops.)
 #       run_repeating→ check_urgent_alerts_job  (1 min: fire URGENT interrupts)
 #   • One-shot briefing overrides + missed-briefing catch-up
 #   • run_polling owns the only event loop (no second scheduler, no threads)
@@ -260,8 +261,7 @@ def main() -> None:
                 return  # already sent today
             state.set(conn, "last_morning_briefing_sent", today.isoformat())
         loop = asyncio.get_running_loop()
-        # Pre-fetch a known-complete dataset (calendar/canvas/weather/groupme)
-        # so the composer works from injected context instead of tool calls.
+        # Pre-fetch a known-complete dataset (calendar/canvas/weather/groupme).
         bundle = await loop.run_in_executor(
             None, briefings.bundle_briefing_context, "morning", config, conn
         )
@@ -279,20 +279,13 @@ def main() -> None:
                                               second=0, microsecond=0)
                 late_min = int((now_local - scheduled).total_seconds() // 60)
                 if late_min > 20:
-                    late_opener = (
+                    # The deterministic renderer has no greeting to swap, so
+                    # the late note is simply prepended.
+                    response = (
                         "Running a little late this morning, sir — the machine "
-                        "was asleep until just now."
+                        f"was asleep until just now.\n\n{response}"
                     )
-                    if "Good morning, sir." in response:
-                        response = response.replace(
-                            "Good morning, sir.", late_opener, 1
-                        )
-                    else:
-                        response = f"{late_opener}\n\n{response}"
             try:
-                # The morning composer's prompt already makes the body open with
-                # "Good morning, sir. Here is your day:", so we only strip the
-                # emoji here — prepending another opener would double the greeting.
                 await context.bot.send_message(chat_id=chat_id, text=response)
                 _record_briefing_sent("morning", response, job_name, mbh, mbm)
             except Exception as e:
@@ -301,161 +294,38 @@ def main() -> None:
                 state.delete(conn, "last_morning_briefing_sent")
         else:
             # Empty compose isn't a real send — don't let the lock suppress retry.
+            # Unreachable while compose_morning is a deterministic renderer.
             state.delete(conn, "last_morning_briefing_sent")
 
     # ── LLM urgency tagging for unprocessed events ───────────────────────────
 
     async def process_untagged_events(loop) -> None:
-        rows = conn.execute(
-            "SELECT id, title, body, due_at, source FROM events WHERE processed=0"
-        ).fetchall()
-        for event_id, title, body, due_at, source in rows:
-            if source == "groupme":
-                criteria = (
-                    "GroupMe message. The body's first line is the group's "
-                    "tier: [priority=high], [priority=normal], or "
-                    "[priority=muted].\n"
-                    "URGENT = priority=high AND the message is genuinely "
-                    "time-sensitive (emergency, ASAP request, "
-                    "imminent deadline, direct urgent ask).\n"
-                    "SOON   = priority=high AND mentions something "
-                    "happening in the next few days.\n"
-                    "NORMAL = everything else. Only priority=high messages "
-                    "can ever be URGENT or SOON."
-                )
-            else:
-                criteria = (
-                    "URGENT = due within 24h, or exam/quiz/critical deadline.\n"
-                    "SOON   = due within 3 days.\n"
-                    "NORMAL = everything else or no due date."
-                )
-            prompt = (
-                f"Event from {source}:\nTitle: {title}\nDue: {due_at}\n"
-                f"Details: {(body or '')[:500]}\n\n"
-                f"Assign urgency. Reply with exactly one word: URGENT, SOON, or NORMAL.\n"
-                f"{criteria}"
-            )
-            urgency = await loop.run_in_executor(
-                None, lambda: agent._think(prompt, triggered_by="poll",
-                                           profile=profiles.CLASSIFY)
-            )
-            urgency = urgency.strip().upper()
-            if urgency not in ("URGENT", "SOON", "NORMAL"):
-                urgency = "NORMAL"
-            conn.execute(
-                "UPDATE events SET urgency=?, processed=1 WHERE id=?",
-                (urgency, event_id),
-            )
-            logger.info(f"Tagged {event_id} as {urgency}")
-        if rows:
-            conn.commit()
+        """DISABLED pending the LLM rewrite (branch llm-layer-teardown).
+
+        Deliberately does NOT tag rows NORMAL and does NOT set processed=1.
+        Marking rows scanned while the scanner is offline would silently
+        discard every event that arrives during the teardown window — the new
+        tagger has to be able to backfill the whole backlog, and processed=0
+        is the only record that a row was never looked at.
+
+        Consequence, accepted: nothing is ever tagged URGENT, so
+        check_urgent_alerts_job finds nothing and urgent alerts stay silent.
+        """
+        logger.info("Urgency tagging disabled pending the LLM rewrite — "
+                    "leaving unprocessed events untouched.")
 
     # ── Event extraction from groupme messages ───────────────────────────────
 
     async def extract_groupme_events(loop) -> None:
-        """For high-priority groupme rows that haven't been examined, ask the
-        LLM to extract a concrete calendar event and propose it via gated_write.
-        Conservative — requires explicit date AND start time."""
-        rows = conn.execute(
-            "SELECT id, title, body FROM events "
-            "WHERE source='groupme' AND event_extracted=0 "
-            "AND body LIKE '%[priority=high]%'"
-        ).fetchall()
-        if not rows:
-            return
-        handler = getattr(agent, "telegram_handler", None)
-        if handler is None:
-            logger.warning("groupme event extraction: telegram handler not bound — skipping")
-            return
-        default_cal = (config.get("agent") or {}).get("default_calendar")
-        today_local = datetime.datetime.now(local_tz).date()
-        today_iso = today_local.isoformat()
-        weekday   = today_local.strftime("%A")
+        """DISABLED pending the LLM rewrite (branch llm-layer-teardown).
 
-        for row_id, title, body in rows:
-            prompt = (
-                f"A GroupMe message:\n\n{body}\n\n"
-                f"Today is {today_iso} ({weekday}).\n\n"
-                f"Does this message describe a SPECIFIC event the user should "
-                f"add to their personal calendar — one with a clear date AND "
-                f"clear start time?\n\n"
-                f"Reply NONE if any of these are true:\n"
-                f"- No explicit date or start time\n"
-                f"- Vague phrasing (\"soon\", \"later\", \"sometime\", \"next week\" without a day)\n"
-                f"- The message discusses a past event\n"
-                f"- General chatter, questions, opinions, banter\n"
-                f"- Voting / scheduling poll where the time is still open\n"
-                f"- A recurring routine the user obviously already knows\n\n"
-                f"If there IS a concrete event, reply with ONLY a single-line JSON "
-                f"object (no markdown, no prose):\n"
-                f'{{"title":"...","date":"YYYY-MM-DD","start_time":"HH:MM",'
-                f'"end_time":"HH:MM or null","notes":"..."}}\n\n'
-                f"Rules:\n"
-                f"- title under 50 chars, descriptive\n"
-                f"- date AND start_time are required; if either is ambiguous, reply NONE\n"
-                f"- end_time only if explicitly stated\n"
-                f"- convert relative dates to absolute YYYY-MM-DD using the today date above\n"
-                f"- notes: short, include any location mentioned\n"
-            )
-            raw = await loop.run_in_executor(
-                None, lambda p=prompt: agent._think(p, triggered_by="poll",
-                                                    profile=profiles.CLASSIFY)
-            )
-            raw = (raw or "").strip()
-            # Mark scanned regardless of outcome so we never retry the same row
-            conn.execute(
-                "UPDATE events SET event_extracted=1 WHERE id=?", (row_id,)
-            )
-            conn.commit()
-
-            if not raw or raw.upper() == "NONE":
-                continue
-            # Strip ```json fences the LLM may have added despite instructions
-            if raw.startswith("```"):
-                raw = raw.strip("`")
-                if raw.lower().startswith("json"):
-                    raw = raw[4:]
-                raw = raw.strip()
-            try:
-                event = json.loads(raw)
-            except json.JSONDecodeError:
-                logger.info(
-                    f"groupme event extraction: unparseable LLM output for {row_id}: {raw[:200]}"
-                )
-                continue
-            if not isinstance(event, dict):
-                continue
-            # Normalise LLM "null" string for end_time
-            if str(event.get("end_time", "")).strip().lower() in ("null", "none", ""):
-                event.pop("end_time", None)
-
-            # Prepend source attribution to the notes field so the card shows
-            # which group surfaced the event.
-            group_name = ""
-            for line in (body or "").splitlines():
-                if line.startswith("Group: "):
-                    group_name = line[len("Group: "):].strip()
-                    break
-            source_line = (
-                f"From GroupMe: {group_name}" if group_name else "From GroupMe"
-            )
-            existing_notes = (event.get("notes") or "").strip()
-            event["notes"] = source_line + (
-                "\n" + existing_notes if existing_notes else ""
-            )
-
-            try:
-                pending = apple_writer.gated_write(
-                    event, conn, handler, default_calendar=default_cal,
-                )
-            except Exception as e:
-                logger.error(f"groupme event extraction: gated_write failed for {row_id}: {e}")
-                continue
-            if pending:
-                logger.info(
-                    f"groupme event extraction: proposed for {row_id} — "
-                    f"{event.get('title')!r} on {event.get('date')}"
-                )
+        Same contract as process_untagged_events: event_extracted stays 0, so
+        the backlog is intact for the new extractor. GroupMe therefore stops
+        producing gated_write approval cards. The card machinery itself is
+        untouched — it just has no producer on this path.
+        """
+        logger.info("GroupMe event extraction disabled pending the LLM "
+                    "rewrite — leaving unscanned rows untouched.")
 
     # ── Poll connectors job ───────────────────────────────────────────────────
 
@@ -463,9 +333,10 @@ def main() -> None:
         logger.info("Polling connectors...")
         loop = asyncio.get_running_loop()
 
-        # Refresh the machine's location so _system_instruction can inject it
-        # from cache. Done here, in an executor, because the lookup blocks for
-        # seconds — the prompt path reads the cache and never fetches.
+        # Refresh the machine's location cache. Nothing reads it while the
+        # prompt layer is torn down (the injection lived in
+        # _system_instruction), but the warm is cheap and the rewrite needs a
+        # populated cache on day one — a cold lookup blocks for seconds.
         await loop.run_in_executor(None, location.warm)
 
         canvas_cfg = config.get("canvas", {})
@@ -532,24 +403,12 @@ def main() -> None:
             "SELECT id, source, title, body FROM events WHERE urgency='URGENT' AND notified=0"
         )
         rows = cur.fetchall()
-        loop = asyncio.get_running_loop()
         for row in rows:
             event_id, source, title, body = row
             clean_body = _strip_internal_tags(body) if body else ""
-            # The LLM writes the alert (one call per new urgent event, not per
-            # tick — only unnotified rows get here). A model failure must never
-            # swallow the interrupt, so any error drops to the plain text.
-            try:
-                text = await loop.run_in_executor(
-                    None,
-                    lambda: briefings.compose_urgent_alert(
-                        agent, source or "", title or "", clean_body
-                    ),
-                )
-            except Exception as e:
-                logger.warning(f"Urgent alert compose failed for {event_id}: {e}")
-                text = ""
-            text = (text or "").strip() or briefings.fallback_urgent_alert(
+            # Deterministic, unconditionally. compose_urgent_alert (the LLM
+            # path) is gone; this was already its failure fallback.
+            text = briefings.fallback_urgent_alert(
                 source or "", title or "", clean_body
             )
             try:
@@ -609,8 +468,7 @@ def main() -> None:
                 return  # already sent today
             state.set(conn, "last_evening_briefing_sent", today.isoformat())
         loop = asyncio.get_running_loop()
-        # Pre-fetch a known-complete dataset (calendar/canvas/weather/groupme)
-        # so the composer works from injected context instead of tool calls.
+        # Pre-fetch a known-complete dataset (calendar/canvas/weather/groupme).
         bundle = await loop.run_in_executor(
             None, briefings.bundle_briefing_context, "evening", config, conn
         )
@@ -619,10 +477,7 @@ def main() -> None:
         )
         if response:
             try:
-                await context.bot.send_message(
-                    chat_id=chat_id,
-                    text=f"Good evening, sir.\n\n{response}",
-                )
+                await context.bot.send_message(chat_id=chat_id, text=response)
                 _record_briefing_sent("evening", response, job_name, bh, bm)
             except Exception as e:
                 logger.error(f"Evening briefing send failed: {e}")
@@ -630,6 +485,7 @@ def main() -> None:
                 state.delete(conn, "last_evening_briefing_sent")
         else:
             # Empty compose isn't a real send — don't let the lock suppress retry.
+            # Unreachable while compose_evening is a deterministic renderer.
             state.delete(conn, "last_evening_briefing_sent")
 
     # ── On-demand briefing (dashboard / menubar "Brief Me Now") ───────────────
@@ -656,6 +512,7 @@ def main() -> None:
                 None, briefings.compose_on_demand, agent, bundle
             )
             if not response:
+                # Unreachable while compose_on_demand is a deterministic renderer.
                 raise RuntimeError("Briefing came back empty.")
             await bot.send_message(chat_id=chat_id, text=response)
             return response

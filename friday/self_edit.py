@@ -15,6 +15,11 @@ paths.resource_path() — that resolves into the read-only PyInstaller bundle on
 Windows/frozen builds, which is why learned quips live in their own file
 instead of being appended to the bundled quips.yaml.
 
+TORN DOWN: nothing composes a persona from this file any more. What still
+reads it is the quip palette (phrases.py) and the dashboard's /api/quips.
+version() and update_setting() have no caller and are kept deliberately —
+see update_setting's docstring.
+
 Friday does NOT edit its own Python source. That is deliberate: the core runs
 always-on under launchd (macOS) or tray.py (Windows), both of which relaunch it
 on exit, so a syntax error would become a silent restart loop rather than a
@@ -59,8 +64,9 @@ def voice_path() -> Path:
 
 
 # ── Read ─────────────────────────────────────────────────────────────────────
-# mtime-keyed cache. load() is called on every quip pick and (via core.py) on
-# every persona composition, so the common case must not hit the disk twice.
+# mtime-keyed cache. load() is called on every quip pick, so the common case
+# must not hit the disk twice. It used to be called on every persona
+# composition too; that reader is gone with the persona layer.
 
 _cache: dict | None = None
 _cache_mtime: float = -1.0
@@ -68,7 +74,7 @@ _cache_mtime: float = -1.0
 # Bumped on every write from this process. Paired with the file mtimes below
 # because mtime resolution is not guaranteed to be finer than a second on every
 # filesystem — two edits inside one tick would otherwise look like no edit at
-# all, and the persona would keep serving the stale voice.
+# all, and a cache keyed on version() would keep serving stale content.
 _revision: int = 0
 
 
@@ -153,7 +159,7 @@ def _clean(text: str) -> str:
         raise ValueError("Phrase must be text.")
     t = " ".join(text.split())          # collapse newlines and runs of spaces
     # Users (and voice transcription) often wrap the phrase in quotes; the
-    # stored form should not carry them, since quip_prompt quotes it again.
+    # stored form should not carry them.
     while len(t) >= 2 and t[0] in "\"'“‘" and t[-1] in "\"'”’":
         t = t[1:-1].strip()
     if not t:
@@ -422,9 +428,12 @@ def update_setting(key: str, value: str, live_config: dict | None = None) -> dic
     """Validate and persist one whitelisted setting.
 
     `live_config` is the dict the running agent holds. It is mutated IN PLACE
-    (not replaced) because agent._config and the make_tools closure are the
-    same object — an in-place update is what makes the change visible to the
-    current process without a restart.
+    (not replaced) so the change is visible to the current process without a
+    restart.
+
+    NOTE: no caller left after the teardown — the update_setting tool was its
+    only one. Kept, along with version(), because the whitelist and its
+    validators are exactly what the rewrite needs.
     """
     k = (key or "").strip()
     entry = _SETTINGS.get(k)

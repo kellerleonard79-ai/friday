@@ -4,12 +4,9 @@ LLM calls only. No routing, no state, no Telegram references.
 """
 
 import base64
-import json
 import logging
 import os
 import time
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
 import httpx
 import requests
@@ -18,7 +15,6 @@ from google.genai import types
 
 import memory.activity as activity
 import memory.state as state
-from agent import profiles
 
 logger = logging.getLogger("friday.core")
 
@@ -163,17 +159,14 @@ class FridayAgent:
     def _think(self, prompt: str, history: list | None = None,
                triggered_by: str = "unknown",
                images: list[tuple[bytes, str]] | None = None,
-               response_json: bool = False,
-               profile: str = profiles.CHAT) -> str:
+               response_json: bool = False) -> str:
         """Synchronous LLM call. Always run via run_in_executor inside async handlers.
 
         Plain text in, plain text out. No function declarations are attached to
         any call — the tool layer was torn down (see the module header).
 
-        No system instruction is sent. `profile` is accepted and ignored —
-        the persona layer it selected was torn down. It stays on the signature
-        only so this commit does not have to touch every call site; it goes in
-        the next one, along with agent/profiles.py.
+        No system instruction is sent, and there is no call profile to pick
+        one — agent/profiles.py is gone with the persona it sliced.
 
         triggered_by labels the source of the call (user_message, briefing_morning,
         briefing_evening, poll, ...) — it is persisted on the llm_exchanges row.
@@ -283,10 +276,21 @@ class FridayAgent:
 
     def on_media(self, file_bytes: bytes, mime_type: str,
                  caption: str | None = None) -> None:
-        """Extract ONE calendar event from a photo or PDF the user sent, then
-        route it through the same gated_write permission card GroupMe
-        scheduling uses. Synchronous — the Telegram handler runs it in an
-        executor. Never writes to the calendar directly."""
+        """Accept a photo or PDF and tell the user extraction is offline.
+
+        TORN DOWN: the prompt that asked the model for a JSON event, and
+        _parse_media_event which read it back, are gone. What survives is
+        everything below the prompt line — PDF rasterization, the byte/mime
+        plumbing, and the corrupt/empty-file branches — because the rewrite
+        needs all of it unchanged and because a corrupt PDF should still be
+        named as a corrupt PDF rather than as an offline feature.
+
+        Reports plainly rather than dropping the file silently: a user who
+        sends a flyer and gets nothing back has no way to tell a broken
+        pipeline from a flyer Friday judged eventless.
+
+        Synchronous — the Telegram handler runs it in an executor.
+        """
         telegram = getattr(self, "telegram_handler", None)
         if telegram is None:
             logger.error("on_media: telegram handler not bound — dropping media")
@@ -306,109 +310,12 @@ class FridayAgent:
         else:
             images = [(bytes(file_bytes), mime_type)]
 
-        tz_name = (self._config.get("agent") or {}).get("timezone", "America/Chicago")
-        now = datetime.now(ZoneInfo(tz_name))
-        caption_line = f'\nUser caption: "{caption}"\n' if caption else ""
-        prompt = (
-            f"Current date and time: {now.strftime('%A, %Y-%m-%d %H:%M')} ({tz_name})\n"
-            f"{caption_line}\n"
-            "The attached image(s) show a flyer, screenshot, schedule, or "
-            "document containing ONE event the user wants on their calendar.\n\n"
-            "Reply with ONLY a JSON object (no prose, no markdown fences):\n"
-            '{"title": "short descriptive title",\n'
-            ' "start": "ISO 8601 start — YYYY-MM-DDTHH:MM, or YYYY-MM-DD if no time is shown",\n'
-            ' "end": "ISO 8601 end, or null if not stated",\n'
-            ' "location": "string or null",\n'
-            ' "notes": "brief extra details, or null"}\n\n'
-            "Rules:\n"
-            '- Resolve ALL relative dates ("Friday", "next week", "tomorrow") '
-            "against the current date above. Do NOT infer or guess the day or "
-            "year beyond that.\n"
-            "- Never invent a date or time that is not in the image or caption.\n"
-            '- If there is no event, or its date cannot be resolved, reply {"title": null}.'
+        kind = "PDF" if is_pdf else "image"
+        logger.info(
+            f"on_media: extraction offline — {kind}, {len(images)} page(s)/frame(s), "
+            f"caption={caption!r}"
         )
-
-        raw = (self._think(prompt, triggered_by="media",
-                           images=images, response_json=True,
-                           profile=profiles.CLASSIFY) or "").strip()
-        event = self._parse_media_event(raw)
-        if event is None:
-            telegram.send(
-                "I couldn't pull a confident event out of that, sir — could you "
-                "tell me the title, date, and time?"
-            )
-            return
-
-        # Same source attribution the GroupMe path prepends, so the approval
-        # card shows where the event came from.
-        source_line = "From PDF" if is_pdf else "From photo"
-        existing_notes = event.get("notes", "")
-        event["notes"] = source_line + ("\n" + existing_notes if existing_notes else "")
-
-        default_cal = (self._config.get("agent") or {}).get("default_calendar")
-        from actions import calendar as apple_writer
-        try:
-            apple_writer.gated_write(
-                event, self._conn, telegram, default_calendar=default_cal,
-            )
-        except Exception as e:
-            logger.error(f"on_media: gated_write failed: {e}")
-            telegram.send("Something went wrong drafting that event, sir.")
-
-    @staticmethod
-    def _parse_media_event(raw: str) -> dict | None:
-        """LLM extraction JSON → gated_write-shaped event dict
-        (title/date/start_time/end_time/notes). None if unusable."""
-        # Strip ```json fences the model may add despite instructions
-        if raw.startswith("```"):
-            raw = raw.strip("`")
-            if raw.lower().startswith("json"):
-                raw = raw[4:]
-            raw = raw.strip()
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError:
-            logger.info(f"on_media: unparseable LLM output: {raw[:200]}")
-            return None
-        if not isinstance(data, dict) or not data.get("title") or not data.get("start"):
-            return None
-
-        def _clean(key: str) -> str:
-            val = str(data.get(key) or "").strip()
-            return "" if val.lower() in ("null", "none") else val
-
-        start_raw = _clean("start")
-        try:
-            start_dt = datetime.fromisoformat(start_raw)
-        except ValueError:
-            logger.info(f"on_media: unparseable start {start_raw!r}")
-            return None
-
-        event = {
-            "title": str(data["title"]).strip(),
-            "date":  start_dt.date().isoformat(),
-        }
-        # Date-only start (no "T"/time component) means an all-day event —
-        # gated_write treats a missing start_time as all-day.
-        if "T" in start_raw or " " in start_raw.rstrip():
-            event["start_time"] = start_dt.strftime("%H:%M")
-            end_raw = _clean("end")
-            if end_raw:
-                try:
-                    end_dt = datetime.fromisoformat(end_raw)
-                    # gated_write only accepts a same-day range ending after start
-                    if end_dt.date() == start_dt.date() and end_dt > start_dt:
-                        event["end_time"] = end_dt.strftime("%H:%M")
-                except ValueError:
-                    pass
-
-        notes_parts = []
-        location = _clean("location")
-        if location:
-            notes_parts.append(f"Location: {location}")
-        extra = _clean("notes")
-        if extra:
-            notes_parts.append(extra)
-        if notes_parts:
-            event["notes"] = "\n".join(notes_parts)
-        return event
+        telegram.send(
+            "Event extraction from images and PDFs is offline, sir — I'm being "
+            "rebuilt. Tell me the title, date, and time and I'll take it from there."
+        )

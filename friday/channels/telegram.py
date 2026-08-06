@@ -43,6 +43,24 @@ _semaphore = asyncio.Semaphore(1)
 _EXECUTOR_TIMEOUT_S = 150
 
 
+# TODO: throwaway — history injection is a rewrite decision.
+def _with_history(rows, text: str) -> str:
+    """conversation_history rows (newest-first) + the new message → one flat
+    prompt string. No role structure, no system framing; the transport seam
+    takes a plain string and nothing else."""
+    if not rows:
+        return text
+    lines = [
+        f"{'User' if role == 'user' else 'Friday'}: {content}"
+        for role, content in reversed(rows)
+    ]
+    return (
+        "Earlier in this conversation:\n"
+        + "\n".join(lines)
+        + f"\n\nUser: {text}"
+    )
+
+
 class TelegramHandler:
     def __init__(self, config: dict, agent, conn: sqlite3.Connection):
         tg = config.get("telegram", config)  # accept full config or telegram sub-dict
@@ -130,7 +148,13 @@ class TelegramHandler:
                 "SELECT role, content FROM conversation_history ORDER BY id DESC LIMIT ?",
                 (self._short_term_turns * 2,)
             ).fetchall()
-            history = [{"role": r[0], "content": r[1]} for r in reversed(rows)]
+            # TODO: throwaway — history injection is a rewrite decision.
+            # The transport seam no longer assembles turns, so the last N
+            # exchanges go in as a flat labeled block glued to the front of
+            # the prompt. Deliberately crude. It exists so the chat loop stays
+            # usable across the teardown; the first commit of the new
+            # architecture deletes it.
+            prompt = _with_history(rows, text)
 
             loop = asyncio.get_running_loop()
             self.agent._last_action_emitted = None  # reset before the call
@@ -139,8 +163,7 @@ class TelegramHandler:
             try:
                 response = await asyncio.wait_for(
                     loop.run_in_executor(
-                        None, lambda: self.agent._think(
-                            text, history, "user_message")
+                        None, lambda: self.agent._think(prompt, "user_message")
                     ),
                     timeout=_EXECUTOR_TIMEOUT_S,
                 )
