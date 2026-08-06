@@ -8,6 +8,20 @@ proactive briefings and urgent alerts over Telegram, and drafts replies for your
 conversational queries all happen in one Telegram chat. There is also a local web dashboard
 and a menu bar / tray app, but those are for configuration and status — not conversation.
 
+> **⚠️ The LLM interaction layer and the tool layer are torn down.**
+>
+> Branch `llm-layer-teardown` removed `agent/tools.py`, `agent/dispatcher.py`,
+> `agent/profiles.py`, all persona and system-instruction assembly, and every
+> prompt string, to be rebuilt from scratch. Friday still runs: chat replies
+> are bare and persona-less, briefings render as plain labeled text, urgent
+> alerts use their deterministic text, and urgency tagging plus GroupMe event
+> extraction are logged no-ops that leave their rows untouched for the new
+> tagger to backfill. Sections below describing the removed layers are marked.
+>
+> The architectural principles are unaffected — semaphore at the entry point,
+> calendar as the event store, SQLite as operational state only, PTB JobQueue
+> as the only scheduler, no iMessage.
+
 Friday is not a chatbot wrapper. It is an event-driven agent with a tool layer, a memory
 layer, and a proactive alert system.
 
@@ -28,7 +42,7 @@ What each directory is for:
 
 | Directory | What lives there |
 |---|---|
-| `agent/` | The brain. Talking to the LLM, choosing tools, writing briefings. |
+| `agent/` | The brain. Talking to the LLM, choosing tools, writing briefings. *(Now `core.py` + `briefings.py` only — the tool, dispatcher and profile modules are deleted.)* |
 | `connectors/` | **Information coming in.** One file per source: Canvas, GroupMe, weather, location. |
 | `channels/` | **Talking to the user.** Telegram — the interface Friday speaks through. |
 | `actions/` | **Things Friday does to the world.** Currently calendar writes. |
@@ -82,7 +96,7 @@ These are load-bearing. Breaking one of them breaks Friday in ways that are hard
 |---|---|
 | **PTB JobQueue is the only scheduler** | `python-telegram-bot` is fully async. Every scheduled job registers on `application.job_queue` so it shares one event loop and one Telegram connection. Never add `apscheduler`, `schedule`, or a `while True: sleep()` thread. |
 | **The semaphore lives at the entry point** | `asyncio.Semaphore(1)` is acquired at the very top of the Telegram message handler — before SQLite queries, before context assembly. Messages queue from the first byte. It is never placed only around the LLM call. |
-| **The LLM is the single decision maker** | Deterministic code fetches, parses, and writes raw records. The LLM decides urgency, filters announcements, parses natural language, and formats all output. It is never bypassed for "simple" structured data. |
+| **The LLM is the single decision maker** *(torn down — pending rewrite)* | Deterministic code fetches, parses, and writes raw records. The LLM decided urgency, filtered announcements, parsed natural language, and formatted all output. **Currently it does none of these:** the only surviving call is the chat reply. |
 | **The calendar is the event store** | Due dates, shifts and appointments live in Apple Calendar (macOS) or Google Calendar (Windows) — not SQLite. Briefings and reminders read from the calendar. |
 | **SQLite is operational state only** | Runtime key-values, conversation history, a raw ingested-events buffer, and per-source cursors. No `state.json`, no vector store, no RAG, no Redis. |
 | **No iMessage, ever** | Not polled, not read, not drafted to. Out of scope on every platform. |
@@ -95,9 +109,10 @@ friday.py
     ├── MessageHandler  → channels/telegram.py::on_message()
     │     └── asyncio.Semaphore(1)   ← the gate, before everything
     │           ├── read context from SQLite
-    │           ├── agent/core.py  (LLM call + tool layer)
+    │           ├── agent/core.py::complete()   (plain text call; the
+    │           │                                tool layer is torn down)
     │           └── send reply to Telegram
-    ├── MessageHandler  → on_media()      (photos / PDFs → vision extraction)
+    ├── MessageHandler  → on_media()      (photos / PDFs; extraction torn down)
     ├── CallbackQueryHandler → on_callback() (approval buttons)
     │
     ├── dashboard web server (same asyncio loop, 127.0.0.1:5174)
@@ -111,6 +126,10 @@ friday.py
 ```
 
 ### Ingestion flow
+
+*Torn down below the first arrow: the LLM evaluation step is a logged no-op, so
+records stay `processed = 0` and nothing is tagged URGENT. The connector half
+of this flow is untouched.*
 
 ```
 connector fetches raw data (HTTP / iCal)
@@ -129,7 +148,7 @@ briefing entry  → sits in `events` until the next briefing
 ```
 
 Deterministic code only ever handles HTTP requests, iCal parsing, raw SQL writes and API
-auth. Everything downstream is the LLM's call.
+auth. Everything downstream was the LLM's call, and is currently not happening at all.
 
 ### Briefing safety windows
 
@@ -898,7 +917,8 @@ the raw `python3` binary running `friday.py`, or vice versa.
 - **Truncated replies** — raise `max_tokens` for the active provider.
 - **Ollama connection refused** — the daemon isn't running, or `base_url` is wrong. Test
   with `curl http://localhost:11434/api/tags`.
-- Persona and decision rules live in `AGENTS.md`, loaded from the resource path. Editing it
+- *(Torn down: nothing loads `AGENTS.md`. It stays in the repo and the bundle as source
+  material for the rewrite.)* Persona and decision rules live in `AGENTS.md`, loaded from the resource path. Editing it
   changes Friday's voice and urgency policy.
 
 ### Database issues
@@ -955,6 +975,8 @@ These are non-negotiable constraints on the codebase:
 5. Never use `/usr/bin/python3` in a LaunchAgent plist. Always the absolute venv binary.
 6. Canvas uses the iCal feed. Never HTML scraping.
 7. The LLM processes all ingested data. Never bypass it for urgency or filtering decisions.
+   *(Suspended during the teardown — ingestion currently reaches no model at all. The rule
+   stands for the rewrite; do not replace it with deterministic tagging.)*
 8. The calendar is the event store. Briefings read from it, not from the `events` table.
 9. GroupMe confirm sends immediately. Gmail confirm saves to Drafts only, never sends.
 10. All secrets live in `friday_config.yaml` or environment variables. Never hardcoded.

@@ -8,6 +8,23 @@ Generated from a full read of the source at commit `6ecf5f9` (branch
 
 ---
 
+> **⚠️ TORN DOWN — this document describes the pre-teardown system.**
+>
+> On branch `llm-layer-teardown` the entire LLM interaction layer and the
+> tool-calling system were removed, to be rebuilt from scratch. Deleted:
+> `agent/tools.py`, `agent/dispatcher.py`, `agent/profiles.py`, all persona and
+> system-instruction assembly, and every prompt string. `agent/core.py` is now
+> a bare transport seam (`complete()`); briefings render their bundle as plain
+> text; urgency tagging and GroupMe event extraction are logged no-ops.
+>
+> Sections describing those layers are marked inline. Everything else — the
+> semaphore at the entry point, the calendar-as-event-store rule, SQLite as
+> operational state, PTB JobQueue as the only scheduler, no iMessage, the
+> connectors, the calendar backends, the approval gate, the dashboard, voice,
+> and packaging — is unaffected and still accurate.
+
+---
+
 ## Table of Contents
 
 1. [What Friday Is](#1-what-friday-is)
@@ -269,6 +286,8 @@ temp dir elsewhere.
 ---
 
 ### 4.2 The Agent Layer
+
+> **Torn down on `llm-layer-teardown`** — profiles, the dispatcher and the tool layer are deleted; `agent/core.py` is a transport seam and the briefing composers are deterministic renderers.
 
 This is where the current branch's work lives. The problem it solves: the naive
 envelope — the full persona plus all ten tool schemas — cost thousands of
@@ -970,6 +989,8 @@ through the same functions.
 
 ### 4.8 Self-Editing & Voice Files
 
+> **Torn down on `llm-layer-teardown`** — the persona composition this fed is gone. `self_edit` still backs the quip palette and the dashboard's /api/quips; `version()` and `update_setting()` now have no caller.
+
 ---
 
 #### `friday/self_edit.py` — 466 lines
@@ -1294,6 +1315,8 @@ launched-from-Finder process otherwise won't get.
 
 ### 4.11 Operator Tooling
 
+> **Torn down on `llm-layer-teardown`** — `tools_verify_dispatch.py` reads `dispatch_log`, which no longer receives rows — the dispatcher that wrote them is deleted.
+
 #### `friday/tools_verify_dispatch.py` — 66 lines
 
 A read-only CLI (`python3 tools_verify_dispatch.py [N]`) that reads
@@ -1538,6 +1561,8 @@ desktop client JSON is created once by the maintainer and bundled at build time.
 
 ### 7.1 The Complete Tool List
 
+> **Torn down on `llm-layer-teardown`** — every tool in this table is deleted. The `tool_calls` table, its migration and the dashboard panels that read it are kept and return empty.
+
 Ten tools, registered in `agent/tools.py::make_tools()` and mirrored line-for-line
 in `dispatcher.TOOL_MANIFEST`. Gemini-only — on the `ollama` provider `_tools` is
 `None` and there is nothing to dispatch.
@@ -1683,6 +1708,8 @@ effect until the next restart.
 ---
 
 ### 7.2 Every LLM Call In The System
+
+> **Torn down on `llm-layer-teardown`** — exactly one caller remains: chat (`user_message`). Briefings, urgency tagging, GroupMe extraction, quip selection, urgent alerts and media extraction no longer call the model.
 
 | Call site | Profile | Tools | Purpose |
 |---|---|---|---|
