@@ -102,10 +102,17 @@ CREATE TABLE IF NOT EXISTS tool_calls (
     outcome        TEXT      -- ok | <ToolErrorKind> | unknown_tool | timeout
 );
 
--- One row per tool-dispatcher decision (agent/dispatcher.py), including the
--- failures — those are the interesting rows. Exists to answer two questions:
--- how often the same message is dispatched twice (is a cache worth building),
--- and how often the dispatcher missed (fallback_triggered).
+-- ORPHANED. Written by agent/dispatcher.py, which the Phase III teardown
+-- deleted; its last reader (tools_verify_dispatch.py) and its writers in
+-- memory/activity.py are gone too. Nothing reads or writes this table.
+--
+-- The CREATE is kept rather than dropped because the rows are real history and
+-- a migration that drops a table cannot be reverted by checking out the old
+-- code. Delete it deliberately, if ever, not as a side effect.
+--
+-- Note this was the TOOL-SELECTION dispatcher, which chose which tools to
+-- offer per message — not llm/dispatch.py. The rebuilt loop offers a profile's
+-- whole scope and lets the model choose, so there is no decision to log here.
 --
 -- tokens_in/tokens_out are NULL, never 0, when the call failed: a failed call
 -- has no usage metadata, and writing 0 would average in as a free call.
