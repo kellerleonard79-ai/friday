@@ -65,7 +65,12 @@ gemini:
 # code table names them.
 profiles:
   CHAT:
-    model: gemini-3.6-flash
+    # DEVELOPMENT-TIME CONSTRAINT, NOT A DESIGN DECISION. The free tier gives
+    # gemini-3.6-flash 20 requests/day, which cannot verify a step that needs
+    # dozens of tool-calling turns. Return CHAT to gemini-3.6-flash when
+    # billing is enabled — extraction quality at call #1 is final, and this is
+    # the profile that extracts tool arguments.
+    model: gemini-3.5-flash-lite
     max_output_tokens: 1024
     temperature: 1.0
   COMPOSE:                          # briefings

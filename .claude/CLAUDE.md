@@ -507,6 +507,16 @@ it rather than a copy here. Startup hard-fails only on `telegram.bot_token`,
 `telegram.chat_id`, and a Gemini key when `provider: gemini`. Every other block
 is optional; an unconfigured connector is skipped, not an error.
 
+**`profiles.CHAT.model` is `gemini-3.5-flash-lite`, and that is a
+development-time constraint rather than a design decision.** The free-tier
+quota on `gemini-3.6-flash` is 20 requests/day, which cannot verify a step
+whose turns each cost several model calls. **CHAT should return to
+`gemini-3.6-flash` when billing is enabled.** It matters more here than
+anywhere else in the table: CHAT is the profile that extracts tool arguments,
+and extraction quality at call #1 is final — there is no corrective pass over a
+tool's arguments before it runs. If argument accuracy looks poor, check the
+model before elaborating the prompt.
+
 Blocks worth knowing about:
 - `dispatcher` — `enabled: false` restores pre-dispatcher behavior exactly (all tools, no extra call).
 - `calendar.backend` — `apple` | `google`. Defaults to google on win32, apple elsewhere.
