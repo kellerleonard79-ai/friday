@@ -28,6 +28,7 @@ from datetime import date, datetime, timedelta
 import clock
 import compat
 from calendars import backend as calendar_backend
+from calendars import eventtime
 from connectors import weather as weather_connector
 
 logger = logging.getLogger("friday.briefings")
@@ -54,27 +55,16 @@ def _local_now(config: dict) -> datetime:
     return clock.local_now(config)
 
 
-def _local(iso: str) -> datetime | None:
-    try:
-        return datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone()
-    except Exception:
-        return None
-
-
-def _is_all_day(evt: dict) -> bool:
-    """Neither calendar backend returns an explicit all-day flag, so derive it.
-    Google all-day events carry a date-only 'date' value (no 'T'); Apple all-day
-    events come through as a midnight→midnight datetime spanning whole days."""
-    start = evt.get("start_iso", "")
-    if start and "T" not in start and len(start) == 10:
-        return True
-    sd = _local(start)
-    ed = _local(evt.get("end_iso", ""))
-    if sd and ed and sd.hour == 0 and sd.minute == 0:
-        span = (ed - sd).total_seconds()
-        if span >= 86400 and span % 86400 == 0:
-            return True
-    return False
+# Both moved to calendars/eventtime.py so the tool layer reads event times
+# through the same code this file does — the two backends spell a timestamp
+# differently and a second implementation would be wrong on one of them.
+#
+# The move also fixed _is_all_day: it required span % 86400 == 0, but Apple
+# reports an all-day event as midnight to 23:59:59 (86399s), so every real
+# all-day event was being classified as timed. Kept as module-local names
+# because every date read in this file goes through them.
+_local = eventtime.to_local
+_is_all_day = eventtime.is_all_day
 
 
 # ── Deterministic context bundling ────────────────────────────────────────────
