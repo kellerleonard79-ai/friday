@@ -1,25 +1,29 @@
 # Project Friday — Claude Code Instructions
 
-> **⚠️ TEARDOWN IN PROGRESS — branch `llm-layer-teardown`.**
+> **⚠️ REBUILD IN PROGRESS — Phase III, branch `phase3-dispatcher`.**
 >
-> The entire LLM interaction layer and the tool-calling system have been
-> removed, to be rebuilt from scratch. **Deleted:** `agent/tools.py`,
-> `agent/dispatcher.py`, `agent/profiles.py`, all persona and
-> system-instruction assembly, and every prompt string in the repo.
-> `agent/core.py` is now a bare transport seam — `complete(prompt, *, images,
-> json, triggered_by) -> str`, no system instruction, no tools, no history.
+> The LLM layer was torn down in full (`llm-layer-teardown`) and is being
+> rebuilt in eleven steps. **Step 1 has landed:** `friday/llm/` — the
+> dispatcher, the profile registry, and the provider adapters. Every LLM call
+> in the process now goes through `llm/dispatch.py::dispatch()`, and
+> `llm/providers/gemini.py` is the only file in the repo that imports
+> `google.genai`. See **The LLM Layer** below for the layer stack and the ten
+> invariants that govern it.
 >
-> Sections below that describe those layers are marked **[TORN DOWN]**. The
-> architectural principles are NOT torn down and still bind: the semaphore at
-> the entry point, calendar-as-event-store, SQLite-as-operational-state,
-> no-iMessage, and PTB-JobQueue-only.
+> **Not yet rebuilt:** persona and prompt assembly (step 2), tools and the turn
+> loop (step 3), the effects layer (step 4). Sections describing those are
+> marked **[NOT YET REBUILT]** with the step that restores them. Chat replies
+> are persona-less, briefings render as plain labeled text, nothing is tagged
+> URGENT, and Friday cannot write to the calendar from chat. That is the
+> current expected behavior, not a bug.
 >
-> Do not rebuild any of the removed layers piecemeal while working on
-> something else. That is its own task.
+> Do not rebuild a later step piecemeal while working on something else. Each
+> step is its own task, ends with a running system, and is independently
+> revertable. The build order is in `phaseiii.MD` §12.
 
 ## Codebase Navigation & Knowledge Graph
 - **Search Strategy:** Before running broad `grep` or file searches across the repository, check `graphify-out/GRAPH_REPORT.md` to map out dependencies and locate relevant files.
-- **⚠️ The Graphify snapshot is STALE as of the `llm-layer-teardown` branch.** It still maps `agent/tools.py`, `agent/dispatcher.py` and `agent/profiles.py`, which are deleted. Regeneration is a `/graphify` skill invocation, not a scripted repo step, so it was not run as part of the teardown. Re-run it before trusting the graph for anything in `agent/`.
+- **⚠️ The Graphify snapshot is STALE as of the `phase3-dispatcher` branch.** It still maps `agent/tools.py`, `agent/dispatcher.py` and `agent/profiles.py` (deleted) and knows nothing of `friday/llm/` (added). Regeneration is a `/graphify` skill invocation, not a scripted repo step, so it has not been run. Re-run it before trusting the graph for anything under `agent/` or `llm/`.
 - **Context Gathering:** Use the Graphify snapshot to identify component relationships first, then perform targeted reads on specific files.
 
 ## What is Friday?
@@ -32,7 +36,8 @@ Friday is **not** a simple chatbot. It is a structured, event-driven agent with 
 
 ## Core Architecture Principles
 
-- **[TORN DOWN] The persona, prompts and tools are gone.** Chat replies are bare and persona-less; briefings render as plain labeled text. That is the current expected behavior, not a bug.
+- **Every LLM call goes through the dispatcher.** `llm/dispatch.py::dispatch()` is the chokepoint; a direct provider call anywhere else is a bug however convenient. Below it, `llm/providers/` owns every SDK detail — one file per provider, selected by the `provider` config key.
+- **[NOT YET REBUILT — steps 2–4] The persona, prompts, tools and effects.** Chat replies are persona-less; briefings render as plain labeled text. Expected, not a bug.
 - **Telegram is the primary UI.** Briefings, alerts, approvals, and conversational queries all happen there. Two secondary surfaces exist and are read/control planes, not conversation: the local web dashboard (`dashboard/`, 127.0.0.1:5174) and the voice satellite (`voice/`), which bridges speech back in as an ordinary Telegram message.
 - **PTB JobQueue is the only scheduler.** `python-telegram-bot` is fully async. Never introduce a second scheduling library (`apscheduler`, `schedule`, `while True: sleep()`). All scheduled jobs register directly on `application.job_queue`. The dashboard's web server runs inside that same loop — it is not a second process.
 - **The semaphore lives at the entry point.** `asyncio.Semaphore(1)` at the very top of `channels/telegram.py::on_message()` — before SQLite queries, before context assembly, before anything.
@@ -51,11 +56,12 @@ bundle, LaunchAgent plists, and `graphify-out/`. The Python package is the
 `ls friday/` for the current layout.
 
 Non-obvious placements:
-- `agent/` — **[TORN DOWN]** now only `core.py` (the transport seam: `complete()`) and `briefings.py` (deterministic context bundling + plain renderers). `tools.py`, `dispatcher.py` and `profiles.py` are deleted.
+- `llm/` — the rebuilt call layer. `dispatch.py` (the chokepoint), `profiles.py` (the profile registry), `types.py` (the vocabulary — no SDK import), `providers/` (`base.py`, `gemini.py`, `ollama.py`). Nothing above this package names a model or an SDK.
+- `agent/` — what is left after the call layer moved out: `core.py` (media intake only — PDF rasterization and the byte/mime plumbing; it reaches no model today) and `briefings.py` (deterministic context bundling + plain renderers). `tools.py`, `dispatcher.py` and `profiles.py` are deleted; `agent/profiles.py` is NOT the same file as `llm/profiles.py`.
 - `calendars/` — backend dispatcher plus the two implementations (`apple.py`, `google_cal.py`). Distinct from `actions/calendar.py`, which is the write API both backends sit behind, and from `connectors/apple_calendar.py`, which is the reader.
 - `dashboard/` — a FastAPI package, not a Tkinter script.
 - `memory/activity.py` — best-effort instrumentation writes. Never raises into the hot path.
-- `self_edit.py` + `phrases.py` + `quips.yaml` + `friday_voice.yaml` — the narrow slice of itself Friday may rewrite at runtime. **[PARTLY TORN DOWN]** the persona composition is gone; `phrases.random_quip()` and the dashboard's `/api/quips` still read these. `self_edit.version()` and `update_setting()` have no caller and are kept for the rewrite.
+- `self_edit.py` + `phrases.py` + `quips.yaml` + `friday_voice.yaml` — the narrow slice of itself Friday may rewrite at runtime. **[PARTLY REBUILT]** the persona composition is gone until step 2; `phrases.random_quip()` and the dashboard's `/api/quips` still read these. `self_edit.version()` and `update_setting()` have no caller and are kept for the rewrite.
 - `paths.py` and `compat.py` — the cross-platform seams.
 - Entry points differ per platform: `friday.py` (core), `mac_app.py` (packaged .app supervisor), `tray.py` (Windows), `menubar.py` (rumps, source checkout), `macos_setup.py` (renders LaunchAgent templates), `setup_wizard.py` (first run, both platforms).
 
@@ -84,10 +90,11 @@ friday.py
 └── builds PTB Application
     ├── MessageHandler → telegram.py::on_message()
     │     └── asyncio.Semaphore(1)  ← gate is HERE, before everything
-    │           ├── query SQLite for context
-    │           ├── dispatcher.dispatch() → tool shortlist
-    │           ├── agent/core.py::_think()
-    │           └── telegram.send()
+    │           ├── query SQLite for conversation history
+    │           ├── build LLMRequest(profile=CHAT)
+    │           ├── run_in_executor → llm/dispatch.py::dispatch()
+    │           │       └── llm/providers/gemini.py::complete()
+    │           └── reply, keyed on response.error_kind
     │
     ├── CallbackQueryHandler → approval-card buttons (confirm/cancel)
     │
@@ -110,109 +117,163 @@ catch-up poll can never double-send.
 
 ---
 
-## The LLM Call Layer — **[TORN DOWN]**
+## The LLM Layer
 
-*Both mechanisms below are deleted. `agent/profiles.py` and
-`agent/dispatcher.py` no longer exist; `TOOL_MANIFEST`,
-`assert_manifest_matches_tools`, `_MEMBERSHIP`, `_TOOL_COUPLED`, the CHAT /
-COMPOSE / CLASSIFY / ROUTE profiles, and the hand-rolled `_gemini_exchange`
-tool loop are all gone. Every call is a plain text call. The `dispatch_log`
-table, its migration and `tools_verify_dispatch.py` are kept; nothing writes
-to that table any more. Kept here as the record of what the rewrite is
-replacing and why each rule existed.*
+Everything under `friday/llm/`. Built in step 1 of Phase III; the layers above
+it arrive in steps 2–4. The full design is `phaseiii.MD` — this is the working
+summary and the rules that must not be relaxed.
 
-Two mechanisms sat between a message and the model. Both exist for the same
-reason: the naive envelope — full persona plus all ten tool schemas — cost
-thousands of tokens on every call, re-sent on every hop of the tool loop.
+### Layer stack
 
-### Call profiles (`agent/profiles.py`)
+Each layer may call downward and return upward. **No layer reaches past its
+neighbor.** If a tool needs to send a message it returns an effect; it does not
+import the Telegram channel. That single rule is what the whole rebuild exists
+to buy — Phase II failed because Gemini's function-calling shape leaked into
+every layer and because tools messaged the user mid-turn.
 
-Every LLM call declares a profile that selects which slice of the persona it
-carries. Sections are addressed by their Markdown heading, so `_MEMBERSHIP` is
-the single table deciding what each profile gets.
+```
+Channels          Telegram · Dashboard · Voice              ← Telegram only today
+                  Own concurrency, surface formatting, transport
+        ↓
+Turn runner       Plan selection, bounded tool loop, effects      [step 3]
+        ↓
+Effects           Intent → side effects, ordered, gate first      [step 4]
+Context           Deterministic pre-fetch → labeled blocks        [step 6; agent/briefings.py is the surviving half]
+Policy            Gating, suppression, visibility                 [step 6]
+Tools             Registry, preconditions, structured returns     [step 3]
+Persona           Section-addressable AGENTS.md                   [step 2]
+        ↓
+Dispatcher        Profiles, retry, budget, logging — THE chokepoint     ← BUILT
+        ↓
+Providers         Gemini adapter — the only file importing google.genai ← BUILT
+```
 
-- **CHAT** — the user is talking to Friday. Voice is the product and tools are live; carries everything.
-- **COMPOSE** — Friday writes prose the user reads (briefings, urgent alerts). Voice matters, tool-usage sections do not, because these calls run with tools off by construction.
-- **CLASSIFY** — the model returns a label, an index, or JSON (urgency tagging, GroupMe/media extraction, quip selection). Carries `CLASSIFY_INSTRUCTION` and no persona at all. Butler voice on a call whose contract is to return exactly `URGENT` is not merely wasted spend — it is a parse failure and a mis-tagged event.
-- **ROUTE** — the dispatcher's own profile. Deliberately mapped to no persona section anywhere.
+### What is in the package
 
-Unrecognized headings **fail open** to CHAT+COMPOSE and log once. AGENTS.md is
-user-editable prose and Friday is an always-on daemon: an unmapped heading must
-never silently vanish from the persona, and must never be a startup failure.
+- **`types.py`** — the vocabulary: `Profile`, `LLMRequest`, `LLMResponse`,
+  `Usage`, `ToolCall`, `ContextBlock`, and the `Finish` / `ErrorKind` literals.
+  Frozen dataclasses, no behavior, **no SDK import** — this is what lets the
+  rest of the codebase discuss a model call without knowing who answers it.
+  `tool_calls`, `persona_sections` and `tool_scope` are declared and inert so
+  steps 2–3 add a table entry rather than a field to every call site.
+- **`profiles.py`** — the profile registry. **CHAT only.** The registry is
+  authoritative: `dispatch()` re-resolves every request's profile *by name* and
+  calls with the registry's copy, so a caller cannot hand-roll a `Profile` named
+  CHAT that quietly uses a different model. `get()` raises on an unknown name —
+  a typo'd profile is a bug, and falling back to CHAT hides it behind a bigger
+  bill. CLASSIFY / COMPOSE / EXTRACT arrive with the persona layer.
+- **`providers/base.py`** — the `Provider` ABC (`complete(request, profile)`),
+  plus `render_prompt()` and `remaining_seconds()`. The profile is passed in
+  already resolved: a provider that could look up a name could also disagree
+  with the dispatcher about what CHAT means. Holds the marked, deliberately
+  empty **PERSONA ASSEMBLY POINT**.
+- **`providers/gemini.py`** — the only file in the repository that imports
+  `google.genai`. Grep-enforceable, and worth actually grepping.
+- **`providers/ollama.py`** — ⚠️ untested since the rewrite. It keeps the
+  `provider: gemini|ollama` key working and, more to the point, proves the
+  interface has no Gemini-shaped assumptions in it. **No fallback chain**: a
+  dead Ollama is a dead provider, not a reason to silently spend money on
+  Gemini.
+- **`dispatch.py`** — resolve the profile, select the provider, set the
+  deadline, call, retry what is worth retrying, log, return. It does not build
+  prompts, does not know what a persona is, does not know what Telegram is.
+  **Synchronous by design** — callers in async contexts run it in an executor.
+  An async dispatcher puts a blocking SDK call back on the event loop, which is
+  the exact shape that wedged the pipeline in the July 9 outage.
 
-Some sections are tool-coupled (`_TOOL_COUPLED`) — shipped only when the tool
-they describe is actually attached.
+### Error taxonomy
 
-### Tool dispatcher (`agent/dispatcher.py`)
+A provider **never raises** for an API-level failure. It returns
+`finish="error"` with an `error_kind`, and the channel keys its reply off that
+— no reaching into the agent for a `_last_error` attribute.
 
-A cheap call against a small model (`models/gemini-2.5-flash-lite` by default)
-returns a shortlist of tool names; the real call attaches only those schemas.
-`TOOL_MANIFEST` is a hand-maintained one-line-per-tool table — deliberately NOT
-derived from the docstrings, because deriving it would reintroduce the exact
-cost the dispatcher exists to avoid.
-
-Rules that must not be relaxed:
-- **Every failure falls back to the FULL tool list, never to `[]`.** Timeout, parse failure, hallucinated name, dead provider — all attach everything. An empty list from a garbled response is indistinguishable from a genuine "no tools needed", and guessing wrong silently drops the user's request.
-- **The manifest and the registered tools must match exactly, both directions.** `assert_manifest_matches_tools()` raises at startup. A tool missing from the manifest is invisible to the dispatcher and silently stops working while everything still looks healthy.
-- The dispatcher is biased toward over-selection on purpose: an extra tool costs ~200 tokens of schema, a missing one is a wrong answer.
-- Every decision, including failures, is logged to `dispatch_log`. `tools_verify_dispatch.py` reads it back paired with the chat call it produced.
-
-### The tool loop is ours, not the SDK's (`_gemini_exchange`)
-
-`automatic_function_calling` is disabled on every tool-bearing call. The SDK
-still infers the schemas from the callables; only its execute-and-re-ask loop is
-off. `FridayAgent._gemini_exchange` runs the loop by hand because the SDK's has
-exactly one exit — append the tool result, call the model again, take its text —
-and that last hop re-sends the full envelope (persona, every attached schema,
-history) to ask a question that is already answered.
-
-The traffic controller:
-- **Getter** (`get_schedule`, `get_weather`, …) — append the model's
-  function-call turn plus a `{"result": …}` function response, call again for
-  the prose. The `{"result": …}` wrapper matches what AFC used to send; don't
-  change its shape.
-- **Terminal** — any tool result carrying `"user_notified": True`. Stop. The
-  tool already sent the user their reply (the calendar writers ship a
-  confirmation with a quip), so `_think` returns `""` and the caller's
-  empty-response branch handles it. This is success, not an error.
+| kind | means | dispatcher | user sees |
+|---|---|---|---|
+| `none` | success | — | the reply |
+| `rate_limit` | 429 / quota — the API answered and refused us | retry, backoff (2s, 5s) | "I'm being rate limited, sir." |
+| `transient` | 500/502/503/504 — the API failed on its own side | retry, backoff (0.5s, 1.5s) | "The model service is having trouble on its end, sir." |
+| `network` | never reached the API — DNS, refused, dead socket | **no retry** | "I can't reach the model from this network." |
+| `fatal` | anything else — bad request, auth, malformed response | no retry | the error line |
 
 Rules:
-- **`user_notified` is a per-branch fact, not a property of the tool.**
-  `add_calendar_event` both writes-and-notifies AND returns validation errors
-  ("uid required — call `get_schedule` first") the model must see to recover
-  from. Terminating on the tool's *name* would answer those with silence. Only
-  the branches that actually messaged the user set the flag.
-- Failure branches inside the calendar writers deliberately do NOT set it —
-  `auto_write`/`auto_update` send their own failure note, but the model still
-  gets the error so it can explain itself.
-- A tool that raises, or a name the model invented, comes back as
-  `{"error": …}` and the loop continues. Never crash the turn.
-- `_TOOL_MAX_HOPS` bounds a runaway loop. Usage is summed across hops — each
-  hop is its own billed request.
+- **`transient` must not be folded into `rate_limit`.** "Google is having a bad
+  day", "you are over quota" and "this network blocks the API" are three
+  different problems with three different answers. The dashboard and the
+  reachability probes both have to tell them apart.
+- **`network` fails fast.** Telegram is blocked on school Wi-Fi for ~7h a day;
+  a blocked network must not burn the whole budget rediscovering that it is
+  blocked. This same classification covers Telegram and OAuth later.
+- **Classification is on the parsed status code**, never on a bare `"500"` found
+  in the message text.
 
-This refactor is what removed the "silent residue" bug: asked to produce nothing
-after a calendar write, the model would answer with an empty Markdown fence or a
-stray CJK token, which shipped to Telegram as the reply. There is no longer a
-hop in which it can. Do not reintroduce a downstream filter for it; fix the loop
-instead.
+### The deadline, not nested timeouts
 
-### Time and location are injected, not tools
+`dispatch()` sets `deadline = now + profile.timeout_s` at entry and threads it
+down on the request. The provider clamps its own HTTP timeout to
+`min(60s ceiling, time remaining)`; no retry at any level fires once the
+deadline has passed. One number, not three constants kept in sync — nested
+per-attempt timeouts multiply, a deadline cannot.
 
-`get_now` and `get_location` no longer exist. `_system_instruction()` appends the
-authoritative wall-clock stamp to every profile (including CLASSIFY — the urgency
-rubric is entirely relative) and the cached machine location to CHAT/COMPOSE. A
-tool the model has to remember to call is a tool it can skip, and skipping the
-clock is how "this Friday" resolved to a date out of the training set. Appended,
-not prepended, so the persona stays a stable cacheable prefix.
+**The SDK client's own timeout is load-bearing.** Without it, a request in
+flight when the Mac sleeps blocks its executor thread forever while holding the
+Telegram semaphore — the July 9 outage. `asyncio.wait_for` cannot fix this: it
+does not kill an executor thread. Only `HttpOptions(timeout=…)` does. The 150s
+`wait_for` in `channels/telegram.py` is a backstop, not the budget.
 
-Provider reality: the tool layer is Gemini-only. On the `ollama` provider
-`_tools` is `None` and there is nothing for the dispatcher to narrow.
+### The transport redial
 
----
+Exactly one, no backoff, only if the deadline allows, and only for a fault on an
+*established* connection — read/write errors, resets, mid-request socket
+timeouts. A sleep-killed socket redials instantly and succeeds.
+`ConnectError` / `ConnectTimeout` are deliberately excluded: DNS failure and
+connection-refused are genuine "cannot reach this network" signals and must
+surface as `network` immediately. A redial on those is the slow-fail that makes
+a blocked network painful.
 
-## LLM Processing Flow — **[TORN DOWN]**
+### Logging
 
-*The LLM step is a logged no-op. `process_untagged_events` and
+One `llm_exchanges` row per dispatch, carrying `profile`, `finish` and
+`error_kind` alongside the tokens and latency, plus the running `system_state`
+counters the menubar and `/api/status` read. All of it wrapped: instrumentation
+never fails a request. A lost row beats a lost reply.
+
+### Phase III invariants
+
+From `phaseiii.MD` §11. Anything violating one is a bug regardless of what it
+enables. Numbers 1–2 and 6 bind today; the rest bind as their layer lands.
+
+1. **Every LLM call goes through the dispatcher.** No direct provider calls anywhere else.
+2. **Tools never send messages.** They return effects.
+3. **Permission cards are emitted first**, and nothing may delay, editorialize on, or bury one.
+4. **A write is confirmed to the user only after the service confirms it back.**
+5. **Every write carries a fingerprint** checked before writing and before retrying, so a client-side timeout on a server-side success cannot double-book.
+6. **Persona voice applies only to conversational replies** — never cards, briefings, errors, or TTS.
+7. **Reconcile before prune.** Always.
+8. **Presence is always a value plus a timestamp.** Stale means unknown, never assumed.
+9. **The dashboard is a channel adapter**, not a second chat implementation.
+10. **No webhooks.** Polling only — webhooks break sleep/wake queuing and complicate the Windows build.
+
+### Not yet rebuilt, and what that costs today
+
+- **Persona and prompt assembly (step 2).** `AGENTS.md` is read by nothing.
+  Prompts are the bare user text plus flattened history.
+- **The injected clock and location.** `_system_instruction()` is gone, so the
+  model gets no wall-clock stamp — which is how "this Friday" once resolved to a
+  date out of the training set. `connectors/location.py::warm()` still runs
+  every 15 minutes and nothing reads the cache. Both return in step 2, appended
+  rather than prepended so the persona stays a cacheable prefix.
+- **History is flattened into one prose turn.** `LLMRequest.history` carries
+  `(role, content)` pairs and the provider renders them into text, byte-identical
+  to the pre-teardown format. Structured multi-turn content is step 2's first
+  job and the largest token win available.
+- **Tools and the turn loop (step 3).** `dispatch_log`, its migration and
+  `tools_verify_dispatch.py` survive from Phase II and nothing writes to that
+  table.
+
+## LLM Processing Flow — **[NOT YET REBUILT — step 2]**
+
+*Step 1 rebuilt the call path, not the callers. The LLM step here is still a
+logged no-op: `process_untagged_events` and
 `extract_groupme_events` return immediately without touching their rows —
 `processed` and `event_extracted` stay 0 deliberately, so the new tagger can
 backfill the whole teardown-window backlog. Consequence: nothing is tagged
@@ -240,7 +301,7 @@ Deterministic code only handles: HTTP requests, iCal parsing, raw SQL writes, AP
 
 ---
 
-## Calendar Writes: which path gates — **[PARTLY TORN DOWN]**
+## Calendar Writes: which path gates — **[PARTLY REBUILT]**
 
 *Both paths survive verbatim in `actions/calendar.py`. What changed is who
 calls them. `auto_write` now has exactly one live producer, Canvas due dates
@@ -290,14 +351,18 @@ the core.
 
 **Ongoing — Phase 7 (Hardening):** connector error recovery and observability.
 
-**Torn down — the whole LLM layer.** Branch `llm-layer-teardown` removed the
-tool layer, the dispatcher, the call profiles, persona assembly and every
-prompt. The cost work that Phase 7 previously described (profiles +
-dispatcher) is deleted along with it. What Friday currently does NOT do:
-tag urgency, extract events from GroupMe or from images/PDFs, fire urgent
-alerts, write to the calendar from chat, speak in any persona, or select a
-quip by context. Chat replies and briefings still ship. This is the state the
-rewrite starts from.
+**In progress — Phase III, the LLM layer rebuild (11 steps, `phaseiii.MD` §12).**
+`llm-layer-teardown` removed the tool layer, the old dispatcher, the call
+profiles, persona assembly and every prompt. **Step 1 has landed** on
+`phase3-dispatcher`: the new dispatcher, the CHAT profile, the provider
+adapters, and exchange logging with profile/finish/error_kind. A Telegram
+message round-trips through it.
+
+Steps 2–11 are unbuilt, so Friday still does NOT: tag urgency, extract events
+from GroupMe or from images/PDFs, fire urgent alerts, write to the calendar
+from chat, speak in any persona, or select a quip by context. Chat replies and
+briefings ship. Next up is step 2 — persona sections plus the CLASSIFY and
+COMPOSE profiles — which is what turns the ingestion no-ops back on.
 
 ---
 
@@ -312,8 +377,8 @@ rewrite starts from.
 7. **The LLM processes all ingested data.** Never bypass it for urgency, filtering, or calendar decisions — even for clean structured data.
 8. **The calendar backend is the event store.** Briefings and reminders read from it, not from the SQLite events table.
 9. **Briefings run with tools OFF.** If a briefing is thin, expand `bundle_briefing_context` — never re-enable tools on that path. `bundle_briefing_context` survived the teardown intact precisely because it is the layer worth keeping.
-10. ~~**The dispatcher fails open.**~~ **[TORN DOWN]** — no dispatcher. Reinstate this rule with it.
-11. ~~**`TOOL_MANIFEST` must stay in sync with the registered tools.**~~ **[TORN DOWN]** — no manifest, no tools.
+10. **Every LLM call goes through `llm/dispatch.py`.** No direct provider call anywhere else, no second door for images or JSON, no "just this once" convenience path. See the LLM Layer section.
+11. **`llm/providers/gemini.py` is the only file that may import a provider SDK.** If a layer above it needs to know something SDK-shaped, the abstraction is wrong — fix the type, not the import.
 12. **SQLite is the operational backbone only.** No state.json. No vector store. No Redis.
 13. **Voice is a standalone satellite.** Never imports from Friday's core.
 14. **Friday does not edit its own Python source.** `self_edit.py` writes YAML only — learned quips and a whitelist of settings. The core is relaunched on exit by launchd/tray, so a syntax error would be a silent restart loop rather than a visible failure.
@@ -338,11 +403,14 @@ Blocks worth knowing about:
 
 ---
 
-## Persona (`AGENTS.md`) — **[TORN DOWN]**
+## Persona (`AGENTS.md`) — **[NOT YET REBUILT — step 2]**
 
 *Nothing loads `AGENTS.md`. It stays in the repo and in the PyInstaller spec
-as source material for the rewrite. Its headings are no longer an API —
-`profiles._MEMBERSHIP` is deleted — so renaming one is currently harmless.
+as source material for step 2, which makes its sections addressable again and
+assembles them at the PERSONA ASSEMBLY POINT marked in `llm/providers/base.py`.
+Its headings are not an API right now — the old `profiles._MEMBERSHIP` is
+deleted and `llm/profiles.py` has empty `persona_sections` — so renaming one is
+currently harmless and will stop being harmless in step 2.
 `quips.yaml` and `friday_voice.yaml` ARE still read, by `phrases.py`; quip
 selection is now `random.choice`, which means a quip can contradict its event
 (the failure mode the LLM index pick existed to prevent).*
@@ -353,7 +421,7 @@ concise and direct, addresses the user as "sir", states its sources, and never
 invents an event or a deadline.
 
 Two things make this file load-bearing beyond prose:
-- **Its headings are an API.** `profiles._MEMBERSHIP` keys off them. Renaming a heading in `AGENTS.md` without updating the table silently reroutes that section (fail-open to CHAT+COMPOSE, logged once).
+- **Its headings are an API** once step 2 lands: profiles address persona sections by Markdown heading, so renaming one without updating the table silently reroutes it. Unmapped headings must fail *open* — `AGENTS.md` is user-editable prose and Friday is an always-on daemon, so an unmapped heading must never vanish silently and must never be a startup failure.
 - **Learned voice is separate.** Bundled quips live in `quips.yaml` (read-only in a frozen build); anything Friday learns at runtime goes to `friday_voice.yaml` under `paths.data_dir()`. Never append to the bundled file.
 
 ---
