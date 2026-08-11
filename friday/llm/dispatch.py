@@ -2,10 +2,14 @@
 llm/dispatch.py
 The chokepoint. Every LLM call in Friday goes through dispatch().
 
-What it does, and nothing else: resolve the profile, select the provider, set
-the deadline, call, retry what is worth retrying, return. It does not build prompts, does
-not know what a persona is, does not know what a Telegram message is, and does
-not import any provider SDK.
+What it does, and nothing else: resolve the profile, assemble the prompt,
+select the provider, set the deadline, call, retry what is worth retrying, log,
+return. It does not know what a Telegram message is and does not import any
+provider SDK.
+
+Assembly is llm/assembly.py's, called from here exactly once per dispatch. The
+same AssembledPrompt is handed to the provider and rendered into the exchange
+log, so the row can never describe a call that did not happen.
 
 Synchronous by design. Callers in async contexts run it in an executor, as the
 Telegram handler already does. Do not make it async — an async dispatcher would
@@ -22,10 +26,11 @@ import time
 import memory.activity as activity
 import memory.state as state
 from llm import profiles
-from llm.providers.base import Provider, render_prompt
+from llm.assembly import assemble
+from llm.providers.base import Provider
 from llm.providers.gemini import GeminiProvider
 from llm.providers.ollama import OllamaProvider
-from llm.types import LLMRequest, LLMResponse, Profile
+from llm.types import AssembledPrompt, LLMRequest, LLMResponse, Profile
 
 logger = logging.getLogger("friday.llm.dispatch")
 
@@ -98,19 +103,24 @@ def dispatch(request: LLMRequest) -> LLMResponse:
         deadline = min(deadline, request.deadline)
     request = dataclasses.replace(request, deadline=deadline, profile=profile)
 
+    # Once, before the retry loop: a retry re-sends the same bytes, and
+    # re-assembling per attempt would let a mid-dispatch AGENTS.md edit change
+    # the prompt between attempt 1 and attempt 2.
+    prompt = assemble(request, profile)
+
     attempt = 0
     while True:
-        response = _provider.complete(request, profile)
+        response = _provider.complete(request, profile, prompt)
 
         kind = response.error_kind
         if kind not in _RETRYABLE:
-            _log_exchange(request, profile, response)
+            _log_exchange(request, profile, prompt, response)
             return response
 
         attempt += 1
         if attempt >= _MAX_ATTEMPTS:
             logger.error(f"{kind} after {attempt} attempts — giving up.")
-            _log_exchange(request, profile, response)
+            _log_exchange(request, profile, prompt, response)
             return response
 
         backoff = _BACKOFF_S[kind]
@@ -120,7 +130,7 @@ def dispatch(request: LLMRequest) -> LLMResponse:
             logger.error(
                 f"{kind} with {remaining:.1f}s left on the deadline — not retrying."
             )
-            _log_exchange(request, profile, response)
+            _log_exchange(request, profile, prompt, response)
             return response
 
         logger.warning(
@@ -129,7 +139,8 @@ def dispatch(request: LLMRequest) -> LLMResponse:
         time.sleep(delay)
 
 
-def _log_exchange(request: LLMRequest, profile: Profile, response: LLMResponse) -> None:
+def _log_exchange(request: LLMRequest, profile: Profile,
+                  prompt: AssembledPrompt, response: LLMResponse) -> None:
     """Persist one dispatch to llm_exchanges, and bump the running counters the
     menubar and dashboard read out of system_state.
 
@@ -139,17 +150,20 @@ def _log_exchange(request: LLMRequest, profile: Profile, response: LLMResponse) 
     if _conn is None:
         return
     try:
-        prompt = render_prompt(request)
+        # Rendered from the object the provider was handed, never re-derived
+        # from the request. A log that can disagree with what was sent is
+        # worse than no log, because it will be trusted.
+        full_prompt = prompt.for_log()
         if request.images:
             # llm_exchanges stores text only — mark attachments so the feed
             # shows why this prompt produced what it did.
-            prompt = f"[{len(request.images)} image(s) attached]\n{prompt}"
+            full_prompt = f"[{len(request.images)} image(s) attached]\n{full_prompt}"
         body = response.text if response.finish != "error" else f"[error] {response.error_message}"
 
         activity.record_llm_exchange(
             _conn,
             model=response.usage.model or profile.model,
-            prompt=prompt,
+            prompt=full_prompt,
             response=body,
             tokens_in=response.usage.input_tokens,
             tokens_out=response.usage.output_tokens,

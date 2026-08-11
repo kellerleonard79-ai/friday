@@ -20,8 +20,8 @@ from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
 
-from llm.providers.base import Provider, remaining_seconds, render_prompt
-from llm.types import LLMRequest, LLMResponse, Profile, Usage
+from llm.providers.base import Provider, remaining_seconds
+from llm.types import AssembledPrompt, LLMRequest, LLMResponse, Profile, Usage
 
 logger = logging.getLogger("friday.llm.gemini")
 
@@ -140,23 +140,41 @@ class GeminiProvider(Provider):
 
     # ── Request translation ───────────────────────────────────────────────
 
-    def _contents(self, request: LLMRequest):
-        text = render_prompt(request)
+    # Gemini's name for the assistant role. The mapping stops here: above this
+    # file a turn is ("user" | "assistant"), which is what conversation_history
+    # stores and what every other provider will have to be translated from too.
+    _ROLE = {"user": "user", "assistant": "model"}
+
+    def _contents(self, request: LLMRequest, prompt: AssembledPrompt):
+        """AssembledPrompt.turns -> SDK contents. Shaping only, no joining:
+        every character here was assembled by llm/assembly.py."""
         if request.images:
             # Images BEFORE text, per Google's multimodal guidance. The SDK
-            # wraps this flat parts list into a single user turn.
+            # wraps this flat parts list into a single user turn, so the media
+            # path collapses the turns into one — acceptable because an image
+            # request carries no history today.
+            text = "\n\n".join(t.text for t in prompt.turns)
             return [
                 types.Part.from_bytes(data=data, mime_type=mime)
                 for data, mime in request.images
             ] + [text]
-        return [{"role": "user", "parts": [{"text": text}]}]
+        return [
+            {"role": self._ROLE[t.role], "parts": [{"text": t.text}]}
+            for t in prompt.turns
+        ]
 
-    def _config(self, request: LLMRequest, profile: Profile, timeout_ms: int):
+    def _config(self, request: LLMRequest, profile: Profile, timeout_ms: int,
+                prompt: AssembledPrompt):
         kwargs = dict(
             max_output_tokens=profile.max_output_tokens,
             temperature=profile.temperature,
             http_options=types.HttpOptions(timeout=timeout_ms),
         )
+        if prompt.system:
+            # The persona goes in system_instruction rather than in the first
+            # user turn: it is the same text on every CHAT call, and this is
+            # the field Gemini's implicit prefix caching is designed around.
+            kwargs["system_instruction"] = prompt.system
         if request.response_schema is not None:
             kwargs["response_mime_type"] = "application/json"
             # A bare `True` means "JSON, shape unspecified" — the old json=
@@ -167,7 +185,8 @@ class GeminiProvider(Provider):
 
     # ── The call ──────────────────────────────────────────────────────────
 
-    def complete(self, request: LLMRequest, profile: Profile) -> LLMResponse:
+    def complete(self, request: LLMRequest, profile: Profile,
+                 prompt: AssembledPrompt) -> LLMResponse:
         started = time.monotonic()
 
         def _elapsed_ms() -> int:
@@ -186,7 +205,7 @@ class GeminiProvider(Provider):
         if remaining <= 0:
             return _error("network", "deadline exceeded before the call was made")
 
-        contents = self._contents(request)
+        contents = self._contents(request, prompt)
         redialed = False
 
         while True:
@@ -195,7 +214,7 @@ class GeminiProvider(Provider):
                 resp = self._client.models.generate_content(
                     model=profile.model,
                     contents=contents,
-                    config=self._config(request, profile, timeout_ms),
+                    config=self._config(request, profile, timeout_ms, prompt),
                 )
                 break
             except Exception as e:

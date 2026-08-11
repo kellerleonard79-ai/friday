@@ -22,8 +22,8 @@ import time
 
 import requests
 
-from llm.providers.base import Provider, remaining_seconds, render_prompt
-from llm.types import LLMRequest, LLMResponse, Profile, Usage
+from llm.providers.base import Provider, remaining_seconds
+from llm.types import AssembledPrompt, LLMRequest, LLMResponse, Profile, Usage
 
 logger = logging.getLogger("friday.llm.ollama")
 
@@ -76,7 +76,8 @@ class OllamaProvider(Provider):
         ollama_cfg = config.get("ollama", {})
         self._url = ollama_cfg.get("base_url", "http://localhost:11434")
 
-    def complete(self, request: LLMRequest, profile: Profile) -> LLMResponse:
+    def complete(self, request: LLMRequest, profile: Profile,
+                 prompt: AssembledPrompt) -> LLMResponse:
         started = time.monotonic()
 
         def _elapsed_ms() -> int:
@@ -95,15 +96,23 @@ class OllamaProvider(Provider):
         if remaining <= 0:
             return _error("network", "deadline exceeded before the call was made")
 
-        message: dict = {"role": "user", "content": render_prompt(request)}
-        if request.images:
+        # Ollama's /api/chat takes the same role-tagged message list Gemini
+        # takes turns as, plus "system" as a first-class role. Shaping only —
+        # llm/assembly.py did the joining.
+        messages: list[dict] = []
+        if prompt.system:
+            messages.append({"role": "system", "content": prompt.system})
+        messages.extend({"role": t.role, "content": t.text} for t in prompt.turns)
+        if request.images and messages:
             # Ollama's chat API takes base64 images; only vision-capable models
-            # will actually use them.
-            message["images"] = [base64.b64encode(data).decode() for data, _ in request.images]
+            # will actually use them. They attach to the last user turn.
+            messages[-1]["images"] = [
+                base64.b64encode(data).decode() for data, _ in request.images
+            ]
 
         payload = {
             "model": profile.model,
-            "messages": [message],
+            "messages": messages,
             "stream": False,
             "options": {
                 "num_predict": profile.max_output_tokens,

@@ -1,6 +1,13 @@
 """
 llm/providers/base.py
-The provider contract, and the prompt assembly every provider shares.
+The provider contract.
+
+A provider shapes an already-assembled prompt into SDK content and sends it.
+It does not assemble: persona, context blocks and history are joined above it
+by llm/assembly.py, once per dispatch, so two adapters cannot drift into
+sending different prompts for the same request. What is left here is genuinely
+per-SDK — turn structure, image parts, schema wiring, system-instruction
+plumbing.
 
 A Provider takes an LLMRequest and returns an LLMResponse. It never raises for
 an API-level failure — a refused, unreachable or malformed call comes back as
@@ -19,18 +26,25 @@ from __future__ import annotations
 import time
 from abc import ABC, abstractmethod
 
-from llm.types import LLMRequest, LLMResponse, Profile
+from llm.types import AssembledPrompt, LLMRequest, LLMResponse, Profile
 
 
 class Provider(ABC):
     """One model backend. Implementations own their SDK and nothing else."""
 
     @abstractmethod
-    def complete(self, request: LLMRequest, profile: Profile) -> LLMResponse:
-        """Run one call. The profile is passed in already resolved by the
-        dispatcher rather than looked up here: a provider that could resolve a
-        profile name could also disagree with the dispatcher about what CHAT
-        means."""
+    def complete(self, request: LLMRequest, profile: Profile,
+                 prompt: AssembledPrompt) -> LLMResponse:
+        """Run one call.
+
+        `prompt` is the assembled text — system block and turns — and is the
+        only thing that may be sent as content. `request` is still passed for
+        what is not text: images, response_schema, the deadline.
+
+        The profile arrives already resolved by the dispatcher rather than
+        looked up here: a provider that could resolve a profile name could
+        also disagree with the dispatcher about what CHAT means.
+        """
         raise NotImplementedError
 
 
@@ -44,39 +58,3 @@ def remaining_seconds(request: LLMRequest) -> float:
     if request.deadline is None:
         raise ValueError("LLMRequest.deadline is unset — call through llm.dispatch")
     return request.deadline - time.monotonic()
-
-
-def render_prompt(request: LLMRequest) -> str:
-    """context blocks (labeled) -> history -> prompt, as one flat string.
-
-    Shared so two providers cannot drift into sending different prompts for the
-    same request.
-
-    The history format is inherited verbatim from the throwaway _with_history()
-    in channels/telegram.py that this replaces — flat labeled lines, no role
-    structure. It is deliberately unchanged in step 1 so that wiring the
-    dispatcher in is not also a change to what the model reads. Real multi-turn
-    history is a step-2 decision.
-    """
-    parts: list[str] = []
-
-    # ── PERSONA ASSEMBLY POINT ────────────────────────────────────────────
-    # Step 2 renders profile.persona_sections here, ahead of the context
-    # blocks, as a stable cacheable prefix. Deliberately not implemented:
-    # there is no section lookup in step 1 and persona_sections is always ().
-    # ──────────────────────────────────────────────────────────────────────
-
-    for block in request.context_blocks:
-        parts.append(f"{block.label}:\n{block.content}")
-
-    if request.history:
-        lines = [
-            f"{'User' if role == 'user' else 'Friday'}: {content}"
-            for role, content in request.history
-        ]
-        parts.append("Earlier in this conversation:\n" + "\n".join(lines))
-        parts.append(f"User: {request.prompt}")
-    else:
-        parts.append(request.prompt)
-
-    return "\n\n".join(p for p in parts if p)

@@ -93,6 +93,52 @@ class LLMRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class Turn:
+    """One conversational turn, in Friday's vocabulary rather than any SDK's.
+
+    role is "user" or "assistant" because that is what conversation_history
+    stores. Gemini calls the second one "model"; mapping to that name is the
+    Gemini adapter's job and must not leak up here.
+    """
+    role: Literal["user", "assistant"]
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class AssembledPrompt:
+    """Everything textual a provider needs, already assembled.
+
+    Built once per dispatch by llm/assembly.py and handed to the provider,
+    which shapes it into SDK content and concatenates nothing of its own. Two
+    providers that each did their own assembly would drift, and the drift
+    would be invisible: both would keep answering.
+
+    system — persona sections then context blocks, in that order. Persona
+             first on purpose: it is identical call to call, so it stays a
+             stable cacheable prefix in front of the clock, which is not.
+    turns  — the whole conversation including the current user message as the
+             final turn. There is no separate "prompt" field, because a
+             provider that received both would have to decide how to join
+             them, which is the assembly this type exists to have already done.
+    """
+    system: str = ""
+    turns: tuple[Turn, ...] = ()
+
+    def for_log(self) -> str:
+        """The exact assembled call, serialized for llm_exchanges.full_prompt.
+
+        Rendered from the same object the provider was handed, never
+        re-derived from the request: a log that can disagree with what was
+        sent is worse than no log, because it will be trusted.
+        """
+        parts = []
+        if self.system:
+            parts.append(f"[system]\n{self.system}")
+        parts.extend(f"[{t.role}]\n{t.text}" for t in self.turns)
+        return "\n\n".join(parts)
+
+
+@dataclass(frozen=True, slots=True)
 class ToolCall:
     """A function call the model asked for. Defined now, unused until step 3."""
     name: str
