@@ -50,9 +50,32 @@ ollama:
   max_tokens: 1000
 
 gemini:
-  model: gemma-4-31b-it
-  max_tokens: 1000
+  model: gemini-3.6-flash   # fallback for any profile without its own entry
   api_key: ''         # env fallback: GEMINI_API_KEY
+
+# Per-profile model and spend. A profile is a calling convention; which model
+# implements it is tuning. Anything omitted falls back to the provider block
+# above, so a config predating this block still boots.
+#
+# These are Gemini model names. On `provider: ollama` they are wrong and the
+# call fails loudly at first use — set ollama model names here or delete the
+# block to fall back to ollama.model.
+#
+# CLASSIFY and COMPOSE have no caller yet. Their entries are inert until the
+# code table names them.
+profiles:
+  CHAT:
+    model: gemini-3.6-flash
+    max_output_tokens: 1024
+    temperature: 1.0
+  COMPOSE:                          # briefings
+    model: gemini-3.6-flash
+    max_output_tokens: 2048
+    temperature: 1.0
+  CLASSIFY:                         # urgency tagging — one label, no prose
+    model: gemini-3.5-flash-lite
+    max_output_tokens: 64
+    temperature: 0.0
 
 # Calendar backend — the event store. Defaults to google on Windows and
 # apple everywhere else; set explicitly to override.

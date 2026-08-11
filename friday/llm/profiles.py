@@ -1,10 +1,18 @@
 """
 llm/profiles.py
-The profile registry: which model a given kind of call uses, and what it may spend.
+The profile registry: which model a given kind of call uses, how much of the
+persona it carries, and what it may spend.
 
-Only CHAT exists in step 1. CLASSIFY, COMPOSE and EXTRACT arrive in step 2 with
-the persona layer — defining them now would be four table entries nothing calls
-and three persona_sections tuples nobody can fill.
+A profile is a *calling convention*, not a model. "CLASSIFY is terse, cheap and
+deterministic" is the durable statement; which concrete model implements that
+is a config question and moves over time. So the table below is split in two:
+
+  _SPECS  — the code half. Persona sections, tool scope, timeout, hop budget.
+            These are architecture. Config may not override them, because a
+            config file that could hand CLASSIFY the tool layer or give CHAT a
+            600s deadline is a config file that can break invariants.
+  config  — the money half. Model, output cap, temperature. These are tuning
+            knobs the dashboard and the user legitimately own.
 
 The registry is authoritative. llm/dispatch.py re-resolves every request's
 profile by name against this table and calls with the result, so a caller
@@ -14,58 +22,112 @@ cannot hand-roll a Profile named CHAT that quietly uses a different model.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 
 from llm.types import Profile
 
 logger = logging.getLogger("friday.llm.profiles")
 
-# Config has no temperature or timeout key today, so these are constants.
+
+@dataclass(frozen=True, slots=True)
+class _Spec:
+    """The half of a profile that config may not touch."""
+    timeout_s: float
+    persona_sections: tuple[str, ...] = ()
+    tool_scope: None = None
+    max_tool_hops: int = 0
+    # Used only when config names no value for this profile.
+    default_max_output_tokens: int = 1000
+    default_temperature: float = 1.0
+
+
+# CHAT's timeout is the whole budget for one dispatch — the model call, the
+# single transport redial, and every retry come out of it. It sits under
+# channels/telegram.py::_EXECUTOR_TIMEOUT_S (150) so the deadline expires
+# first and the pipeline is released by design rather than by the backstop.
 #
-# _CHAT_TIMEOUT_S is the whole budget for one dispatch — the model call, the
-# single transport redial, and any rate-limit retries all come out of it. It
-# sits under channels/telegram.py::_EXECUTOR_TIMEOUT_S (150) so the deadline
-# expires first and the pipeline is released by design rather than by the
-# channel's backstop.
-_CHAT_TIMEOUT_S = 120.0
-
-# 1.0 is Gemini's own default, which is what every chat call ran at before the
-# dispatcher. Set explicitly so it is a decision rather than an SDK default that
-# can move under us — but set to the OLD value on purpose. Tuning it in the same
-# change that moved the call path would make a phrasing difference impossible to
-# attribute, and step 2 has to be able to read a tone change as the persona
-# landing. Tune it deliberately once there is something to attribute it to.
-_CHAT_TEMPERATURE = 1.0
-
-_DEFAULT_MAX_OUTPUT_TOKENS = 1000
+# CLASSIFY and COMPOSE arrive in a later commit; this table is what they add
+# an entry to.
+_SPECS: dict[str, _Spec] = {
+    "CHAT": _Spec(
+        timeout_s=120.0,
+        persona_sections=(),     # filled in when the persona module lands
+        tool_scope=None,         # step 3
+        max_tool_hops=0,
+        # 1.0 is what every chat call ran at before the dispatcher. Named
+        # explicitly so it is a decision rather than an SDK default that can
+        # move under us, and left at the old value so a tone change reads as
+        # the persona landing rather than as a temperature edit.
+        default_temperature=1.0,
+    ),
+}
 
 _registry: dict[str, Profile] = {}
 
 
 def build(config: dict) -> dict[str, Profile]:
-    """Construct the profile table from config. Pure — returns, installs nothing."""
+    """Construct the profile table from config. Pure — returns, installs nothing.
+
+    Per profile, each of model / max_output_tokens / temperature resolves as:
+        profiles.<NAME>.<key>  →  the provider block  →  the spec default
+
+    The provider-block step is the compatibility layer: a config written before
+    profiles existed carries one `<provider>.model` and one `<provider>.max_tokens`
+    for the whole process, and must still boot.
+    """
     provider = config.get("provider", "ollama")
     provider_cfg = config.get(provider, {}) or {}
-    model = provider_cfg.get("model", "")
-    if not model:
-        raise ValueError(f"No model configured for provider {provider!r}")
+    profiles_cfg = config.get("profiles") or {}
 
-    # TODO step 2: gemini.max_tokens is a single global cap today. Once there
-    # are four profiles it has to become a per-profile map — CLASSIFY returning
-    # one label must not carry CHAT's ceiling.
-    max_tokens = int(provider_cfg.get("max_tokens", _DEFAULT_MAX_OUTPUT_TOKENS))
+    fallback_model = provider_cfg.get("model", "")
+    legacy_max_tokens = provider_cfg.get("max_tokens")
+    legacy_used: list[str] = []
 
-    return {
-        "CHAT": Profile(
-            name="CHAT",
-            model=model,
-            persona_sections=(),   # step 2
-            tool_scope=None,       # step 3
-            max_output_tokens=max_tokens,
-            temperature=_CHAT_TEMPERATURE,
-            timeout_s=_CHAT_TIMEOUT_S,
-            max_tool_hops=0,
-        ),
-    }
+    table: dict[str, Profile] = {}
+    for name, spec in _SPECS.items():
+        entry = profiles_cfg.get(name) or {}
+
+        model = entry.get("model") or fallback_model
+        if not model:
+            raise ValueError(
+                f"No model configured for profile {name}. Set profiles.{name}.model "
+                f"or {provider}.model."
+            )
+
+        max_output_tokens = entry.get("max_output_tokens")
+        if max_output_tokens is None:
+            if legacy_max_tokens is not None:
+                max_output_tokens = legacy_max_tokens
+                legacy_used.append(name)
+            else:
+                max_output_tokens = spec.default_max_output_tokens
+
+        temperature = entry.get("temperature")
+        if temperature is None:
+            temperature = spec.default_temperature
+
+        table[name] = Profile(
+            name=name,
+            model=str(model),
+            persona_sections=spec.persona_sections,
+            tool_scope=spec.tool_scope,
+            max_output_tokens=int(max_output_tokens),
+            temperature=float(temperature),
+            timeout_s=spec.timeout_s,
+            max_tool_hops=spec.max_tool_hops,
+        )
+
+    if legacy_used:
+        # One line per build, not per profile: this is a config nudge, not an
+        # error, and a daemon logs it at every boot until someone acts on it.
+        logger.warning(
+            f"{provider}.max_tokens is deprecated and applied to "
+            f"{', '.join(sorted(legacy_used))}. A single global cap makes "
+            f"CLASSIFY pay CHAT's ceiling — move it to "
+            f"profiles.<NAME>.max_output_tokens."
+        )
+
+    return table
 
 
 def install(config: dict) -> None:
@@ -74,7 +136,10 @@ def install(config: dict) -> None:
     _registry = build(config)
     logger.info(
         "Profiles installed: "
-        + ", ".join(f"{p.name}({p.model})" for p in _registry.values())
+        + ", ".join(
+            f"{p.name}({p.model}, {p.max_output_tokens}tok, t={p.temperature})"
+            for p in _registry.values()
+        )
     )
 
 
@@ -86,3 +151,9 @@ def get(name: str) -> Profile:
     except KeyError:
         known = ", ".join(sorted(_registry)) or "<none installed>"
         raise KeyError(f"Unknown LLM profile {name!r}. Known: {known}") from None
+
+
+def names() -> tuple[str, ...]:
+    """Every profile in the code's table, installed or not. The persona module
+    uses this to validate section names across the whole table at import."""
+    return tuple(_SPECS)
