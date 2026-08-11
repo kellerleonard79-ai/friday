@@ -164,6 +164,19 @@ def confirm(key: str, conn, channel) -> str:
     committed = isinstance(outcome, ToolResult) and outcome.committed
     _resolve(conn, key, "confirmed" if committed else "failed")
 
+    # THE ACTUAL WRITE HAPPENS HERE, so this is where its tool_calls row has to
+    # be written. The proposing turn logged add_calendar_event, which wrote
+    # nothing; without this row the only record of the write itself would be
+    # the calendar.
+    #
+    # The ledger recorded is the one this call built, which is empty of reads
+    # and holds only what the write established. That is not a gap — it is the
+    # honest answer. The reads that justified the proposal belonged to a turn
+    # that ended, possibly hours ago, and are not facts about the moment the
+    # user tapped Confirm. `turn_id` is on the pending_actions row for anyone
+    # who needs to walk back to them.
+    _log(conn, tool_name, arguments, outcome, duration_ms, ledger, turn_id)
+
     if isinstance(outcome, ToolResult) and outcome.effects:
         effects_runner.run(outcome.effects, channel)
     elif isinstance(outcome, ToolError):
@@ -199,3 +212,28 @@ def _resolve(conn, key: str, status: str) -> None:
         conn.commit()
     except Exception as e:
         logger.error(f"Could not resolve pending action {key}: {e}")
+
+
+def _log(conn, tool_name: str, arguments: dict, outcome, duration_ms: int,
+         ledger: Ledger, turn_id: str) -> None:
+    """One tool_calls row for the confirm-path write. Wrapped — instrumentation
+    never fails a write the user has already approved."""
+    try:
+        import json as _json
+
+        import memory.activity as activity
+        payload = (outcome.as_content() if isinstance(outcome, ToolError)
+                   else outcome.data)
+        activity.record_tool_call(
+            conn,
+            tool_name=tool_name,
+            args_json=_json.dumps(arguments, default=str),
+            result_preview=_json.dumps(payload, default=str)[:400],
+            duration_ms=duration_ms,
+            triggered_by=f"card_confirm:{turn_id}" if turn_id else "card_confirm",
+            hop=0,
+            outcome=outcome.kind if isinstance(outcome, ToolError) else "ok",
+            ledger_json=_json.dumps(ledger.summary(), default=str),
+        )
+    except Exception as e:
+        logger.debug(f"confirm-path tool_call logging failed: {e}")

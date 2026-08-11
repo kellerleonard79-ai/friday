@@ -210,6 +210,18 @@ class Database:
             self._conn.execute("ALTER TABLE tool_calls ADD COLUMN outcome TEXT")
             logger.info("Migration: added tool_calls.outcome column")
 
+        # tool_calls.ledger_json: what the turn had ESTABLISHED at the moment a
+        # write ran — the reads it had made, and any earlier writes. NULL for
+        # reads, because a read's own coverage is already its result.
+        #
+        # "What had Friday actually read when it wrote?" is the first question
+        # anyone asks after a bad write, and until now the answer was nowhere:
+        # the ledger is per-turn and its entries are cleared in run_turn's
+        # finally block, so it was gone before anyone could ask.
+        if "ledger_json" not in tc_cols:
+            self._conn.execute("ALTER TABLE tool_calls ADD COLUMN ledger_json TEXT")
+            logger.info("Migration: added tool_calls.ledger_json column")
+
         # pending_actions.resolved_at: when a row left 'pending' (confirmed /
         # cancelled / failed). NULL for existing rows — we can't reconstruct a
         # historical resolution time, so the activity feed treats them as undated.

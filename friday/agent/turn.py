@@ -238,6 +238,12 @@ def run_turn(request: LLMRequest, conn=None) -> TurnResult:
 
             for call in response.tool_calls:
                 calls_made += 1
+                # Snapshotted BEFORE the call, so the row records the state the
+                # write was DECIDED AGAINST rather than the state it produced.
+                # After the fact, the write's own record is in there and the
+                # question "what had Friday read when it chose to do this"
+                # becomes one subtraction harder to answer.
+                before = _ledger_snapshot(call, ledger)
                 outcome, duration_ms, label = _execute(call, deadline, ledger, store)
 
                 # Collected in the order the tools produced them. The runner
@@ -255,7 +261,8 @@ def run_turn(request: LLMRequest, conn=None) -> TurnResult:
                              else outcome.data),
                     is_error=isinstance(outcome, ToolError),
                 ))
-                _log_call(conn, request, call, outcome, duration_ms, hop, label)
+                _log_call(conn, request, call, outcome, duration_ms, hop,
+                          label, before)
 
             if precondition_failures >= _MAX_PRECONDITION_FAILURES:
                 logger.warning(
@@ -307,8 +314,30 @@ def _finish(response: LLMResponse | None, hops: int, calls: int,
     )
 
 
+def _ledger_snapshot(call: ToolCall, ledger: Ledger) -> str | None:
+    """The ledger as JSON, for a write-class call. None for a read.
+
+    Only writes carry it: a read's coverage is already its result, and storing
+    a growing ledger on every read row makes the table quadratic in the hop
+    count for no new information.
+
+    Wrapped, like everything else on this path — a snapshot that fails must not
+    fail the tool call it was describing.
+    """
+    try:
+        if not registry.has(call.name):
+            return None
+        if registry.get(call.name).effect not in ("write", "gated_write"):
+            return None
+        return json.dumps(ledger.summary(), default=str)
+    except Exception as e:
+        logger.debug(f"ledger snapshot failed for {call.name}: {e}")
+        return None
+
+
 def _log_call(conn, request: LLMRequest, call: ToolCall, outcome,
-              duration_ms: int, hop: int, label: str) -> None:
+              duration_ms: int, hop: int, label: str,
+              ledger_json: str | None = None) -> None:
     """One tool_calls row. Wrapped — instrumentation never fails a turn."""
     try:
         activity.record_tool_call(
@@ -320,6 +349,7 @@ def _log_call(conn, request: LLMRequest, call: ToolCall, outcome,
             triggered_by=request.triggered_by,
             hop=hop,
             outcome=label,
+            ledger_json=ledger_json,
         )
     except Exception as e:
         logger.debug(f"tool_call logging failed: {e}")

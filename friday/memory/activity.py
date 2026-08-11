@@ -70,19 +70,32 @@ def normalize_message(text: str) -> str:
 
 def record_tool_call(conn: sqlite3.Connection, *, tool_name: str, args_json: str,
                      result_preview: str, duration_ms: int, triggered_by: str,
-                     hop: int = 0, outcome: str = "") -> None:
-    """One row per tool invocation, written by agent/turn.py."""
+                     hop: int = 0, outcome: str = "",
+                     ledger_json: str | None = None) -> None:
+    """One row per tool invocation, written by agent/turn.py.
+
+    `ledger_json` is set for WRITE-CLASS calls only and is the turn's fact
+    ledger as it stood when the call ran — the reads that had been made, and
+    any earlier writes. It answers "what had Friday actually read when it
+    wrote?", which is the first question after a bad write and which nothing
+    could answer before: the ledger is per-turn and is cleared in run_turn's
+    finally block, so it was gone by the time anyone looked.
+
+    Left NULL for reads. A read's coverage is already its result, and storing
+    the growing ledger on every read row would make the table quadratic in the
+    hop count for no new information.
+    """
     if conn is None:
         return
     try:
         conn.execute(
             "INSERT INTO tool_calls "
             "(timestamp, tool_name, args_json, result_preview, duration_ms, "
-            " triggered_by, hop, outcome) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            " triggered_by, hop, outcome, ledger_json) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (datetime.now().isoformat(), tool_name, args_json,
              _preview(result_preview, _RESULT_PREVIEW), int(duration_ms or 0),
-             triggered_by, int(hop or 0), outcome),
+             triggered_by, int(hop or 0), outcome, ledger_json),
         )
         conn.commit()
     except Exception as e:
