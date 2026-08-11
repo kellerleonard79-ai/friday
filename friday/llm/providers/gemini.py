@@ -21,7 +21,15 @@ from google.genai import errors as genai_errors
 from google.genai import types
 
 from llm.providers.base import Provider, remaining_seconds
-from llm.types import AssembledPrompt, LLMRequest, LLMResponse, Profile, Usage
+from llm.types import (
+    AssembledPrompt,
+    LLMRequest,
+    LLMResponse,
+    Profile,
+    ToolCallTurn,
+    ToolResultTurn,
+    Usage,
+)
 
 logger = logging.getLogger("friday.llm.gemini")
 
@@ -153,15 +161,52 @@ class GeminiProvider(Provider):
             # wraps this flat parts list into a single user turn, so the media
             # path collapses the turns into one — acceptable because an image
             # request carries no history today.
-            text = "\n\n".join(t.text for t in prompt.turns)
+            #
+            # Text turns only: the media path runs with no tools, so a tool
+            # turn here would be a bug upstream rather than something to
+            # render. Flattening one into text would hide that bug.
+            text = "\n\n".join(
+                t.text for t in prompt.turns if not isinstance(t, (ToolCallTurn, ToolResultTurn))
+            )
             return [
                 types.Part.from_bytes(data=data, mime_type=mime)
                 for data, mime in request.images
             ] + [text]
-        return [
-            {"role": self._ROLE[t.role], "parts": [{"text": t.text}]}
-            for t in prompt.turns
-        ]
+
+        contents = []
+        for t in prompt.turns:
+            if isinstance(t, ToolCallTurn):
+                # Replayed as the model turn it originally was. Gemini needs
+                # the call it made in the transcript before the response to
+                # it; without this the next hop sees an answer to a question
+                # it has no record of asking.
+                contents.append({
+                    "role": "model",
+                    "parts": [
+                        {"function_call": {"name": c.name, "args": dict(c.arguments)}}
+                        for c in t.calls
+                    ],
+                })
+            elif isinstance(t, ToolResultTurn):
+                # function_response rides on the user side — Gemini's shape
+                # for "here is what the tool said". The error flag travels
+                # inside the payload rather than as a separate part type,
+                # because the SDK has no error variant and the model reads it
+                # perfectly well as data.
+                contents.append({
+                    "role": "user",
+                    "parts": [{
+                        "function_response": {
+                            "name": t.name,
+                            "response": t.content,
+                        }
+                    }],
+                })
+            else:
+                contents.append(
+                    {"role": self._ROLE[t.role], "parts": [{"text": t.text}]}
+                )
+        return contents
 
     def _config(self, request: LLMRequest, profile: Profile, timeout_ms: int,
                 prompt: AssembledPrompt):

@@ -14,6 +14,7 @@ in place, because the dispatcher retries by re-sending the same object.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -81,6 +82,13 @@ class LLMRequest:
     deadline    — time.monotonic() value past which nothing may still be tried.
                   Set by the dispatcher at entry; None means "not yet resolved"
                   and only ever appears before dispatch.
+    tool_turns  — the within-turn tool exchange so far: what the model asked
+                  for and what came back, appended AFTER the current user
+                  message. Distinct from `history`, which is the persisted
+                  conversation, because these are not persisted: a tool call
+                  is scaffolding for one answer, and replaying it into the
+                  next user message would have the model re-reading a stale
+                  calendar as though it were fresh.
     """
     profile: Profile
     prompt: str
@@ -90,11 +98,13 @@ class LLMRequest:
     triggered_by: str = "unknown"
     images: tuple[tuple[bytes, str], ...] = ()
     deadline: float | None = None
+    tool_turns: tuple[AnyTurn, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
 class Turn:
-    """One conversational turn, in Friday's vocabulary rather than any SDK's.
+    """One conversational turn of plain text, in Friday's vocabulary rather
+    than any SDK's.
 
     role is "user" or "assistant" because that is what conversation_history
     stores. Gemini calls the second one "model"; mapping to that name is the
@@ -102,6 +112,64 @@ class Turn:
     """
     role: Literal["user", "assistant"]
     text: str
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCallTurn:
+    """The assistant asking for a tool, as a turn in its own right.
+
+    Always the assistant's — a tool call is something the model emitted, and
+    replaying history without it leaves the following ToolResultTurn answering
+    a question nobody asked.
+
+    `calls` is a tuple because a model may request several in one turn, and
+    they have to be replayed together: splitting them into separate turns
+    reorders the transcript into something the model never produced.
+    """
+    calls: tuple[ToolCall, ...]
+
+    @property
+    def role(self) -> Literal["assistant"]:
+        return "assistant"
+
+
+@dataclass(frozen=True, slots=True)
+class ToolResultTurn:
+    """What a tool returned, going back to the model.
+
+    `content` is the structured result — a JSON-able dict, never prose. The
+    provider decides how its SDK carries that; nothing above the provider
+    formats it into a sentence, because a tool result the model has to parse
+    out of English is a tool result it can misread.
+
+    `is_error` marks a ToolError. The model still sees it and still gets to
+    react (ask for a missing parameter, try a different range); it is a
+    result, not an exception. The flag exists so the provider can label it and
+    so the turn loop can count failures without inspecting content.
+    """
+    name: str
+    content: dict[str, Any]
+    is_error: bool = False
+
+    @property
+    def role(self) -> Literal["user"]:
+        # Gemini carries function responses on the user side of the
+        # conversation. That is a wire detail, but it is the same wire detail
+        # in every provider that models tools as messages, and exposing it as
+        # a role keeps assembly's role-merging logic from needing a special
+        # case for a turn with no role at all.
+        return "user"
+
+
+# Anything that can appear in AssembledPrompt.turns.
+#
+# Sibling types rather than one Turn with optional fields, and the deciding
+# reason is llm/assembly.py::build_turns: it merges consecutive same-role
+# turns by concatenating their text. With a widened role Literal and an
+# optional tool payload, a tool result could be silently glued onto a text
+# turn — invisible in the logs, baffling in the output. As separate types the
+# merge cannot even be attempted: there is no .text to concatenate.
+AnyTurn = Turn | ToolCallTurn | ToolResultTurn
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,7 +190,8 @@ class AssembledPrompt:
              them, which is the assembly this type exists to have already done.
     """
     system: str = ""
-    turns: tuple[Turn, ...] = ()
+    turns: tuple[AnyTurn, ...] = ()
+    tools: tuple[Any, ...] = ()
 
     def for_log(self) -> str:
         """The exact assembled call, serialized for llm_exchanges.full_prompt.
@@ -130,17 +199,42 @@ class AssembledPrompt:
         Rendered from the same object the provider was handed, never
         re-derived from the request: a log that can disagree with what was
         sent is worse than no log, because it will be trusted.
+
+        Tool turns are rendered too. Without them the log shows a user asking
+        a question and Friday answering with facts that appear from nowhere,
+        which is exactly the kind of log that gets trusted and misread.
         """
         parts = []
         if self.system:
             parts.append(f"[system]\n{self.system}")
-        parts.extend(f"[{t.role}]\n{t.text}" for t in self.turns)
+        if self.tools:
+            parts.append(
+                "[tools offered]\n"
+                + ", ".join(getattr(t, "name", str(t)) for t in self.tools)
+            )
+        for t in self.turns:
+            if isinstance(t, ToolCallTurn):
+                body = "\n".join(
+                    f"{c.name}({json.dumps(c.arguments, default=str)})" for c in t.calls
+                )
+                parts.append(f"[tool_call]\n{body}")
+            elif isinstance(t, ToolResultTurn):
+                tag = "tool_error" if t.is_error else "tool_result"
+                parts.append(f"[{tag}: {t.name}]\n{json.dumps(t.content, default=str)}")
+            else:
+                parts.append(f"[{t.role}]\n{t.text}")
         return "\n\n".join(parts)
 
 
 @dataclass(frozen=True, slots=True)
 class ToolCall:
-    """A function call the model asked for. Defined now, unused until step 3."""
+    """A function call the model asked for.
+
+    `arguments` is whatever the model produced, unvalidated. Checking it
+    against the tool's signature is tools/registry.py's job and happens before
+    execution — see the missing-parameter gate. A ToolCall is a request, not a
+    promise that the request is well formed.
+    """
     name: str
     arguments: dict[str, Any] = field(default_factory=dict)
 

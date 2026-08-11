@@ -25,7 +25,7 @@ AssembledPrompt goes to the provider and to the exchange log.
 from __future__ import annotations
 
 from llm import persona
-from llm.types import AssembledPrompt, LLMRequest, Profile, Turn
+from llm.types import AnyTurn, AssembledPrompt, LLMRequest, Profile, Turn
 
 
 # The dashboard's Persona page writes four keys. Two of them are readable as
@@ -116,7 +116,7 @@ def build_system(request: LLMRequest, profile: Profile,
 _ROLES = ("user", "assistant")
 
 
-def build_turns(request: LLMRequest) -> tuple[Turn, ...]:
+def build_turns(request: LLMRequest) -> tuple[AnyTurn, ...]:
     """History as real turns, with the current message as the final one.
 
     This replaces the pre-dispatcher wire format, which glued every stored row
@@ -138,11 +138,15 @@ def build_turns(request: LLMRequest) -> tuple[Turn, ...]:
     Neither is cosmetic: both are cases where the old blob silently worked and
     a real turn list silently would not.
     """
-    turns: list[Turn] = []
+    turns: list[AnyTurn] = []
     for role, content in request.history:
         if role not in _ROLES or not (content or "").strip():
             continue
-        if turns and turns[-1].role == role:
+        # isinstance, not just a role match: only plain text turns may be
+        # concatenated. A ToolResultTurn shares the "user" role and has no
+        # .text at all, so merging one would be a silent corruption if this
+        # loop ever saw one.
+        if turns and isinstance(turns[-1], Turn) and turns[-1].role == role:
             turns[-1] = Turn(role=role, text=f"{turns[-1].text}\n\n{content}")
         else:
             turns.append(Turn(role=role, text=content))
@@ -156,6 +160,12 @@ def build_turns(request: LLMRequest) -> tuple[Turn, ...]:
         turns[-1] = Turn(role="user", text=f"{turns[-1].text}\n\n{request.prompt}")
     else:
         turns.append(Turn(role="user", text=request.prompt))
+
+    # The within-turn tool exchange goes last, verbatim. Never merged, never
+    # reordered, never folded into the text turn before it: this is the
+    # transcript of what the model just asked for and what it got back, and
+    # the model's next hop is reasoning about that exact sequence.
+    turns.extend(request.tool_turns)
 
     return tuple(turns)
 

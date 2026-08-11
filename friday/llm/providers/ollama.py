@@ -23,7 +23,15 @@ import time
 import requests
 
 from llm.providers.base import Provider, remaining_seconds
-from llm.types import AssembledPrompt, LLMRequest, LLMResponse, Profile, Usage
+from llm.types import (
+    AssembledPrompt,
+    LLMRequest,
+    LLMResponse,
+    Profile,
+    ToolCallTurn,
+    ToolResultTurn,
+    Usage,
+)
 
 logger = logging.getLogger("friday.llm.ollama")
 
@@ -95,6 +103,31 @@ class OllamaProvider(Provider):
         remaining = remaining_seconds(request)
         if remaining <= 0:
             return _error("network", "deadline exceeded before the call was made")
+
+        # DECLINED, DELIBERATELY. This adapter has no tool path.
+        #
+        # /api/chat does carry a tools field, but support for it varies by
+        # model rather than by server, so "Ollama supports tools" is not a
+        # statement that can be true or false — it depends on which model the
+        # config names, and a model that ignores the field answers anyway,
+        # in prose, having silently skipped the tool. That failure looks like
+        # a bad answer rather than a missing feature.
+        #
+        # This adapter's job is to prove the interface has no Gemini-shaped
+        # assumptions in it, not to be a second working provider. A refusal
+        # that names itself is honest; a half-built tool path is a trap.
+        if prompt.tools or any(
+            isinstance(t, (ToolCallTurn, ToolResultTurn)) for t in prompt.turns
+        ):
+            logger.warning(
+                f"Ollama has no tool path — declining a {profile.name} call that "
+                f"offered {len(prompt.tools)} tool(s). Use provider: gemini for "
+                f"tool-bearing profiles."
+            )
+            return _error(
+                "fatal",
+                "the ollama provider does not implement tool calling",
+            )
 
         # Ollama's /api/chat takes the same role-tagged message list Gemini
         # takes turns as, plus "system" as a first-class role. Shaping only —
