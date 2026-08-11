@@ -32,8 +32,8 @@ _API_BASE = "https://api.telegram.org/bot{token}/{method}"
 #     order before any DB/LLM work. Also enforces the pause gate (incl. timed
 #     auto-resume), rolling conversation_history, and the calendar-add
 #     "confirmation already sent" special case.
-#   • on_callback — inline-button taps for the approval-gate cards
-#     (confirm/cancel → actions/calendar.py). 'edit' is reserved for Phase 5.
+#   • on_callback — inline-button taps for the approval-gate cards. Resolves
+#     by key through effects/pending.py; the row names the tool to run.
 #   • send / send_permission_request — synchronous outbound helpers.
 # RULE (CLAUDE.md): this semaphore must stay at the top of on_message. Never move it.
 _semaphore = asyncio.Semaphore(1)
@@ -75,20 +75,38 @@ class TelegramHandler:
         return False
 
     def send_permission_request(self, draft: str, pending_key: str) -> bool:
-        """Approval gate card — wired up in Phase 4."""
+        """The approval gate card.
+
+        THE DRAFT IS SENT VERBATIM. Nothing is prepended, appended or wrapped
+        around it — invariant 3 says nothing may delay, editorialize on, or
+        bury a card, and a banner above the proposal is the smallest possible
+        version of burying it. This used to send "Friday\n\n" + the draft,
+        which put a word the user did not need above the thing they were being
+        asked to approve.
+
+        No Edit button. There was one; its callback fell through the verb check
+        below and did nothing, after answering the tap — so the button lit up,
+        acknowledged, and silently ignored the user. A button that does that is
+        worse than no button. The dashboard keeps full edit
+        (/api/pending-approvals/{id}/edit); Telegram parity is step 5's if it
+        is wanted.
+        """
         keyboard = InlineKeyboardMarkup([[
             InlineKeyboardButton("✅ Confirm", callback_data=f"confirm:{pending_key}"),
-            InlineKeyboardButton("✏️ Edit",    callback_data=f"edit:{pending_key}"),
             InlineKeyboardButton("❌ Cancel",  callback_data=f"cancel:{pending_key}"),
         ]])
         url = _API_BASE.format(token=self.bot_token, method="sendMessage")
         try:
             r = requests.post(url, json={
                 "chat_id": self.chat_id,
-                "text": f"Friday\n\n{draft}",
+                "text": draft,
                 "reply_markup": keyboard.to_dict(),
             }, timeout=10)
-            return r.status_code == 200
+            if r.status_code == 200:
+                logger.info(f"Card sent ({pending_key}): {draft[:80]}")
+                return True
+            logger.error(f"send_permission_request failed {r.status_code}: {r.text[:120]}")
+            return False
         except Exception as e:
             logger.error(f"send_permission_request error: {e}")
             return False
@@ -321,7 +339,8 @@ class TelegramHandler:
             return
         verb, key = data.split(":", 1)
         if verb not in ("confirm", "cancel"):
-            return  # 'edit' lands in Phase 5
+            logger.warning(f"Unhandled callback verb {verb!r} — ignoring.")
+            return
         row = self.conn.execute(
             "SELECT action_type FROM pending_actions WHERE id = ?", (key,),
         ).fetchone()
@@ -329,9 +348,25 @@ class TelegramHandler:
             return
         action_type = row[0]
         loop = asyncio.get_running_loop()
-        # New action types dispatch here in Phase 5:
-        #   - "groupme_send" → actions.groupme_send.confirm_pending / cancel_pending
-        #   - "gmail_draft"  → actions.gmail_draft.confirm_pending  / cancel_pending
+
+        # Everything a card can propose is a tool call now, so this resolves by
+        # KEY rather than by hardcoding what each action type means. The tool
+        # name and its arguments are on the row; effects/pending.py runs them
+        # through the same executor a turn uses.
+        #
+        # Blocking — a calendar write is a subprocess — so it goes to an
+        # executor. It does NOT take the message semaphore: a tap is the user
+        # answering a question Friday already asked, and queueing it behind an
+        # unrelated in-flight message would make the button feel broken.
+        if action_type == "tool_call":
+            from effects import pending
+            fn = pending.confirm if verb == "confirm" else pending.cancel
+            await loop.run_in_executor(None, fn, key, self.conn, self)
+            return
+
+        # Rows staged before step 4 by the old gated_write. Kept working so a
+        # card already in someone's chat still resolves; nothing produces these
+        # any more.
         if action_type == "calendar_add":
             from actions import calendar as cal_action
             fn = cal_action.confirm_pending if verb == "confirm" else cal_action.cancel_pending

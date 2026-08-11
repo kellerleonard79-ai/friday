@@ -218,5 +218,50 @@ class Database:
             self._conn.execute("ALTER TABLE pending_actions ADD COLUMN resolved_at TEXT")
             logger.info("Migration: added pending_actions.resolved_at column")
 
+        # A permission card is now a proposal to run a specific tool with
+        # specific arguments, so the row has to carry them. Before this, a
+        # pending row was a calendar event dict in `payload` and the only thing
+        # that could act on it was hardcoded.
+        #
+        # `arguments_json` is what runs on confirm. THE STORED ARGUMENTS, never
+        # re-extracted ones: the user approved a set of values, and asking the
+        # model again at confirm time means they could approve one event and
+        # get another.
+        #
+        # `proposal` is the card text exactly as the user saw it. Kept so the
+        # dashboard and the activity feed show what was approved rather than
+        # rebuilding it and risking drift.
+        #
+        # `expires_at` is the TTL. A card with no expiry is a button that
+        # silently still works days later, long after the user has forgotten
+        # what it was for.
+        for col, decl in (("tool_name", "TEXT"), ("arguments_json", "TEXT"),
+                          ("proposal", "TEXT"), ("expires_at", "TEXT"),
+                          ("turn_id", "TEXT")):
+            if col not in pa_cols:
+                self._conn.execute(
+                    f"ALTER TABLE pending_actions ADD COLUMN {col} {decl}")
+                logger.info(f"Migration: added pending_actions.{col} column")
+
+        # recent_writes: the idempotency ledger, keyed on a content fingerprint
+        # rather than on anyone's identifier. It answers "did this exact write
+        # just happen, or might it have" WITHOUT asking the service — which
+        # matters because the case it exists for is a write whose service call
+        # timed out, and a retry cannot rely on reaching the thing that just
+        # failed to answer.
+        #
+        # `identifier` is NULL for an unknown outcome. That is the whole point
+        # of the row: we know a write was attempted and we do not know its id.
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS recent_writes (
+                fingerprint TEXT PRIMARY KEY,
+                created_at  TEXT,
+                expires_at  TEXT,
+                status      TEXT,   -- written | unknown
+                identifier  TEXT,   -- NULL when status = unknown
+                detail      TEXT
+            )
+        """)
+
     def connection(self) -> sqlite3.Connection:
         return self._conn

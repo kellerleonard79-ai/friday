@@ -19,6 +19,13 @@ agent:
   # How late a missed briefing may still be delivered after a sleep/outage.
   briefing_catchup_max_minutes: 120
 
+  # How long a permission card stays tappable. A day, because "I'll deal with
+  # that in the morning" is ordinary and a card sent at 11pm has to survive
+  # until 8am. Not indefinite: a week-old button that still writes to the
+  # calendar is not a permission gate, it is a landmine. A tap past the TTL is
+  # refused with a message, never honoured and never silently ignored.
+  pending_action_ttl_minutes: 1440
+
   # Fallback calendar used when a write target doesn't exist (e.g. Canvas
   # auto-sync with no 'Canvas' calendar present). macOS exposes no scriptable
   # "default calendar", so this must be explicit.

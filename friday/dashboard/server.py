@@ -422,13 +422,30 @@ def _pending_approvals(conn: sqlite3.Connection) -> list[dict]:
     out = []
     try:
         rows = conn.execute(
-            "SELECT id, action_type, payload, created_at FROM pending_actions "
-            "WHERE status='pending' ORDER BY created_at DESC"
+            "SELECT id, action_type, payload, created_at, tool_name, "
+            "       arguments_json, proposal, expires_at "
+            "FROM pending_actions WHERE status='pending' "
+            "ORDER BY created_at DESC"
         ).fetchall()
     except Exception as e:
         logger.debug(f"pending_approvals query failed: {e}")
         return out
-    for pid, action_type, payload, created_at in rows:
+    for (pid, action_type, payload, created_at, tool_name,
+         arguments_json, proposal, expires_at) in rows:
+        if action_type == "tool_call":
+            # A card is a proposal to run one tool with one set of arguments.
+            # The draft is the arguments themselves, and `proposal` is the card
+            # text exactly as it went to Telegram — shown rather than rebuilt
+            # so the dashboard cannot drift from what the user actually saw.
+            try:
+                args = json.loads(arguments_json or "{}")
+            except json.JSONDecodeError:
+                args = {"raw": arguments_json}
+            out.append({"id": pid, "action_type": action_type,
+                        "created_at": created_at, "expires_at": expires_at,
+                        "tool": tool_name, "proposal": proposal or "",
+                        "draft": args})
+            continue
         try:
             data = json.loads(payload) if payload else {}
         except json.JSONDecodeError:
@@ -444,7 +461,8 @@ def _pending_approvals(conn: sqlite3.Connection) -> list[dict]:
                 "notes": data.get("notes", ""),
             }
         out.append({"id": pid, "action_type": action_type,
-                    "created_at": created_at, "draft": draft})
+                    "created_at": created_at, "expires_at": expires_at,
+                    "draft": draft})
     return out
 
 
@@ -931,6 +949,25 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
         cfg = _load_config(config_path)
         from channels.telegram import TelegramHandler
         tg = TelegramHandler(cfg, agent=None, conn=conn)
+
+        if action_type == "tool_call":
+            # INVARIANT 9: the dashboard is a channel adapter, not a second
+            # chat implementation. It resolves through exactly the same
+            # effects/pending.py the Telegram button does — same executor, same
+            # stored arguments, same idempotency check — and differs only in
+            # which channel the confirmation is sent to.
+            if verb == "edit":
+                # Editing a tool call's arguments is a real feature and not
+                # this step's. Refused rather than half-implemented: an edit
+                # that silently dropped a field would change what the user
+                # approved, which is the one thing this whole path protects.
+                raise HTTPException(
+                    400, "Editing a tool proposal isn't supported yet — "
+                         "cancel it and ask again.")
+            from effects import pending
+            fn = pending.confirm if verb == "confirm" else pending.cancel
+            status = fn(pid, conn, tg)
+            return {"ok": status in ("confirmed", "cancelled"), "status": status}
 
         if action_type != "calendar_add":
             raise HTTPException(400, f"Unsupported action type: {action_type}")
