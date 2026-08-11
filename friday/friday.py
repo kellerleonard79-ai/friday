@@ -52,6 +52,7 @@ from memory.db import Database
 import memory.activity as activity
 import memory.state as state
 from calendars import backend as calendar_backend
+from tools import calendar_read as tool_calendar
 from connectors import canvas as canvas_connector
 from connectors import gcal_sync
 from connectors import groupme as groupme_connector
@@ -122,6 +123,11 @@ def main() -> None:
 
     # Every LLM call in the process goes through this one dispatcher.
     llm_dispatch.configure(config, conn=conn)
+
+    # The tool layer's read path needs the config the calendar backend reads
+    # through. Registration itself happens on import (agent/turn.py imports the
+    # tool modules), so this only hands over config, never builds the registry.
+    tool_calendar.configure(config)
 
     agent   = FridayAgent(config, conn=conn)
     handler = TelegramHandler(config, agent, conn)

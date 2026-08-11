@@ -50,12 +50,21 @@ class _Spec:
 _SPECS: dict[str, _Spec] = {
     "CHAT": _Spec(
         timeout_s=120.0,
-        # Not URGENCY (that is the connector work's, for tagging ingested
-        # rows) and not TOOL_POLICY (step 3, and it describes tools that do
-        # not exist — handing it to CHAT today tells the model to call them).
-        persona_sections=("IDENTITY", "TIME", "VOICE", "FORMATTING"),
-        tool_scope=None,         # step 3
-        max_tool_hops=0,
+        # Not URGENCY — that is the connector work's, for tagging ingested rows.
+        # TOOL_POLICY joins in step 3, rewritten down to the two read-only
+        # tools that now exist: as written for Phase II it was 995 tokens
+        # describing add_calendar_event, update_calendar_event, add_quip and
+        # update_setting, none of which survive. The old text is kept in
+        # AGENTS.md under DEFERRED, which no profile can address.
+        persona_sections=("IDENTITY", "TIME", "VOICE", "FORMATTING", "TOOL_POLICY"),
+        tool_scope=("read",),
+        # Three rounds of tool execution, so four model calls at worst. Sized
+        # against the deadline and the calendar, not picked round: the JXA
+        # reader costs ~30s and the per-turn cache makes only the first read
+        # expensive, so three hops fit inside 120s with room for the answer.
+        # Raising this without granting the daemon EventKit access is how a
+        # turn starts timing out mid-conversation.
+        max_tool_hops=3,
         # 1.0 is what every chat call ran at before the dispatcher. Named
         # explicitly so it is a decision rather than an SDK default that can
         # move under us, and left at the old value so a tone change reads as
@@ -63,13 +72,17 @@ _SPECS: dict[str, _Spec] = {
         default_temperature=1.0,
     ),
 
-    # Briefings. Same persona as CHAT, and the same model: a briefing is the
-    # most-read thing Friday writes and there is nothing to save by making it
-    # worse. FORMATTING is what keeps the wit out of the body — it is the
-    # section that names briefings as somewhere the voice does not apply.
+    # Briefings. Same model as CHAT: a briefing is the most-read thing Friday
+    # writes and there is nothing to save by making it worse.
+    #
+    # NOT VOICE. Invariant 6 — persona voice applies only to conversational
+    # replies, never to cards, briefings, errors or TTS. Handing the butler
+    # wit to the profile that writes briefings is the direct route to a joke
+    # in the middle of a schedule. FORMATTING stays: it is the section that
+    # governs markdown and structure, which a briefing very much needs.
     "COMPOSE": _Spec(
         timeout_s=90.0,
-        persona_sections=("IDENTITY", "TIME", "VOICE", "FORMATTING"),
+        persona_sections=("IDENTITY", "TIME", "FORMATTING"),
         tool_scope=None,
         max_tool_hops=0,
         default_max_output_tokens=2048,
@@ -77,19 +90,20 @@ _SPECS: dict[str, _Spec] = {
     ),
 
     # Urgency tagging and announcement filtering: reads a record, returns a
-    # label. IDENTITY for what Friday is and what its sources are, TIME
-    # because "due tomorrow" is only urgent relative to a date. Deliberately
-    # NOT VOICE or FORMATTING — those are ~2500 characters of butler wit and
-    # markdown policy that cannot improve a one-word answer, and this profile
-    # runs once per ingested row rather than once per user message. That
-    # exclusion is where the savings are, and it is visible as a smaller
-    # prompt in llm_exchanges.
+    # label. TIME because "due tomorrow" is only urgent relative to a date.
+    #
+    # NOT IDENTITY, and that is a correction rather than a saving: IDENTITY
+    # carries the sourcing rule ("state where this came from"), which was
+    # bleeding cited prose into what has to be a bare label. Also not VOICE or
+    # FORMATTING — ~2500 characters of butler wit and markdown policy that
+    # cannot improve a one-word answer, on a profile that runs once per
+    # ingested row rather than once per user message.
     #
     # temperature 0.0: two runs over the same announcement disagreeing about
     # URGENT is a worse failure than either answer.
     "CLASSIFY": _Spec(
         timeout_s=45.0,
-        persona_sections=("IDENTITY", "TIME"),
+        persona_sections=("TIME",),
         tool_scope=None,
         max_tool_hops=0,
         default_max_output_tokens=64,

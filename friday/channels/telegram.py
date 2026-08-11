@@ -17,8 +17,8 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 import memory.state as state
+from agent.turn import run_turn
 from llm import profiles
-from llm.dispatch import dispatch
 from llm.types import LLMRequest
 
 logger = logging.getLogger("friday.telegram")
@@ -144,20 +144,21 @@ class TelegramHandler:
             )
 
             loop = asyncio.get_running_loop()
-            self.agent._last_action_emitted = None  # reset before the call
-            self.agent._last_calendar_confirmation = None
 
             try:
-                # dispatch() is blocking by design — it must not run on the
-                # event loop. The wait_for is the backstop under the profile's
-                # own deadline (120s), not the primary budget.
-                response = await asyncio.wait_for(
-                    loop.run_in_executor(None, lambda: dispatch(request)),
+                # run_turn() is blocking by design — the model call and the
+                # calendar reads must not run on the event loop. The whole turn
+                # goes into ONE executor call so the tool cache and the fact
+                # ledger, both thread-local, belong to it. The wait_for is the
+                # backstop under the profile's own deadline (120s), not the
+                # primary budget.
+                result = await asyncio.wait_for(
+                    loop.run_in_executor(None, lambda: run_turn(request, self.conn)),
                     timeout=_EXECUTOR_TIMEOUT_S,
                 )
             except TimeoutError:
                 logger.warning(
-                    f"on_message: dispatch still running after "
+                    f"on_message: the turn was still running after "
                     f"{_EXECUTOR_TIMEOUT_S}s — releasing the pipeline. "
                     f"text={text[:80]!r}"
                 )
@@ -174,11 +175,11 @@ class TelegramHandler:
                 )
                 self.conn.commit()
                 return
-            # Still read, but nothing sets it while the tool layer is torn
-            # down: the calendar writers that used to raise this flag lived in
-            # agent/tools.py. The branch below is kept because the permission
-            # cards it pairs with are untouched.
-            action_emitted = getattr(self.agent, "_last_action_emitted", None)
+            if result.tool_calls_made:
+                logger.info(
+                    f"Turn used {result.tool_calls_made} tool call(s) over "
+                    f"{result.hops} hop(s), ended on {result.stopped_on}."
+                )
 
             now_iso = datetime.now().isoformat()
             self.conn.execute(
@@ -190,30 +191,24 @@ class TelegramHandler:
             # into the agent for a _last_error attribute. The network wording is
             # load-bearing: a blocked network has to be distinguishable from a
             # generic failure, here and later in the dashboard.
-            if response.finish == "error":
-                if response.error_kind == "rate_limit":
+            if result.error_kind != "none":
+                if result.error_kind == "rate_limit":
                     msg = "I'm being rate limited, sir. Try again in a moment."
-                elif response.error_kind == "transient":
+                elif result.error_kind == "transient":
                     # Distinct from rate_limit on purpose: nothing the user did
                     # caused this and nothing they can do fixes it. The
                     # dispatcher already retried before we got here.
                     msg = "The model service is having trouble on its end, sir. Try again shortly."
-                elif response.error_kind == "network":
+                elif result.error_kind == "network":
                     msg = "I can't reach the model from this network."
                 else:
-                    msg = f"LLM error, sir: {response.error_message}"
-                logger.warning(f"LLM {response.error_kind} — sending to user: {msg}")
+                    msg = f"LLM error, sir: {result.error_message}"
+                logger.warning(f"LLM {result.error_kind} — sending to user: {msg}")
                 await update.message.reply_text(msg)
                 assistant_log = msg
-            elif response.text:
-                await update.message.reply_text(response.text)
-                assistant_log = response.text
-            elif action_emitted == "calendar_added":
-                # auto_write already sent the user a confirmation message —
-                # store that exact text so future LLM turns see a natural
-                # assistant reply pattern instead of a synthetic marker they
-                # might echo back verbatim.
-                assistant_log = getattr(self.agent, "_last_calendar_confirmation", "") or ""
+            elif result.text:
+                await update.message.reply_text(result.text)
+                assistant_log = result.text
             else:
                 msg = "Sorry, sir — the model returned no text. Try again?"
                 logger.warning(f"Empty LLM response — sending to user: {msg}")

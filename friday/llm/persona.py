@@ -42,6 +42,11 @@ SECTIONS: tuple[str, ...] = (
     "VOICE",
     "FORMATTING",
     "TOOL_POLICY",
+    # Present in AGENTS.md, addressable by nothing on purpose: it holds prose
+    # for tools that do not exist yet. Named here rather than left unknown so
+    # the parser does not warn at every boot about a state that is intentional
+    # — a daemon that cries wolf on purpose trains everyone to ignore it.
+    "DEFERRED",
 )
 
 _PERSONA_FILE = "AGENTS.md"
