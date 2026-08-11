@@ -13,6 +13,7 @@ import logging
 import subprocess
 from datetime import date, datetime
 
+from calendars import writes
 from connectors.apple_calendar import events_for_day, events_in_window  # noqa: F401
 
 logger = logging.getLogger("friday.applecal.write")
@@ -24,9 +25,15 @@ _UPDATE_TIMEOUT_S = 45
 
 def write_event(cfg: dict, calendar_name: str, title: str, start: datetime,
                 end: datetime, location: str = "", description: str = "",
-                all_day: bool = False) -> str | None:
-    """Create an event in the named Apple Calendar. Returns Apple UID or None
-    on failure. No dedup — caller's responsibility."""
+                all_day: bool = False) -> writes.WriteOutcome:
+    """Create an event in the named Apple Calendar. No dedup — the caller's
+    job (see actions/calendar.py and the recent_writes fingerprint).
+
+    Returns a WriteOutcome, not a UID. The distinction that matters is between
+    a JXA error — the script ran and told us the calendar does not exist, so
+    nothing happened — and a timeout or a non-zero exit, where osascript
+    stopped talking to us and the push may already have reached Calendar.app.
+    Both used to return None. See calendars/writes.py."""
     payload = {
         "calendar":    calendar_name,
         "summary":     title,
@@ -59,26 +66,39 @@ if (targets.length === 0) {{
   }}
 }}
 """
+    # Each failure below is classified by WHAT WE KNOW, not by how bad it is.
     try:
         result = subprocess.run(
             ["osascript", "-l", "JavaScript", "-e", script],
             capture_output=True, text=True, timeout=_TIMEOUT_S,
         )
     except subprocess.TimeoutExpired:
+        # The push was already issued when we stopped waiting. Calendar.app may
+        # well have committed it. This is the case a blind retry double-books.
         logger.warning(f"Apple Calendar write timed out for {title!r}")
-        return None
+        return writes.unknown(f"osascript timed out after {_TIMEOUT_S}s")
     if result.returncode != 0:
-        logger.error(f"Apple Calendar write failed: {result.stderr.strip()[:200]}")
-        return None
+        # osascript died rather than answering. Where it died relative to the
+        # push is not knowable from here.
+        detail = result.stderr.strip()[:200]
+        logger.error(f"Apple Calendar write failed: {detail}")
+        return writes.unknown(f"osascript exited {result.returncode}: {detail}")
     try:
         out = json.loads(result.stdout.strip())
     except json.JSONDecodeError:
         logger.error(f"Apple Calendar write — bad JSON: {result.stdout[:200]}")
-        return None
+        return writes.unknown(f"unparseable osascript output: {result.stdout[:200]}")
     if "error" in out:
+        # The script ran to completion and reported a reason. Nothing happened.
         logger.error(f"Apple Calendar write error: {out['error']}")
-        return None
-    return out.get("uid")
+        return writes.refused(str(out["error"]))
+    uid = out.get("uid")
+    if not uid:
+        # Ran, no error, no identifier. Something was created that we cannot
+        # name, which is the definition of unknown.
+        logger.error(f"Apple Calendar write returned no uid for {title!r}")
+        return writes.unknown("the write reported success but returned no uid")
+    return writes.written(str(uid))
 
 
 def update_event(cfg: dict, uid: str, calendar_name: str = "",

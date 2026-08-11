@@ -72,14 +72,21 @@ def _sync_one(name: str, url: str, conn: sqlite3.Connection) -> int:
             location    = str(component.get("LOCATION", "")).strip()
             description = str(component.get("DESCRIPTION", "")).strip()[:2000]
 
-            apple_uid = cal_backend.write_event(
+            # verify=False: a poll mirrors a whole feed, and a read-back per
+            # event would cost more than the writes. The dedup here is
+            # synced_events keyed on Google's UID, which is stronger than a
+            # read-back anyway — a write we never recorded is retried next
+            # poll and lands as a duplicate only if it actually succeeded,
+            # which is the same exposure this loop already had.
+            outcome = cal_backend.write_event(
                 calendar_name=name, title=title,
                 start=start_dt, end=end_dt,
                 location=location, description=description,
-                all_day=all_day,
+                all_day=all_day, verify=False,
             )
-            if not apple_uid:
+            if not outcome.ok:
                 continue  # writer logged; leave row out so next poll retries
+            apple_uid = outcome.uid
 
             conn.execute(
                 "INSERT INTO synced_events "

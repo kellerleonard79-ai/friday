@@ -11,8 +11,11 @@ reached from actions/calendar.py without a cfg in hand) knows the config.
 Reads take cfg explicitly, matching the old apple_calendar signatures.
 """
 
+import dataclasses
 import logging
 import sys
+
+from calendars.writes import WriteOutcome
 
 logger = logging.getLogger("friday.calbackend")
 
@@ -55,10 +58,59 @@ def events_for_day(cfg: dict, target_date) -> list[dict]:
 
 def write_event(calendar_name: str, title: str, start, end,
                 location: str = "", description: str = "",
-                all_day: bool = False) -> str | None:
-    return _mod().write_event(_CONFIG, calendar_name, title, start, end,
-                              location=location, description=description,
-                              all_day=all_day)
+                all_day: bool = False, verify: bool = True) -> WriteOutcome:
+    """Create an event. Returns a WriteOutcome — see calendars/writes.py for
+    why this is not `str | None`.
+
+    THE READ-BACK IS WHERE INVARIANT 4 IS EARNED. A write path that returns an
+    identifier it read off the object it just constructed has confirmed
+    nothing; it has agreed with itself. Invariant 4 says a write is confirmed
+    to the user only after the service confirms it back, so on a successful
+    write we go and ask the service whether an event with that identifier is
+    actually on that day, and report the answer in `verified`.
+
+    It is done here rather than in each backend so there is one implementation
+    of "confirmed" and the two backends cannot drift on what it means.
+
+    A read-back that fails does NOT downgrade the outcome to unknown. The write
+    reported an identifier, which is real evidence; a failed read is evidence
+    about the reader. Callers that need certainty check `verified`, and the
+    honest report is "written but unconfirmed" rather than either lie.
+
+    `verify=False` exists for bulk paths — gcal_sync mirrors dozens of events
+    per poll and a read-back per event would be the dominant cost. It is not a
+    convenience for the write path a user is waiting on.
+    """
+    outcome = _mod().write_event(_CONFIG, calendar_name, title, start, end,
+                                 location=location, description=description,
+                                 all_day=all_day)
+    if not verify or not outcome.ok:
+        return outcome
+    return dataclasses.replace(
+        outcome, verified=_readback_confirms(outcome.uid, start))
+
+
+def _readback_confirms(uid: str, start) -> bool:
+    """Whether the service reports an event under `uid` on `start`'s day.
+
+    Wrapped: a read-back that raises must not fail a write that already
+    succeeded. It reports False, which reads as "unconfirmed" — the honest
+    state — rather than taking down the turn.
+    """
+    if not uid:
+        return False
+    try:
+        day = start.date() if hasattr(start, "date") else start
+        for evt in _mod().events_for_day(_CONFIG, day):
+            if evt.get("uid") == uid:
+                return True
+        logger.warning(
+            f"Write reported uid {uid} but a read-back of {day} did not find "
+            f"it. Reporting the event as written but unconfirmed."
+        )
+    except Exception as e:
+        logger.warning(f"Write read-back failed (reporting unconfirmed): {e}")
+    return False
 
 
 def update_event(uid: str, calendar_name: str = "", **fields) -> dict | None:

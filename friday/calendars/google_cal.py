@@ -18,6 +18,7 @@ from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import paths
+from calendars import writes
 
 logger = logging.getLogger("friday.googlecal")
 
@@ -237,16 +238,23 @@ def events_for_day(cfg: dict, target_date: date) -> list[dict]:
 
 def write_event(cfg: dict, calendar_name: str, title: str, start: datetime,
                 end: datetime, location: str = "", description: str = "",
-                all_day: bool = False) -> str | None:
-    """Create an event in the named Google Calendar. Returns the Google event
-    id or None on failure. No dedup — caller's responsibility."""
+                all_day: bool = False) -> writes.WriteOutcome:
+    """Create an event in the named Google Calendar. No dedup — the caller's
+    job. Returns a WriteOutcome; see calendars/writes.py for why the failures
+    below are split rather than all reported as None.
+
+    The split here is cleaner than on the Apple side because the API answers
+    with a status code: a 4xx is the service refusing, and everything else —
+    a socket that died mid-insert, a 5xx, a refresh that failed after the
+    request went out — leaves us unable to say whether the event exists."""
     cal_id = _ensure_calendar(cfg, calendar_name)
     if cal_id is None:
         logger.error(f"Google Calendar write — no calendar {calendar_name!r}")
-        return None
+        return writes.refused(f"no calendar named {calendar_name!r}")
     service = _get_service()
     if service is None:
-        return None
+        # Never authenticated / token unusable. The request was never sent.
+        return writes.refused("Google Calendar is not authenticated")
     tz_name = (cfg.get("agent") or {}).get("timezone", "America/Chicago")
     body: dict = {"summary": title}
     if location:
@@ -268,10 +276,21 @@ def write_event(cfg: dict, calendar_name: str, title: str, start: datetime,
         body["end"]   = {"dateTime": end.isoformat(),   "timeZone": tz_name}
     try:
         created = service.events().insert(calendarId=cal_id, body=body).execute()
-        return created.get("id")
     except Exception as e:
+        status = getattr(getattr(e, "resp", None), "status", None)
         logger.error(f"Google Calendar write failed for {title!r}: {e}")
-        return None
+        if isinstance(status, int) and 400 <= status < 500 and status != 429:
+            # The API answered and rejected the request. Nothing was created.
+            # 429 is excluded: a rate-limited insert can still have been
+            # applied before the limiter answered.
+            return writes.refused(f"HTTP {status}: {e}")
+        # No status, a 5xx, or a transport failure — the insert may have
+        # landed. Do not retry this without checking.
+        return writes.unknown(f"{type(e).__name__}: {e}")
+    event_id = created.get("id")
+    if not event_id:
+        return writes.unknown("the insert returned no event id")
+    return writes.written(str(event_id))
 
 
 def update_event(cfg: dict, uid: str, calendar_name: str = "",

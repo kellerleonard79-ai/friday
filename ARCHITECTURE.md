@@ -887,6 +887,16 @@ config in hand — knows the config. Reads take `cfg` explicitly, matching the o
 Six functions cross the seam: `events_in_window`, `events_for_day`,
 `write_event`, `update_event`, `calendar_exists`, `backend_name`.
 
+`write_event` returns a `WriteOutcome` (`calendars/writes.py`), not `str | None`.
+The three statuses — `written` / `refused` / `unknown` — exist because a
+calendar that does not exist and an osascript timeout are not the same event:
+one definitely did not happen, the other may have landed server-side, and a
+blind retry of the second double-books. `backend.write_event` also reads the
+event back by uid and reports the result in `verified`, which is what makes
+invariant 4 ("confirmed only after the service confirms it back") mean
+something — a uid the write path read off the object it just built is not the
+service confirming anything.
+
 ---
 
 #### `friday/calendars/apple.py` — 244 lines

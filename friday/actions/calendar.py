@@ -211,22 +211,68 @@ def auto_write(event: dict, telegram=None, default_calendar: str | None = None,
     notes = (event.get("notes") or "").strip()
     where = (event.get("location") or "").strip()
     try:
-        uid = write_event(cal, title, start, end, location=where,
-                          description=notes, all_day=all_day)
+        outcome = write_event(cal, title, start, end, location=where,
+                              description=notes, all_day=all_day)
     except Exception as e:
         logger.exception(f"auto_write — unexpected: {e}")
         if telegram:
             telegram.send(f"Calendar write failed for {title!r}, sir.")
         return None
 
-    if not uid:
+    if not outcome.ok:
+        # refused and unknown read the same to the user — there is nothing
+        # useful to say about the difference in a chat message. The difference
+        # matters upstream, where a retry is decided; write_outcome() below is
+        # how a caller that cares gets at it.
+        logger.error(
+            f"auto_write — {outcome.status} for {title!r}: {outcome.detail}")
         if telegram:
             telegram.send(f"Calendar write failed for {title!r}, sir.")
         return None
 
+    if not outcome.verified:
+        # Written but unconfirmed. Said in the log rather than to the user: the
+        # event almost certainly exists, and hedging every confirmation would
+        # make the ordinary case read as uncertain.
+        logger.warning(
+            f"auto_write — {title!r} written as {outcome.uid} but the "
+            f"read-back did not confirm it.")
+
     if telegram:
         telegram.send(format_confirmation(event, quip))
-    return uid
+    return outcome.uid
+
+
+def write_outcome(event: dict, default_calendar: str | None = None):
+    """auto_write's write, with the full WriteOutcome returned instead of a
+    bare uid — and no Telegram traffic of its own.
+
+    The tool layer needs the status and the verification flag to synthesise a
+    write record (tools/types.py) and to decide whether an unknown outcome has
+    to be remembered. auto_write cannot give it those without changing what
+    every existing caller receives, and it messages the user directly, which a
+    tool must never do (invariant 2).
+    """
+    from calendars import writes as _writes
+    try:
+        title, start, end, all_day = _parse_event(event)
+    except ValueError as e:
+        return _writes.refused(str(e))
+
+    cal = _resolve_calendar(event.get("calendar"), default_calendar)
+    if not cal:
+        return _writes.refused("no usable calendar is available")
+
+    try:
+        return write_event(cal, title, start, end,
+                           location=(event.get("location") or "").strip(),
+                           description=(event.get("notes") or "").strip(),
+                           all_day=all_day)
+    except Exception as e:
+        logger.exception(f"write_outcome — unexpected: {e}")
+        # An exception on this path is not proof the write did not happen —
+        # it can be raised after the request went out. Unknown, not refused.
+        return _writes.unknown(f"{type(e).__name__}: {e}")
 
 
 def auto_update(uid: str, telegram=None, quip: str = "", calendar: str = "",
