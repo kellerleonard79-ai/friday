@@ -29,17 +29,99 @@ from typing import Any, Literal
 
 
 class Effect:
-    """Something the world should see, produced by a tool and executed above it.
+    """Something the world should see, DECLARED by a tool and executed above it.
 
-    DELIBERATELY EMPTY. Step 3 is read-only: no tool here produces one, nothing
-    executes one, and there is no effects layer behind this class. It exists so
-    that ToolResult.effects has a type today and step 4 fills in subclasses
-    rather than changing the shape of every result.
+    THE ENTIRE POINT IS THAT THIS CLASS HAS NO BEHAVIOR.
 
-    Do not give this behavior. The moment a tool can execute an effect itself,
-    invariant 2 is gone and permission cards start arriving after the write
-    they were supposed to gate.
+    In Phase II a tool that wanted to tell the user something imported the
+    Telegram channel and sent the message itself, mid-turn, then set a flag on
+    the agent object so the channel would know one had already gone out. The
+    model then had to be talked into staying quiet afterward, in prose. It did
+    not reliably stay quiet — that is where the stray token and the empty
+    markdown fence came from. Those flags were deleted in step 3.
+
+    A tool declares what should happen. effects/runner.py makes it happen. Every
+    bug in that class dies with the change, and it is what lets a permission
+    card be guaranteed to arrive first: ordering is a property of one function
+    rather than a rule everybody has to remember.
+
+    So: subclasses are frozen dataclasses carrying DATA ONLY. No methods that
+    act, no channel imports, no I/O. The moment an effect can execute itself,
+    invariant 2 is gone and cards start arriving after the write they gate.
+
+    __slots__ is empty so the frozen slots=True subclasses below actually get
+    slots. Without it every effect carries a __dict__ inherited from here, and
+    "carries data only" stops being enforced by anything.
+
+    One quirk worth knowing before it is debugged twice: a frozen slots=True
+    dataclass inheriting from a plain base raises TypeError rather than
+    FrozenInstanceError on an attempted mutation. It still refuses the write,
+    which is the property being relied on; only the exception type is odd.
     """
+
+    __slots__ = ()
+
+
+@dataclass(frozen=True, slots=True)
+class SendMessage(Effect):
+    """Ordinary prose to the user.
+
+    `channel` names where it goes. It is a name, not a handle: an effect
+    holding a channel object would be an effect that could send itself.
+    """
+    text: str
+    channel: str = "telegram"
+
+
+@dataclass(frozen=True, slots=True)
+class SendPermissionCard(Effect):
+    """Ask before doing. The effect this whole step is built around.
+
+    INVARIANT 3: permission cards are emitted first, and nothing may delay,
+    editorialize on, or bury one. effects/runner.py enforces the ordering; this
+    class enforces the content.
+
+    `proposal` IS A TEMPLATE, NOT MODEL OUTPUT. It states the action and its
+    parameters literally. Persona voice does not apply (invariant 6) and
+    nothing is prepended to it — a card that opens with a flourish is a card
+    whose first line is not the thing being approved.
+
+    `tool` and `arguments` are what runs on confirm. THE STORED ARGUMENTS RUN,
+    not re-extracted ones: the user approved a specific set of values, and
+    asking the model again at confirm time means they might approve one event
+    and get another.
+    """
+    proposal: str
+    pending_key: str
+    tool: str
+    arguments: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class ScheduleItem(Effect):
+    """Put something on a schedule. DEFINED, NOT YET USED.
+
+    Claimed by the step that adds proactive due-date reminders — the
+    notifications.reminder_thresholds config surface that nothing consumes yet.
+    Defined here so that step adds a runner branch rather than a new vocabulary.
+    """
+    kind: str
+    when: str
+    payload: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class CancelScheduled(Effect):
+    """Remove something previously scheduled. DEFINED, NOT YET USED.
+    Same step as ScheduleItem."""
+    kind: str
+    key: str
+
+
+# SendNotification, Speak and Quip arrive with their consumers. Defining an
+# effect before anything produces one is how the catalog fills up with shapes
+# that turn out to be wrong — ScheduleItem and CancelScheduled are here only
+# because they were specified, and they are marked as unused for that reason.
 
 
 # ── Records: what a call actually established ────────────────────────────────
