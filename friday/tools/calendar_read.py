@@ -34,6 +34,7 @@ from typing import Annotated
 
 from calendars import backend as calendar_backend
 from calendars.eventtime import is_all_day, to_local
+from tools import ledger as fact_ledger
 from tools.registry import tool
 from tools.types import ToolError, ToolOutcome, ToolResult
 
@@ -96,6 +97,20 @@ def _read_window(start: date, end: date) -> list[dict]:
     if cache is not None:
         cache.windows[(start, end)] = events
     return events
+
+
+def _record(start: date, end: date) -> None:
+    """Tell the ledger what was covered.
+
+    Recorded on the REQUESTED range, not on whatever the cache happened to
+    hold. A cached wider window means the read already happened, but the fact
+    a precondition may rely on is the range this call actually asked about —
+    crediting the ledger with the cache's reach would let coverage grow for
+    free and quietly weaken every check built on it.
+    """
+    led = fact_ledger.current()
+    if led is not None:
+        led.record_calendar_read(start, end)
 
 
 def _in_window(evt: dict, start: date, end: date) -> bool:
@@ -177,6 +192,7 @@ def get_schedule(
     try:
         # date_to is inclusive to the model; the backend window is half-open.
         events = _read_window(start, end + timedelta(days=1))
+        _record(start, end + timedelta(days=1))
     except Exception as e:
         logger.warning(f"get_schedule read failed: {e}")
         return ToolError(
@@ -229,6 +245,7 @@ def find_free_blocks(
 
     try:
         events = _read_window(day, day + timedelta(days=1))
+        _record(day, day + timedelta(days=1))
     except Exception as e:
         logger.warning(f"find_free_blocks read failed: {e}")
         return ToolError(
