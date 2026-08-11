@@ -219,6 +219,58 @@ check("the row carries a created timestamp and a TTL", bool(row[4]) and bool(row
 check("a new row starts pending", row[6] == "pending")
 
 
+# ── Idempotency: the same write twice inside the TTL happens once ────────────
+#
+# The check has to be LOCAL. The case it exists for is a write whose service
+# call timed out, and a retry cannot rely on reaching the thing that just
+# failed to answer.
+
+from memory import writes as recent  # noqa: E402
+
+conn = db()
+conn.executescript("""
+CREATE TABLE IF NOT EXISTS recent_writes (
+    fingerprint TEXT PRIMARY KEY, created_at TEXT, expires_at TEXT,
+    status TEXT, identifier TEXT, detail TEXT);
+""")
+
+check("an unseen fingerprint has no prior write",
+      recent.find(conn, "fp-1") is None)
+
+recent.reserve(conn, "fp-1")
+prior = recent.find(conn, "fp-1")
+check("a reserved fingerprint is found immediately", prior is not None)
+check("a reservation starts as unknown, not written",
+      prior.status == "unknown" and not prior.confirmed)
+
+recent.settle(conn, "fp-1", status="written", identifier="UID-7")
+prior = recent.find(conn, "fp-1")
+check("settling records the identifier",
+      prior.confirmed and prior.identifier == "UID-7")
+
+# A refused write RELEASES the fingerprint — the service said it did not
+# happen, so a second attempt after the user fixes the calendar name must work.
+recent.reserve(conn, "fp-2")
+recent.settle(conn, "fp-2", status="refused")
+check("a refused write releases its fingerprint",
+      recent.find(conn, "fp-2") is None)
+
+# An unknown write KEEPS its row. This is the whole point: it is the only
+# evidence a retry has.
+recent.reserve(conn, "fp-3", detail="osascript timed out")
+recent.settle(conn, "fp-3", status="unknown", detail="osascript timed out")
+prior = recent.find(conn, "fp-3")
+check("an unknown write keeps its row for a retry to find",
+      prior is not None and prior.status == "unknown")
+
+# Past the TTL it stops blocking.
+conn.execute("UPDATE recent_writes SET expires_at = ? WHERE fingerprint='fp-1'",
+             ((datetime.now() - timedelta(minutes=1)).isoformat(),))
+conn.commit()
+check("a prior write outside the TTL no longer blocks", recent.find(conn, "fp-1") is None)
+check("prune removes the expired row", recent.prune(conn) >= 1)
+
+
 print()
 if _failures:
     print(f"{len(_failures)} FAILED:")

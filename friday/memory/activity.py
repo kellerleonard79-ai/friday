@@ -140,6 +140,14 @@ def cleanup_old_activity(conn: sqlite3.Connection, days: int = _RETENTION_DAYS) 
         conn.commit()
     except Exception:
         pass
+    # recent_writes has its own ten-minute TTL rather than the 30-day one, so
+    # it is pruned on its own terms. Folded in here because this is the only
+    # nightly job and a second one would need a second schedule.
+    try:
+        from memory import writes as _writes
+        removed += _writes.prune(conn)
+    except Exception as e:
+        logger.debug(f"recent_writes prune failed: {e}")
     if removed:
         logger.info(f"Activity cleanup: removed {removed} row(s) older than {days}d")
     return removed
