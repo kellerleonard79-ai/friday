@@ -24,6 +24,7 @@ see it.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any, Literal
 
 
@@ -39,6 +40,47 @@ class Effect:
     invariant 2 is gone and permission cards start arriving after the write
     they were supposed to gate.
     """
+
+
+# ── Coverage: what a call actually established ───────────────────────────────
+#
+# COVERAGE IS PART OF THE RETURN CONTRACT, NOT A SIDE EFFECT.
+#
+# Tools used to record their own reads by reaching for the ledger and calling
+# it. Nothing forced them to, and nothing checked that what they recorded
+# matched what they read — so a tool that lied, or simply forgot, produced a
+# ledger claiming a day had been read when it had not. A precondition that
+# trusts the thing it is checking is not a precondition.
+#
+# Now a tool states what it covered in the value it returns, the executor
+# writes the ledger from that, and tool code has no path to the ledger at all
+# (see tools/ledger.py — there is no module-level accessor to reach).
+#
+# Typed rather than a free-form dict so a precondition check is a comparison
+# and not a parse. A malformed dict would fail at the moment of checking, which
+# in step 4 is the moment before a write.
+
+
+@dataclass(frozen=True, slots=True)
+class CalendarCoverage:
+    """A half-open [start, end) day range a call actually read.
+
+    Half-open because that is what the calendar backend window is, and
+    converting between inclusive and exclusive in two places is how an
+    off-by-one day gets into a calendar write.
+    """
+    start: date
+    end: date
+
+    def covers(self, start: date, end: date) -> bool:
+        return self.start <= start and self.end >= end
+
+
+# Every kind of fact a call can establish. One member today; step 4 adds what a
+# write changed. A union rather than a base class with fields, so a precondition
+# matching on kind is exhaustive and a new kind is a type error at every site
+# that has to care.
+Coverage = CalendarCoverage
 
 
 # Why a tool failed, in a form the turn loop can branch on without reading
@@ -100,6 +142,10 @@ class ToolResult:
     `data` is JSON-able structured data and nothing else. No prose, no
     formatting, no units spelled out in English — see the module docstring.
 
+    `coverage` is what this call established as fact — see the Coverage note
+    above. The executor writes it into the turn's ledger; the tool does not.
+    A tool that reads nothing returns none, and that is the honest answer.
+
     `effects` is empty in step 3 and typed for step 4.
 
     `committed` records whether anything in the world actually changed. It is
@@ -110,6 +156,7 @@ class ToolResult:
     one.
     """
     data: dict[str, Any] = field(default_factory=dict)
+    coverage: tuple[Coverage, ...] = ()
     effects: tuple[Effect, ...] = ()
     committed: bool = False
 

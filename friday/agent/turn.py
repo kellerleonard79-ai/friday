@@ -45,7 +45,8 @@ from dataclasses import dataclass
 import memory.activity as activity
 from llm.dispatch import dispatch
 from llm.types import LLMRequest, LLMResponse, ToolCall, ToolCallTurn, ToolResultTurn
-from tools import calendar_read, executor, ledger as fact_ledger, registry
+from tools import executor, registry
+from tools.ledger import Ledger
 from tools.types import ToolError, ToolResult
 
 # Importing the tool modules is what registers them. Done here rather than in
@@ -96,7 +97,8 @@ def _outcome_label(outcome) -> str:
     return outcome.kind if isinstance(outcome, ToolError) else "ok"
 
 
-def _execute(call: ToolCall, deadline: float) -> tuple[object, int, str]:
+def _execute(call: ToolCall, deadline: float, ledger: Ledger,
+             store: dict) -> tuple[object, int, str]:
     """Run one tool call. Returns (outcome, duration_ms, label).
 
     A tool the model invented is a ToolError, not a raise: hallucinating a name
@@ -128,7 +130,12 @@ def _execute(call: ToolCall, deadline: float) -> tuple[object, int, str]:
         )
 
     started = time.monotonic()
-    future = _TOOL_POOL.submit(executor.run, spec, dict(call.arguments))
+    # The turn's ledger and scratch travel WITH the call rather than being
+    # picked up from the worker thread, which cannot see anything the turn
+    # installed on its own thread.
+    future = _TOOL_POOL.submit(
+        executor.run, spec, dict(call.arguments), ledger=ledger, store=store
+    )
     try:
         outcome, duration_ms = future.result(timeout=budget)
     except FutureTimeout:
@@ -150,10 +157,14 @@ def run_turn(request: LLMRequest, conn=None) -> TurnResult:
     profile = request.profile
     deadline = time.monotonic() + profile.timeout_s
 
-    # Per-turn state. The cache holds payload, the ledger holds coverage — see
-    # tools/ledger.py for why those are two objects and not one.
-    calendar_read.begin_turn()
-    fact_ledger.begin_turn()
+    # Per-turn state, owned here and passed down. The scratch holds tool
+    # payload (the calendar read cache); the ledger holds coverage and is
+    # written only by the executor, from what a tool returned.
+    #
+    # Plain objects rather than thread-locals: tools execute in a worker pool,
+    # so anything installed on this thread is invisible from inside a tool.
+    ledger = Ledger()
+    store: dict = {}
 
     tool_turns: list = []
     precondition_failures = 0
@@ -213,7 +224,7 @@ def run_turn(request: LLMRequest, conn=None) -> TurnResult:
 
             for call in response.tool_calls:
                 calls_made += 1
-                outcome, duration_ms, label = _execute(call, deadline)
+                outcome, duration_ms, label = _execute(call, deadline, ledger, store)
 
                 if isinstance(outcome, ToolError) and outcome.kind == "precondition_failed":
                     precondition_failures += 1
@@ -247,8 +258,11 @@ def run_turn(request: LLMRequest, conn=None) -> TurnResult:
         )
 
     finally:
-        calendar_read.end_turn()
-        fact_ledger.end_turn()
+        # Both die with the turn. A calendar read must not survive into the
+        # next message: the user may well have changed the calendar because of
+        # what Friday just said.
+        store.clear()
+        ledger.entries.clear()
 
 
 def _finish(response: LLMResponse | None, hops: int, calls: int,

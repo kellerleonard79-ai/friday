@@ -18,6 +18,12 @@ naming the field, and it goes back INTO THE LOOP. It is never surfaced to the
 user directly: the model is what will supply the value or ask for it, and a
 raw "date_from is required" in a Telegram reply reads as Friday malfunctioning
 out loud.
+
+THIS MODULE IS THE LEDGER'S ONLY WRITER. A tool declares what it covered in the
+value it returns; this file takes that and records it. Tools have no path to
+the ledger — it is an ordinary object passed in here, not a global they could
+reach. A failed call contributes nothing, because a read that did not happen is
+not a read.
 """
 
 from __future__ import annotations
@@ -26,7 +32,8 @@ import logging
 import time
 from typing import Any
 
-from tools import ledger as fact_ledger
+from tools import scratch
+from tools.ledger import Ledger
 from tools.registry import ToolSpec
 from tools.types import ToolError, ToolOutcome, ToolResult
 
@@ -117,33 +124,41 @@ def validate(spec: ToolSpec, arguments: dict) -> tuple[dict, ToolError | None]:
     return cleaned, None
 
 
-def check_preconditions(spec: ToolSpec, arguments: dict) -> ToolError | None:
+def check_preconditions(spec: ToolSpec, arguments: dict,
+                        ledger: Ledger | None) -> ToolError | None:
     """Every precondition, against this turn's ledger.
 
-    A ledger-less turn fails closed. A precondition exists to assert that
-    something was actually read; answering "satisfied" because there is no
-    ledger to consult would invert its meaning at exactly the moment the
-    plumbing is broken.
+    A ledger-less call fails closed. A precondition exists to assert that
+    something was actually established; answering "satisfied" because there is
+    no ledger to consult would invert its meaning at exactly the moment the
+    plumbing is broken — which it once was, silently, when the ledger lived in
+    a thread-local the worker pool could not see.
     """
     if not spec.preconditions:
         return None
 
-    led = fact_ledger.current()
-    if led is None:
+    if ledger is None:
         return ToolError(
             kind="precondition_failed",
-            message=f"{spec.name} has preconditions but no fact ledger is installed.",
+            message=f"{spec.name} has preconditions but no fact ledger was provided.",
         )
 
     for pre in spec.preconditions:
-        problem = pre.check(led, arguments)
+        problem = pre.check(ledger, arguments)
         if problem:
             return ToolError(kind="precondition_failed", message=problem)
     return None
 
 
-def run(spec: ToolSpec, arguments: dict) -> tuple[ToolOutcome, int]:
-    """Validate, check preconditions, execute. Returns (outcome, duration_ms).
+def run(spec: ToolSpec, arguments: dict, *, ledger: Ledger | None = None,
+        store: dict | None = None) -> tuple[ToolOutcome, int]:
+    """Validate, check preconditions, execute, record coverage.
+    Returns (outcome, duration_ms).
+
+    `ledger` and `store` are passed rather than reached for. This function runs
+    on a worker thread, so anything ambient the turn set up on its own thread
+    would be invisible here — a thread-local ledger was, and every precondition
+    failed closed because of it.
 
     SYNCHRONOUS. The caller runs this in an executor — a calendar read costs
     tens of seconds on the JXA path and must never touch the event loop.
@@ -163,12 +178,15 @@ def run(spec: ToolSpec, arguments: dict) -> tuple[ToolOutcome, int]:
     if error is not None:
         return _done(error)
 
-    error = check_preconditions(spec, cleaned)
+    error = check_preconditions(spec, cleaned, ledger)
     if error is not None:
         return _done(error)
 
     try:
-        outcome = spec.fn(**cleaned)
+        # The tool's own per-turn storage is installed only for the length of
+        # this call, and only the scratch — never the ledger.
+        with scratch.installed(store):
+            outcome = spec.fn(**cleaned)
     except Exception as e:
         logger.exception(f"Tool {spec.name} raised")
         return _done(ToolError(
@@ -188,5 +206,12 @@ def run(spec: ToolSpec, arguments: dict) -> tuple[ToolOutcome, int]:
             kind="unavailable",
             message=f"{spec.name} returned a malformed result.",
         ))
+
+    # Coverage goes in only for a successful call, and only from what the tool
+    # RETURNED. A ToolError contributes nothing: a read that failed is not a
+    # read, and crediting one would let a precondition pass on the strength of
+    # a call that never got an answer.
+    if ledger is not None and isinstance(outcome, ToolResult) and outcome.coverage:
+        ledger.record(outcome.coverage)
 
     return _done(outcome)

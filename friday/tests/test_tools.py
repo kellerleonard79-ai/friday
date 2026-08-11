@@ -17,6 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tools.ledger import CalendarReadFor, Ledger          # noqa: E402
+from tools.types import CalendarCoverage                  # noqa: E402
 from tools.registry import ToolSpec, _build_parameters    # noqa: E402
 from tools.types import ToolError, ToolResult             # noqa: E402
 
@@ -32,7 +33,7 @@ def check(label: str, condition: bool) -> None:
 # ── The ledger records coverage, not that a read happened ────────────────────
 
 led = Ledger()
-led.record_calendar_read(date(2026, 8, 17), date(2026, 8, 24))
+led.record((CalendarCoverage(date(2026, 8, 17), date(2026, 8, 24)),))
 
 check("a read of next week does not cover today",
       not led.covers_calendar(date(2026, 8, 11), date(2026, 8, 12)))
@@ -47,8 +48,8 @@ check("an empty ledger covers nothing",
 # not become invisible, and being strict costs one tool call while being wrong
 # costs a double-booked calendar.
 split = Ledger()
-split.record_calendar_read(date(2026, 8, 11), date(2026, 8, 12))
-split.record_calendar_read(date(2026, 8, 12), date(2026, 8, 13))
+split.record((CalendarCoverage(date(2026, 8, 11), date(2026, 8, 12)),))
+split.record((CalendarCoverage(date(2026, 8, 12), date(2026, 8, 13)),))
 check("two adjacent reads are not stitched into one span",
       not split.covers_calendar(date(2026, 8, 11), date(2026, 8, 13)))
 
@@ -135,6 +136,71 @@ check("an uncoercible argument yields invalid_argument",
 
 check("bool coercion does not treat 'false' as True",
       executor._coerce("false", "boolean") is False)
+
+
+# ── Coverage is derived from the return value, never self-reported ───────────
+#
+# The six cases this section exists for. Before this, a tool wrote its own
+# ledger entry: nothing forced it to and nothing checked that what it recorded
+# matched what it read. A precondition that trusts the thing it is checking is
+# not a precondition.
+
+from tools.registry import tool as _tool  # noqa: E402
+from tools.types import ToolResult as _TR  # noqa: E402
+
+
+@_tool(name="_t_covers", description="Test tool that reports coverage.",
+       scope=("test_cov",), effect="read")
+def _t_covers() -> _TR:
+    """test only"""
+    return _TR(data={"ok": True},
+               coverage=(CalendarCoverage(date(2026, 9, 1), date(2026, 9, 3)),))
+
+
+@_tool(name="_t_silent", description="Test tool that reports no coverage.",
+       scope=("test_cov",), effect="read")
+def _t_silent() -> _TR:
+    """test only"""
+    return _TR(data={"ok": True})
+
+
+@_tool(name="_t_fails", description="Test tool that fails despite claiming coverage.",
+       scope=("test_cov",), effect="read")
+def _t_fails() -> ToolError:
+    """test only"""
+    return ToolError(kind="unavailable", message="the backend was down")
+
+
+_l = Ledger()
+executor.run(registry.get("_t_covers"), {}, ledger=_l, store={})
+check("a tool returning coverage produces the matching ledger entry",
+      _l.entries == [CalendarCoverage(date(2026, 9, 1), date(2026, 9, 3))])
+
+_l = Ledger()
+executor.run(registry.get("_t_silent"), {}, ledger=_l, store={})
+check("a tool returning no coverage produces no ledger entry", _l.entries == [])
+
+# The failing tool is written to claim coverage it did not establish; the
+# executor must ignore it, because a read that failed is not a read.
+_l = Ledger()
+_out, _ = executor.run(registry.get("_t_fails"), {}, ledger=_l, store={})
+check("a tool returning ToolError produces no ledger entry",
+      isinstance(_out, ToolError) and _l.entries == [])
+
+_l = Ledger()
+executor.run(registry.get("_t_covers"), {}, ledger=_l, store={})
+check("a precondition for a date outside the recorded range fails",
+      CalendarReadFor().check(_l, {"date": "2026-09-04"}) is not None)
+check("a precondition for a date inside the recorded range passes",
+      CalendarReadFor().check(_l, {"date": "2026-09-02"}) is None)
+
+# The sixth case is structural and is verified by grep, not by assertion:
+#   grep -rn "ledger" friday/tools/calendar_read.py
+# There is no module-level accessor in tools/ledger.py to reach, so tool code
+# has no path to the ledger at all.
+check("tools/ledger.py exposes no ambient accessor",
+      not any(hasattr(__import__("tools.ledger", fromlist=["x"]), n)
+              for n in ("current", "begin_turn", "end_turn")))
 
 
 # ── ToolError shape ──────────────────────────────────────────────────────────

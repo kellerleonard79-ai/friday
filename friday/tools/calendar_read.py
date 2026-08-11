@@ -14,10 +14,12 @@ produces ("what's tomorrow?" then "when am I free?") would routinely time out.
 One read per turn, reused across hops, is what makes the loop fit its own
 budget.
 
-The cache is per-turn and holds payload; the fact ledger is per-turn and holds
-coverage. They are deliberately not the same object: if the ledger's answer to
-"what has been read" depended on cache eviction, a precondition could pass
-because something was still cached rather than because it was actually read.
+The cache holds payload; the fact ledger holds coverage. They are deliberately
+not the same object, and this module can only reach one of them: if the
+ledger's answer to "what has been read" depended on cache eviction, a
+precondition could pass because something was still cached rather than because
+it was actually read. Coverage is DECLARED in each tool's return value and
+written to the ledger by tools/executor.py — see tools/types.py.
 
 The real fix is granting the daemon full Calendar access — EventKit answers the
 same query in ~3ms and this cache stops mattering. See the module docstring in
@@ -27,16 +29,14 @@ connectors/apple_calendar.py.
 from __future__ import annotations
 
 import logging
-import threading
-from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from typing import Annotated
 
 from calendars import backend as calendar_backend
 from calendars.eventtime import is_all_day, to_local
-from tools import ledger as fact_ledger
+from tools import scratch
 from tools.registry import tool
-from tools.types import ToolError, ToolOutcome, ToolResult
+from tools.types import CalendarCoverage, ToolError, ToolOutcome, ToolResult
 
 logger = logging.getLogger("friday.tools.calendar")
 
@@ -51,32 +51,19 @@ def configure(config: dict) -> None:
 
 # ── The per-turn read cache ──────────────────────────────────────────────────
 
-_local = threading.local()
+# The key this module keeps its cache under in the turn's scratch space.
+_SCRATCH = "calendar_read"
 
 
-@dataclass
-class _TurnCache:
-    """One turn's calendar reads, keyed by the window actually fetched."""
-    windows: dict[tuple[date, date], list[dict]]
+def _windows() -> dict | None:
+    """This turn's cached reads, keyed by the window fetched, or None.
 
-
-def begin_turn() -> None:
-    """Start a fresh cache. Called by the turn loop at the top of every turn.
-
-    Thread-local because tools run in the executor, which is a pool: two turns
-    can be in flight on different threads and must not see each other's reads.
-    Per-turn rather than time-boxed because the correctness rule is "the answer
-    is consistent within one reply", not "the answer is under N seconds old" —
-    a TTL cache would let two hops of the same answer disagree.
+    Lives in tools/scratch.py rather than a module thread-local because tools
+    run in a worker pool: a thread-local installed by the turn is invisible
+    from inside the tool, which is precisely why this cache never once hit
+    before that was fixed.
     """
-    _local.cache = _TurnCache(windows={})
-
-
-def end_turn() -> None:
-    """Drop the cache. A calendar read must not survive into the next message:
-    the user may well have changed the calendar because of what Friday just
-    said, and answering from a stale copy is worse than paying for the read."""
-    _local.cache = None
+    return scratch.space(_SCRATCH)
 
 
 def _read_window(start: date, end: date) -> list[dict]:
@@ -86,31 +73,17 @@ def _read_window(start: date, end: date) -> list[dict]:
     what makes the second tool call in a turn free: the cost is per scan, so a
     read that already happened covers everything inside it.
     """
-    cache: _TurnCache | None = getattr(_local, "cache", None)
+    cache = _windows()
 
     if cache is not None:
-        for (c_start, c_end), events in cache.windows.items():
+        for (c_start, c_end), events in cache.items():
             if c_start <= start and c_end >= end:
                 return [e for e in events if _in_window(e, start, end)]
 
     events = calendar_backend.events_in_window(_config, start, end)
     if cache is not None:
-        cache.windows[(start, end)] = events
+        cache[(start, end)] = events
     return events
-
-
-def _record(start: date, end: date) -> None:
-    """Tell the ledger what was covered.
-
-    Recorded on the REQUESTED range, not on whatever the cache happened to
-    hold. A cached wider window means the read already happened, but the fact
-    a precondition may rely on is the range this call actually asked about —
-    crediting the ledger with the cache's reach would let coverage grow for
-    free and quietly weaken every check built on it.
-    """
-    led = fact_ledger.current()
-    if led is not None:
-        led.record_calendar_read(start, end)
 
 
 def _in_window(evt: dict, start: date, end: date) -> bool:
@@ -191,8 +164,8 @@ def get_schedule(
 
     try:
         # date_to is inclusive to the model; the backend window is half-open.
-        events = _read_window(start, end + timedelta(days=1))
-        _record(start, end + timedelta(days=1))
+        window_end = end + timedelta(days=1)
+        events = _read_window(start, window_end)
     except Exception as e:
         logger.warning(f"get_schedule read failed: {e}")
         return ToolError(
@@ -200,11 +173,16 @@ def get_schedule(
             message=f"The calendar could not be read: {e}",
         )
 
-    return ToolResult(data={
-        "date_from": start.isoformat(),
-        "date_to": end.isoformat(),
-        "events": [_shape(e) for e in events],
-    })
+    return ToolResult(
+        data={
+            "date_from": start.isoformat(),
+            "date_to": end.isoformat(),
+            "events": [_shape(e) for e in events],
+        },
+        # Declared, not recorded. The executor puts this in the ledger; this
+        # module cannot reach the ledger and must not try.
+        coverage=(CalendarCoverage(start=start, end=window_end),),
+    )
 
 
 @tool(
@@ -245,7 +223,6 @@ def find_free_blocks(
 
     try:
         events = _read_window(day, day + timedelta(days=1))
-        _record(day, day + timedelta(days=1))
     except Exception as e:
         logger.warning(f"find_free_blocks read failed: {e}")
         return ToolError(
@@ -301,12 +278,15 @@ def find_free_blocks(
                 })
         cursor = max(cursor, ed)
 
-    return ToolResult(data={
-        "date": day.isoformat(),
-        "between": {"start": between_start, "end": between_end},
-        "min_minutes": min_minutes,
-        "free_blocks": gaps,
-        # Named so the model can say "you're free, though it's Tiger Camp day"
-        # rather than silently dropping something the user cares about.
-        "all_day_events": all_day,
-    })
+    return ToolResult(
+        data={
+            "date": day.isoformat(),
+            "between": {"start": between_start, "end": between_end},
+            "min_minutes": min_minutes,
+            "free_blocks": gaps,
+            # Named so the model can say "you're free, though it's Tiger Camp
+            # day" rather than silently dropping something the user cares about.
+            "all_day_events": all_day,
+        },
+        coverage=(CalendarCoverage(start=day, end=day + timedelta(days=1)),),
+    )
