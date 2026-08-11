@@ -24,8 +24,8 @@ Synchronous — wrap in run_in_executor when called from async.
 import logging
 import re
 from datetime import date, datetime, timedelta
-from zoneinfo import ZoneInfo
 
+import clock
 import compat
 from calendars import backend as calendar_backend
 from connectors import weather as weather_connector
@@ -46,13 +46,12 @@ _GROUPME_HEADER = re.compile(r"^(Group|From):\s")
 def _local_now(config: dict) -> datetime:
     """Authoritative current datetime in the configured timezone.
 
-    Never use date.today() / datetime.now() for the briefing's "today" — those
-    read the host's system timezone, which on the always-on Mac can disagree
-    with the configured America/Chicago and produce an off-by-one weekday label
-    even while the date-keyed calendar fetches (which use the config tz) stay
-    correct. Always derive the briefing's notion of now/today from here."""
-    tz_name = (config.get("agent") or {}).get("timezone", "America/Chicago")
-    return datetime.now(ZoneInfo(tz_name))
+    Thin alias for clock.local_now — the rule (configured timezone beats the
+    host clock, or the weekday label drifts by a day) moved to clock.py so the
+    dispatcher could share it without importing this module. Kept as a name
+    because every "today" in this file goes through it.
+    """
+    return clock.local_now(config)
 
 
 def _local(iso: str) -> datetime | None:

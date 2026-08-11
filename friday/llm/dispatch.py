@@ -25,7 +25,7 @@ import time
 
 import memory.activity as activity
 import memory.state as state
-from llm import profiles
+from llm import context, profiles
 from llm.assembly import assemble
 from llm.providers.base import Provider
 from llm.providers.gemini import GeminiProvider
@@ -60,6 +60,7 @@ _RETRYABLE = tuple(_BACKOFF_S)
 
 _provider: Provider | None = None
 _conn = None
+_config: dict = {}
 
 
 def configure(config: dict, conn=None) -> None:
@@ -70,8 +71,9 @@ def configure(config: dict, conn=None) -> None:
 
     conn is the shared SQLite connection used for exchange logging. Optional:
     without it dispatch still works and simply records nothing."""
-    global _provider, _conn
+    global _provider, _conn, _config
     _conn = conn
+    _config = config
     name = config.get("provider", "ollama")
     try:
         cls = _PROVIDER_CLASSES[name]
@@ -101,7 +103,20 @@ def dispatch(request: LLMRequest) -> LLMResponse:
     deadline = time.monotonic() + profile.timeout_s
     if request.deadline is not None:
         deadline = min(deadline, request.deadline)
-    request = dataclasses.replace(request, deadline=deadline, profile=profile)
+
+    # The standing blocks — clock, and location if it has been warmed — go in
+    # front of whatever the caller assembled, so a caller cannot forget the
+    # date and cannot shadow it either.
+    #
+    # INJECTED, NOT FETCHED, AND NOT A TOOL. See llm/context.py: these are
+    # memory reads on a path that holds the Telegram semaphore, and a model
+    # that has to *ask* what day it is, is a model that can decline to and
+    # then write a calendar event into the wrong week. Do not turn these into
+    # tool calls in step 3.
+    blocks = context.standing_blocks(_config) + request.context_blocks
+    request = dataclasses.replace(
+        request, deadline=deadline, profile=profile, context_blocks=blocks
+    )
 
     # Once, before the retry loop: a retry re-sends the same bytes, and
     # re-assembling per attempt would let a mid-dispatch AGENTS.md edit change
