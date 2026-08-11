@@ -24,6 +24,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
+from llm import persona
 from llm.types import Profile
 
 logger = logging.getLogger("friday.llm.profiles")
@@ -51,7 +52,10 @@ class _Spec:
 _SPECS: dict[str, _Spec] = {
     "CHAT": _Spec(
         timeout_s=120.0,
-        persona_sections=(),     # filled in when the persona module lands
+        # Not URGENCY (that is the connector work's, for tagging ingested
+        # rows) and not TOOL_POLICY (step 3, and it describes tools that do
+        # not exist — handing it to CHAT today tells the model to call them).
+        persona_sections=("IDENTITY", "TIME", "VOICE", "FORMATTING"),
         tool_scope=None,         # step 3
         max_tool_hops=0,
         # 1.0 is what every chat call ran at before the dispatcher. Named
@@ -61,6 +65,13 @@ _SPECS: dict[str, _Spec] = {
         default_temperature=1.0,
     ),
 }
+
+# A section name outside persona.SECTIONS is a typo in this file, not a user
+# edit, so it fails here at import — before the daemon serves anything and
+# regardless of which profile happens to run first. The other direction (a
+# vocabulary section AGENTS.md does not currently provide) only warns; see
+# llm/persona.py for why the two are asymmetric.
+persona.validate(s for spec in _SPECS.values() for s in spec.persona_sections)
 
 _registry: dict[str, Profile] = {}
 
