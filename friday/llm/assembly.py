@@ -28,7 +28,56 @@ from llm import persona
 from llm.types import AssembledPrompt, LLMRequest, Profile, Turn
 
 
-def build_system(request: LLMRequest, profile: Profile) -> str:
+# The dashboard's Persona page writes four keys. Two of them are readable as
+# text and are overlaid onto VOICE below; the other two are not, and naming
+# their owner here is cheaper than rediscovering that they are unread:
+#
+#   persona.custom_instructions — appended to VOICE verbatim.
+#   persona.snark_level         — one generated sentence appended to VOICE.
+#   persona.preset              — UNREAD. professional | butler | friday is a
+#                                 whole-voice swap, not a line of text; it
+#                                 wants its own step once there is more than
+#                                 one voice to swap between.
+#   persona.jarvis_phrases      — UNREAD. A per-phrase approval map, which is
+#                                 quip selection, which is step 4 with
+#                                 phrases.py. Wiring it into prompt text now
+#                                 would put the approval list in every call's
+#                                 prefix to no purpose.
+_SNARK_LINES = {
+    "none": "Drop the sarcasm entirely. Stay warm and plain; wit is not wanted "
+            "right now.",
+    "medium": "Keep the wit rare — a dry aside only when it genuinely lands, "
+              "and never more than once in a reply.",
+    "maximum": "The dry wit is welcome. Still one line per reply at most, and "
+               "still never at the expense of the answer.",
+}
+
+
+def voice_overlay(config: dict) -> str:
+    """Config-driven additions to the VOICE section, or ''.
+
+    Appended AFTER the AGENTS.md text, never merged into it: the file is the
+    base and config is the overlay, so a user reading AGENTS.md sees what
+    Friday actually starts from and the later line is visibly the override.
+    """
+    persona_cfg = config.get("persona") or {}
+    parts: list[str] = []
+
+    snark = str(persona_cfg.get("snark_level") or "").strip().lower()
+    if snark in _SNARK_LINES:
+        parts.append(_SNARK_LINES[snark])
+
+    custom = str(persona_cfg.get("custom_instructions") or "").strip()
+    if custom:
+        # Labeled, because it is the user speaking about how Friday should
+        # behave rather than more of Friday's own description of itself.
+        parts.append(f"Standing instructions from the user: {custom}")
+
+    return "\n\n".join(parts)
+
+
+def build_system(request: LLMRequest, profile: Profile,
+                 config: dict | None = None) -> str:
     """Persona sections, then labeled context blocks.
 
     Order is load-bearing. The persona is byte-identical on every call with
@@ -46,6 +95,13 @@ def build_system(request: LLMRequest, profile: Profile) -> str:
     persona_text = persona.assemble(profile.persona_sections)
     if persona_text:
         parts.append(persona_text)
+
+    # Only when the profile actually took VOICE. Overlaying snark onto
+    # CLASSIFY would put tone instructions in front of a one-word label.
+    if config and "VOICE" in profile.persona_sections:
+        overlay = voice_overlay(config)
+        if overlay:
+            parts.append(overlay)
 
     for block in request.context_blocks:
         parts.append(f"{block.label}:\n{block.content}")
@@ -104,10 +160,11 @@ def build_turns(request: LLMRequest) -> tuple[Turn, ...]:
     return tuple(turns)
 
 
-def assemble(request: LLMRequest, profile: Profile) -> AssembledPrompt:
+def assemble(request: LLMRequest, profile: Profile,
+             config: dict | None = None) -> AssembledPrompt:
     """The one call. Its result is what the provider sends AND what the
     exchange log records, so the two cannot disagree."""
     return AssembledPrompt(
-        system=build_system(request, profile),
+        system=build_system(request, profile, config),
         turns=build_turns(request),
     )

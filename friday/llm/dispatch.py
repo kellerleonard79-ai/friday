@@ -121,7 +121,7 @@ def dispatch(request: LLMRequest) -> LLMResponse:
     # Once, before the retry loop: a retry re-sends the same bytes, and
     # re-assembling per attempt would let a mid-dispatch AGENTS.md edit change
     # the prompt between attempt 1 and attempt 2.
-    prompt = assemble(request, profile)
+    prompt = assemble(request, profile, _config)
 
     attempt = 0
     while True:
