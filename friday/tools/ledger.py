@@ -34,18 +34,19 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Protocol
 
-from tools.types import CalendarCoverage, Coverage
+from tools.types import CalendarRead, CalendarWrite, Record, WriteAttempt
 
 
 @dataclass(slots=True)
 class Ledger:
     """One turn's established facts. Append-only within the turn."""
-    entries: list[Coverage] = field(default_factory=list)
+    entries: list[Record] = field(default_factory=list)
 
-    def record(self, coverage: tuple[Coverage, ...] | list[Coverage]) -> None:
-        """Write what a call established. Called by the executor, from a tool's
-        returned coverage — never by the tool itself."""
-        self.entries.extend(coverage)
+    def record(self, records: tuple[Record, ...] | list[Record]) -> None:
+        """Write what a call established. Called by the executor — from a read
+        tool's declared records, or from what the executor synthesised out of a
+        write's confirmation. Never by the tool itself."""
+        self.entries.extend(records)
 
     def covers_calendar(self, start: date, end: date) -> bool:
         """Whether [start, end) has been read this turn.
@@ -57,16 +58,43 @@ class Ledger:
         """
         return any(
             e.covers(start, end)
-            for e in self.entries if isinstance(e, CalendarCoverage)
+            for e in self.entries if isinstance(e, CalendarRead)
+        )
+
+    def wrote(self, fingerprint: str) -> bool:
+        """Whether this turn already wrote, or may have written, this exact
+        thing. An ATTEMPT counts: the question a caller asks here is "could a
+        write now double-book", and "we do not know whether the first one
+        landed" has to answer yes to that. The ten-minute recent_writes table
+        (memory/writes.py) is the cross-turn version of the same question."""
+        return any(
+            isinstance(e, (CalendarWrite, WriteAttempt))
+            and e.fingerprint == fingerprint
+            for e in self.entries
         )
 
     def summary(self) -> dict:
-        """For the tool_calls log — what was known when a call was made."""
+        """For the tool_calls log — what was known when a call was made.
+
+        This is what answers "what had Friday actually read when it wrote?",
+        which is the first question anybody asks after a bad write. Persisted
+        onto the write's tool_calls row; see memory/activity.py.
+        """
         return {
             "calendar_reads": [
                 f"{e.start.isoformat()}/{e.end.isoformat()}"
-                for e in self.entries if isinstance(e, CalendarCoverage)
-            ]
+                for e in self.entries if isinstance(e, CalendarRead)
+            ],
+            "calendar_writes": [
+                {"id": e.identifier, "day": e.day.isoformat(),
+                 "fingerprint": e.fingerprint, "verified": e.verified}
+                for e in self.entries if isinstance(e, CalendarWrite)
+            ],
+            "write_attempts": [
+                {"day": e.day.isoformat(), "fingerprint": e.fingerprint,
+                 "detail": e.detail}
+                for e in self.entries if isinstance(e, WriteAttempt)
+            ],
         }
 
 

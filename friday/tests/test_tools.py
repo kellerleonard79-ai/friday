@@ -17,7 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tools.ledger import CalendarReadFor, Ledger          # noqa: E402
-from tools.types import CalendarCoverage                  # noqa: E402
+from tools.types import CalendarRead, CalendarWrite, WriteAttempt, WriteConfirmation  # noqa: E402
 from tools.registry import ToolSpec, _build_parameters    # noqa: E402
 from tools.types import ToolError, ToolResult             # noqa: E402
 
@@ -30,10 +30,10 @@ def check(label: str, condition: bool) -> None:
         _failures.append(label)
 
 
-# ── The ledger records coverage, not that a read happened ────────────────────
+# ── The ledger records what was read, not that a read happened ───────────────
 
 led = Ledger()
-led.record((CalendarCoverage(date(2026, 8, 17), date(2026, 8, 24)),))
+led.record((CalendarRead(date(2026, 8, 17), date(2026, 8, 24)),))
 
 check("a read of next week does not cover today",
       not led.covers_calendar(date(2026, 8, 11), date(2026, 8, 12)))
@@ -48,8 +48,8 @@ check("an empty ledger covers nothing",
 # not become invisible, and being strict costs one tool call while being wrong
 # costs a double-booked calendar.
 split = Ledger()
-split.record((CalendarCoverage(date(2026, 8, 11), date(2026, 8, 12)),))
-split.record((CalendarCoverage(date(2026, 8, 12), date(2026, 8, 13)),))
+split.record((CalendarRead(date(2026, 8, 11), date(2026, 8, 12)),))
+split.record((CalendarRead(date(2026, 8, 12), date(2026, 8, 13)),))
 check("two adjacent reads are not stitched into one span",
       not split.covers_calendar(date(2026, 8, 11), date(2026, 8, 13)))
 
@@ -138,7 +138,7 @@ check("bool coercion does not treat 'false' as True",
       executor._coerce("false", "boolean") is False)
 
 
-# ── Coverage is derived from the return value, never self-reported ───────────
+# ── Records are derived from the return value, never self-reported ───────────
 #
 # The six cases this section exists for. Before this, a tool wrote its own
 # ledger entry: nothing forced it to and nothing checked that what it recorded
@@ -149,22 +149,22 @@ from tools.registry import tool as _tool  # noqa: E402
 from tools.types import ToolResult as _TR  # noqa: E402
 
 
-@_tool(name="_t_covers", description="Test tool that reports coverage.",
+@_tool(name="_t_covers", description="Test tool that reports a read.",
        scope=("test_cov",), effect="read")
 def _t_covers() -> _TR:
     """test only"""
     return _TR(data={"ok": True},
-               coverage=(CalendarCoverage(date(2026, 9, 1), date(2026, 9, 3)),))
+               records=(CalendarRead(date(2026, 9, 1), date(2026, 9, 3)),))
 
 
-@_tool(name="_t_silent", description="Test tool that reports no coverage.",
+@_tool(name="_t_silent", description="Test tool that reports nothing.",
        scope=("test_cov",), effect="read")
 def _t_silent() -> _TR:
     """test only"""
     return _TR(data={"ok": True})
 
 
-@_tool(name="_t_fails", description="Test tool that fails despite claiming coverage.",
+@_tool(name="_t_fails", description="Test tool that fails despite claiming a read.",
        scope=("test_cov",), effect="read")
 def _t_fails() -> ToolError:
     """test only"""
@@ -173,14 +173,14 @@ def _t_fails() -> ToolError:
 
 _l = Ledger()
 executor.run(registry.get("_t_covers"), {}, ledger=_l, store={})
-check("a tool returning coverage produces the matching ledger entry",
-      _l.entries == [CalendarCoverage(date(2026, 9, 1), date(2026, 9, 3))])
+check("a tool returning records produces the matching ledger entry",
+      _l.entries == [CalendarRead(date(2026, 9, 1), date(2026, 9, 3))])
 
 _l = Ledger()
 executor.run(registry.get("_t_silent"), {}, ledger=_l, store={})
-check("a tool returning no coverage produces no ledger entry", _l.entries == [])
+check("a tool returning no records produces no ledger entry", _l.entries == [])
 
-# The failing tool is written to claim coverage it did not establish; the
+# The failing tool is written to claim a read it did not establish; the
 # executor must ignore it, because a read that failed is not a read.
 _l = Ledger()
 _out, _ = executor.run(registry.get("_t_fails"), {}, ledger=_l, store={})
@@ -198,6 +198,112 @@ check("a precondition for a date inside the recorded range passes",
 #   grep -rn "ledger" friday/tools/calendar_read.py
 # There is no module-level accessor in tools/ledger.py to reach, so tool code
 # has no path to the ledger at all.
+
+
+# ── The recording rule splits by kind ────────────────────────────────────────
+#
+# Four cases. Reads are unchanged from above; writes are the new half, and the
+# fourth case is the one that matters: a write that may have landed has to
+# leave something behind, or a retry has nothing to check against and must ask
+# the service that just failed to answer it.
+
+_DAY = date(2026, 9, 10)
+_FP = "fingerprint-under-test"
+
+
+@_tool(name="_t_write_ok", description="Test write tool that succeeds.",
+       scope=("test_cov",), effect="write")
+def _t_write_ok() -> _TR:
+    """test only"""
+    # Deliberately lies twice: claims committed=True and declares a read it
+    # never did. The executor must overwrite both.
+    return _TR(data={"ok": True}, committed=True,
+               records=(CalendarRead(date(1999, 1, 1), date(1999, 1, 2)),),
+               write=WriteConfirmation(status="written", day=_DAY,
+                                       fingerprint=_FP, identifier="UID-1",
+                                       verified=True))
+
+
+@_tool(name="_t_write_refused", description="Test write tool the service refused.",
+       scope=("test_cov",), effect="write")
+def _t_write_refused() -> ToolError:
+    """test only"""
+    return ToolError(kind="not_found", message="no such calendar",
+                     write=WriteConfirmation(status="refused", day=_DAY,
+                                             fingerprint=_FP,
+                                             detail="calendar not found"))
+
+
+@_tool(name="_t_write_unknown", description="Test write tool that timed out.",
+       scope=("test_cov",), effect="write")
+def _t_write_unknown() -> ToolError:
+    """test only"""
+    return ToolError(kind="unavailable", message="the write timed out",
+                     write=WriteConfirmation(status="unknown", day=_DAY,
+                                             fingerprint=_FP,
+                                             detail="osascript timed out"))
+
+
+# 1. A successful read records what the tool declared. (Covered above; restated
+#    here so the four-case table is readable in one place.)
+_l = Ledger()
+executor.run(registry.get("_t_covers"), {}, ledger=_l, store={})
+check("read success: the executor records what the tool declared",
+      _l.entries == [CalendarRead(date(2026, 9, 1), date(2026, 9, 3))])
+
+# 2. A failed read records nothing. A read that did not happen is not a read.
+_l = Ledger()
+executor.run(registry.get("_t_fails"), {}, ledger=_l, store={})
+check("read failure: no record", _l.entries == [])
+
+# 3. A successful write has its record SYNTHESISED from the service's
+#    confirmation, and the tool's own claims are discarded.
+_l = Ledger()
+_out, _ = executor.run(registry.get("_t_write_ok"), {}, ledger=_l, store={})
+check("write success: the record is synthesised from the confirmation",
+      _l.entries == [CalendarWrite(identifier="UID-1", day=_DAY,
+                                   fingerprint=_FP, verified=True)])
+check("write success: the tool's declared records are discarded",
+      _out.records == (CalendarWrite(identifier="UID-1", day=_DAY,
+                                     fingerprint=_FP, verified=True),))
+check("write success: committed comes from the confirmation, not the tool",
+      _out.committed is True)
+
+# A refused write records nothing — the service said it did not happen.
+_l = Ledger()
+executor.run(registry.get("_t_write_refused"), {}, ledger=_l, store={})
+check("write refused: no record", _l.entries == [])
+
+# 4. THE SPLIT. A write that may have landed records an attempt carrying its
+#    fingerprint, even though it came back as a ToolError.
+_l = Ledger()
+_out, _ = executor.run(registry.get("_t_write_unknown"), {}, ledger=_l, store={})
+check("write unknown: a ToolError still records an attempt",
+      _l.entries == [WriteAttempt(fingerprint=_FP, day=_DAY,
+                                  detail="osascript timed out")])
+check("write unknown: the attempt is findable by fingerprint",
+      _l.wrote(_FP) and not _l.wrote("some-other-write"))
+
+# committed must never be true off a write the executor did not confirm.
+_l = Ledger()
+_out, _ = executor.run(registry.get("_t_write_ok"), {}, ledger=_l, store={})
+check("a write tool cannot self-report committed",
+      _out.committed and _l.entries[0].verified)
+
+
+# ── The fingerprint identifies an event, not a description of one ────────────
+
+from calendars.writes import write_fingerprint  # noqa: E402
+
+check("the same event described in different case has one fingerprint",
+      write_fingerprint("Lunch With Sam", "2026-08-13", "12:00", "Friday Test")
+      == write_fingerprint("lunch with sam", "2026-08-13", "12:00", "friday test"))
+check("a different day is a different fingerprint",
+      write_fingerprint("Lunch With Sam", "2026-08-13", "12:00", "Friday Test")
+      != write_fingerprint("Lunch With Sam", "2026-08-14", "12:00", "Friday Test"))
+check("a different calendar is a different fingerprint",
+      write_fingerprint("Lunch With Sam", "2026-08-13", "12:00", "Friday Test")
+      != write_fingerprint("Lunch With Sam", "2026-08-13", "12:00", "Keller Leonard"))
 check("tools/ledger.py exposes no ambient accessor",
       not any(hasattr(__import__("tools.ledger", fromlist=["x"]), n)
               for n in ("current", "begin_turn", "end_turn")))

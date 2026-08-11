@@ -19,15 +19,21 @@ user directly: the model is what will supply the value or ask for it, and a
 raw "date_from is required" in a Telegram reply reads as Friday malfunctioning
 out loud.
 
-THIS MODULE IS THE LEDGER'S ONLY WRITER. A tool declares what it covered in the
-value it returns; this file takes that and records it. Tools have no path to
-the ledger — it is an ordinary object passed in here, not a global they could
-reach. A failed call contributes nothing, because a read that did not happen is
-not a read.
+THIS MODULE IS THE LEDGER'S ONLY WRITER. A read tool declares what it covered
+in the value it returns and this file records that. A WRITE tool declares
+nothing: this file synthesises the record from the service's own confirmation,
+and derives `committed` from the same object, so the two cannot disagree. Tools
+have no path to the ledger — it is an ordinary object passed in here, not a
+global they could reach.
+
+The "a failed call records nothing" rule splits along the same line. A failed
+read is not a read. A failed WRITE may have been committed server-side, and
+records an attempt so a retry has something to check. See _record().
 """
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import time
 from typing import Any
@@ -35,7 +41,8 @@ from typing import Any
 from tools import scratch
 from tools.ledger import Ledger
 from tools.registry import ToolSpec
-from tools.types import ToolError, ToolOutcome, ToolResult
+from tools.types import (CalendarWrite, ToolError, ToolOutcome, ToolResult,
+                         WriteAttempt)
 
 logger = logging.getLogger("friday.tools.executor")
 
@@ -152,7 +159,7 @@ def check_preconditions(spec: ToolSpec, arguments: dict,
 
 def run(spec: ToolSpec, arguments: dict, *, ledger: Ledger | None = None,
         store: dict | None = None) -> tuple[ToolOutcome, int]:
-    """Validate, check preconditions, execute, record coverage.
+    """Validate, check preconditions, execute, write the ledger.
     Returns (outcome, duration_ms).
 
     `ledger` and `store` are passed rather than reached for. This function runs
@@ -207,11 +214,84 @@ def run(spec: ToolSpec, arguments: dict, *, ledger: Ledger | None = None,
             message=f"{spec.name} returned a malformed result.",
         ))
 
-    # Coverage goes in only for a successful call, and only from what the tool
-    # RETURNED. A ToolError contributes nothing: a read that failed is not a
-    # read, and crediting one would let a precondition pass on the strength of
-    # a call that never got an answer.
-    if ledger is not None and isinstance(outcome, ToolResult) and outcome.coverage:
-        ledger.record(outcome.coverage)
-
+    outcome = _record(spec, outcome, ledger)
     return _done(outcome)
+
+
+def _record(spec: ToolSpec, outcome: ToolOutcome,
+            ledger: Ledger | None) -> ToolOutcome:
+    """Write the ledger from what the call produced, and — for a write —
+    settle `committed` at the same time.
+
+    THE RULE IS DIFFERENT FOR READS AND WRITES, AND THE DIFFERENCE IS THE POINT.
+
+    A READ declares what it covered and the executor believes it. That is the
+    step-3 contract and it is unchanged. A failed read records nothing: a read
+    that did not happen is not a read, and crediting one would let a
+    precondition pass on the strength of a call that never got an answer.
+
+    A WRITE DECLARES NOTHING. The executor synthesises the record from the
+    WriteConfirmation the tool carried up from the service, and derives
+    `committed` from that same object. This is what makes it impossible for
+    the two to disagree — a tool cannot report committed=True alongside a
+    record saying the write is in doubt, because it does not write either one.
+    Anything a write tool puts in `records` is discarded, deliberately.
+
+    AND A FAILED WRITE IS NOT LIKE A FAILED READ. This is the split. A write
+    that timed out or died on the socket may have been committed server-side:
+    the request was already out. Recording nothing would leave a retry with
+    nothing to check against, so it would have to go and ask the service —
+    the same service that just failed to answer. That is precisely how a
+    client-side timeout on a server-side success turns into two events on a
+    calendar. So an `unknown` write records a WriteAttempt carrying its
+    fingerprint, whether it arrived as a ToolResult or a ToolError.
+
+    A `refused` write records nothing, because refused means the service told
+    us it did not happen.
+    """
+    if spec.effect != "write":
+        if ledger is not None and isinstance(outcome, ToolResult) and outcome.records:
+            ledger.record(outcome.records)
+        return outcome
+
+    confirmation = outcome.write
+    if confirmation is None:
+        # A write tool that came back without one. Not fatal — a write can fail
+        # before it attempts anything (a missing parameter, an unresolvable
+        # calendar) and there is genuinely nothing to record. Logged at info
+        # for a ToolResult, which is the shape that should not happen: a write
+        # that claims success has to say what the service said.
+        if isinstance(outcome, ToolResult):
+            logger.error(
+                f"Write tool {spec.name} returned a ToolResult with no "
+                f"WriteConfirmation. Reporting it as uncommitted."
+            )
+            return dataclasses.replace(outcome, records=(), committed=False)
+        return outcome
+
+    if confirmation.status == "written":
+        entry = CalendarWrite(
+            identifier=confirmation.identifier,
+            day=confirmation.day,
+            fingerprint=confirmation.fingerprint,
+            verified=confirmation.verified,
+        )
+    elif confirmation.status == "unknown":
+        entry = WriteAttempt(
+            fingerprint=confirmation.fingerprint,
+            day=confirmation.day,
+            detail=confirmation.detail,
+        )
+    else:  # refused — the service said it did not happen
+        entry = None
+
+    if ledger is not None and entry is not None:
+        ledger.record((entry,))
+
+    if isinstance(outcome, ToolResult):
+        # committed is true only for `written`, and only the executor sets it.
+        return dataclasses.replace(
+            outcome, records=(entry,) if entry is not None else (),
+            committed=confirmation.status == "written",
+        )
+    return outcome

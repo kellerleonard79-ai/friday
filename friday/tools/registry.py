@@ -40,14 +40,13 @@ logger = logging.getLogger("friday.tools.registry")
 # that says so in the log.
 _MAX_DOCSTRING = 200
 
-# What a tool does to the world. Step 3 registers reads only; "write" exists so
-# step 4 adds a value here rather than a field, and so the read-only guarantee
-# is checkable in one place instead of by reading every tool.
+# What a tool does to the world. The executor branches on it: a read declares
+# its own ledger records and is believed, a write declares nothing and has its
+# record synthesised from the service's confirmation. See tools/executor.py.
+#
+# The step-3 _ALLOWED_EFFECTS guard that rejected effect="write" at
+# registration is gone, per its own instruction — writes have landed.
 EffectClass = Literal["read", "write"]
-
-# Enforced at registration for the length of step 3. Delete this, not the
-# EffectClass entry, when writes land.
-_ALLOWED_EFFECTS: tuple[EffectClass, ...] = ("read",)
 
 _JSON_TYPES: dict[Any, str] = {
     str: "string",
@@ -181,16 +180,11 @@ def tool(*, name: str, description: str, scope: tuple[str, ...],
 
     description — one sentence, what the tool returns. Goes to the model.
     scope       — the tags a profile's tool_scope must intersect to see it.
-    effect      — "read" only, for now; see _ALLOWED_EFFECTS.
+    effect      — "read" or "write". Decides the executor's ledger rule.
     preconditions — facts that must already be in the turn's ledger.
     timeout_s   — per-call ceiling, still bounded by the turn's shared deadline.
     """
     def decorate(fn: Callable[..., ToolOutcome]) -> Callable[..., ToolOutcome]:
-        if effect not in _ALLOWED_EFFECTS:
-            raise ValueError(
-                f"Tool {name!r} declares effect={effect!r}. Step 3 is read-only; "
-                f"writes and their permission gate land in step 4."
-            )
         if not scope:
             raise ValueError(f"Tool {name!r} has an empty scope and no profile could see it.")
         if name in _registry:

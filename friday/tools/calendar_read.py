@@ -19,11 +19,11 @@ is one revoked permission away — see connectors/apple_calendar.py, where the
 status check runs on every call precisely so a grant can come and go without a
 restart.
 
-The cache is per-turn and holds payload; the fact ledger holds coverage. They
+The cache is per-turn and holds payload; the fact ledger holds records. They
 are deliberately not the same object, and this module can only reach one of
 them: if the ledger's answer to "what has been read" depended on cache
 eviction, a precondition could pass because something was still cached rather
-than because it was actually read. Coverage is DECLARED in each tool's return
+than because it was actually read. Records are DECLARED in each tool's return
 value and written to the ledger by tools/executor.py — see tools/types.py.
 """
 
@@ -37,7 +37,7 @@ from calendars import backend as calendar_backend
 from calendars.eventtime import is_all_day, to_local
 from tools import scratch
 from tools.registry import tool
-from tools.types import CalendarCoverage, ToolError, ToolOutcome, ToolResult
+from tools.types import CalendarRead, ToolError, ToolOutcome, ToolResult
 
 logger = logging.getLogger("friday.tools.calendar")
 
@@ -182,7 +182,7 @@ def get_schedule(
         },
         # Declared, not recorded. The executor puts this in the ledger; this
         # module cannot reach the ledger and must not try.
-        coverage=(CalendarCoverage(start=start, end=window_end),),
+        records=(CalendarRead(start=start, end=window_end),),
     )
 
 
@@ -289,5 +289,5 @@ def find_free_blocks(
             # day" rather than silently dropping something the user cares about.
             "all_day_events": all_day,
         },
-        coverage=(CalendarCoverage(start=day, end=day + timedelta(days=1)),),
+        records=(CalendarRead(start=day, end=day + timedelta(days=1)),),
     )

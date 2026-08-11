@@ -158,8 +158,9 @@ def run_turn(request: LLMRequest, conn=None) -> TurnResult:
     deadline = time.monotonic() + profile.timeout_s
 
     # Per-turn state, owned here and passed down. The scratch holds tool
-    # payload (the calendar read cache); the ledger holds coverage and is
-    # written only by the executor, from what a tool returned.
+    # payload (the calendar read cache); the ledger holds records and is
+    # written only by the executor — declared by a read, synthesised from the
+    # service's confirmation for a write.
     #
     # Plain objects rather than thread-locals: tools execute in a worker pool,
     # so anything installed on this thread is invisible from inside a tool.

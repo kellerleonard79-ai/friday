@@ -42,9 +42,9 @@ class Effect:
     """
 
 
-# ── Coverage: what a call actually established ───────────────────────────────
+# ── Records: what a call actually established ────────────────────────────────
 #
-# COVERAGE IS PART OF THE RETURN CONTRACT, NOT A SIDE EFFECT.
+# A RECORD IS PART OF THE RETURN CONTRACT, NOT A SIDE EFFECT.
 #
 # Tools used to record their own reads by reaching for the ledger and calling
 # it. Nothing forced them to, and nothing checked that what they recorded
@@ -52,17 +52,20 @@ class Effect:
 # ledger claiming a day had been read when it had not. A precondition that
 # trusts the thing it is checking is not a precondition.
 #
-# Now a tool states what it covered in the value it returns, the executor
+# Now a tool states what it established in the value it returns, the executor
 # writes the ledger from that, and tool code has no path to the ledger at all
 # (see tools/ledger.py — there is no module-level accessor to reach).
 #
+# It was called `coverage` while reads were the only kind. It is `records` now
+# because the ledger holds writes too, and "coverage" means reading.
+#
 # Typed rather than a free-form dict so a precondition check is a comparison
 # and not a parse. A malformed dict would fail at the moment of checking, which
-# in step 4 is the moment before a write.
+# is the moment before a write.
 
 
 @dataclass(frozen=True, slots=True)
-class CalendarCoverage:
+class CalendarRead:
     """A half-open [start, end) day range a call actually read.
 
     Half-open because that is what the calendar backend window is, and
@@ -76,11 +79,79 @@ class CalendarCoverage:
         return self.start <= start and self.end >= end
 
 
-# Every kind of fact a call can establish. One member today; step 4 adds what a
-# write changed. A union rather than a base class with fields, so a precondition
-# matching on kind is exhaustive and a new kind is a type error at every site
-# that has to care.
-Coverage = CalendarCoverage
+@dataclass(frozen=True, slots=True)
+class CalendarWrite:
+    """An event this turn put on the calendar, and the service confirmed.
+
+    THE EXECUTOR SYNTHESISES THIS FROM THE SERVICE'S CONFIRMATION. A tool does
+    not get to declare it, unlike a read. The reason is the asymmetry in what
+    the two claims cost to be wrong about: a tool over-claiming a read makes a
+    precondition pass that should not have, which the next read corrects. A
+    tool over-claiming a write puts a line in the ledger saying an event exists
+    when it does not — and the record is the thing a retry consults.
+
+    So `committed` and this record are produced by the same code from the same
+    WriteConfirmation, and cannot disagree.
+
+    `identifier` is the service's own id. `day` is the day written to, which
+    is what a later precondition asks about. `fingerprint` is the idempotency
+    key (calendars/writes.py::write_fingerprint).
+    """
+    identifier: str
+    day: date
+    fingerprint: str
+    verified: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class WriteAttempt:
+    """A write that may or may not have landed.
+
+    THIS IS WHY THE ToolError RULE HAD TO SPLIT. A failed read is not a read
+    and records nothing — that rule is right and unchanged. A failed write is
+    a different animal: a timeout or a dead socket means the request was
+    already on its way out, and the service may have committed it.
+
+    Under the old blanket rule this recorded nothing, so a retry would have had
+    nothing to check against and would have had to ask the service — the exact
+    service that just failed to answer. That is how a client-side timeout on a
+    server-side success becomes two events on a calendar.
+
+    It carries the fingerprint and not an identifier because there is no
+    identifier: not knowing what happened is the whole content of this record.
+    """
+    fingerprint: str
+    day: date
+    detail: str = ""
+
+
+# Every kind of fact a call can establish. A union rather than a base class
+# with fields, so a precondition matching on kind is exhaustive and a new kind
+# is a type error at every site that has to care.
+Record = CalendarRead | CalendarWrite | WriteAttempt
+
+
+@dataclass(frozen=True, slots=True)
+class WriteConfirmation:
+    """What a service said about a write, handed up for the executor to turn
+    into a record and a `committed` flag.
+
+    A write tool returns this instead of setting `committed` itself. That is
+    the whole mechanism behind "committed and the write record cannot disagree
+    because one produces the other" — there is exactly one function that reads
+    this and it writes both.
+
+    `status` mirrors calendars/writes.py::WriteStatus, restated here rather
+    than imported so tools/types.py stays the tool layer's own vocabulary and
+    does not depend on the calendar package. A second write target later (an
+    email draft, a to-do) reports the same three states and needs no calendar.
+    """
+    status: Literal["written", "refused", "unknown"]
+    day: date
+    fingerprint: str
+    identifier: str = ""
+    verified: bool = False
+    detail: str = ""
 
 
 # Why a tool failed, in a form the turn loop can branch on without reading
@@ -126,6 +197,11 @@ class ToolError:
     kind: ToolErrorKind
     message: str
     field: str | None = None
+    # Set only by a write tool whose write failed. The executor reads it to
+    # decide between "nothing happened, record nothing" (refused) and "this may
+    # have landed, record an attempt" (unknown). None on every read tool, and
+    # on a write that never got as far as attempting anything.
+    write: WriteConfirmation | None = None
 
     def as_content(self) -> dict[str, Any]:
         """The payload that goes back as a ToolResultTurn."""
@@ -142,22 +218,30 @@ class ToolResult:
     `data` is JSON-able structured data and nothing else. No prose, no
     formatting, no units spelled out in English — see the module docstring.
 
-    `coverage` is what this call established as fact — see the Coverage note
+    `records` is what this call established as fact — see the Records note
     above. The executor writes it into the turn's ledger; the tool does not.
-    A tool that reads nothing returns none, and that is the honest answer.
+    A tool that establishes nothing returns none, and that is the honest
+    answer. A WRITE TOOL LEAVES THIS EMPTY: the executor synthesises the
+    record from `write` instead, and ignores anything declared here.
 
-    `effects` is empty in step 3 and typed for step 4.
+    `effects` is what should happen in the world as a result. The tool does
+    not execute them — effects/runner.py does, in a fixed order. See
+    tools/effects.py.
 
-    `committed` records whether anything in the world actually changed. It is
-    False for every tool in this step, all of which are reads. It exists now
-    rather than later because the flag has to be true only when a service has
-    confirmed the write back (invariant 4), and a field added later gets
-    defaulted to the convenient value at each call site rather than the correct
-    one.
+    `write` carries the service's answer for a write tool, and is None for a
+    read. It is the executor's raw material for both the record and
+    `committed`.
+
+    `committed` records whether anything in the world actually changed. IT IS
+    SET BY THE EXECUTOR, not by the tool: it may be true only when a service
+    has confirmed the write back (invariant 4), and a tool that sets its own
+    is a tool being trusted about the one thing worth checking. A value passed
+    in here by a write tool is overwritten.
     """
     data: dict[str, Any] = field(default_factory=dict)
-    coverage: tuple[Coverage, ...] = ()
+    records: tuple[Record, ...] = ()
     effects: tuple[Effect, ...] = ()
+    write: WriteConfirmation | None = None
     committed: bool = False
 
 

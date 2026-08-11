@@ -45,6 +45,7 @@ so that both backends get it from one implementation.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from typing import Literal
 
@@ -89,3 +90,31 @@ def refused(detail: str) -> WriteOutcome:
 
 def unknown(detail: str) -> WriteOutcome:
     return WriteOutcome(status="unknown", detail=detail)
+
+
+def write_fingerprint(title: str, day: str, start_time: str,
+                      calendar: str) -> str:
+    """The idempotency key for a calendar write: title, day, start time,
+    calendar. Two writes with the same fingerprint inside the TTL are the same
+    write, and the second one must not happen.
+
+    Deliberately NOT the whole event. Notes and location are excluded because
+    the same event described twice — once by the user, once by a retry after a
+    timeout — routinely differs in them, and a fingerprint that changes when
+    the description does is a fingerprint that never catches anything. What
+    identifies an event to a person is what it is called, when it is, and
+    where it lives.
+
+    Normalised so that "Lunch With Sam" and "lunch with sam" collide, because
+    to a human they are the same lunch. Times are compared as given: a caller
+    holding "09:00" and one holding "9:00" are a real hazard, so the caller
+    normalises before calling — see actions/calendar.py::_parse_event, which
+    every path already goes through.
+    """
+    raw = "\x1f".join((
+        (title or "").strip().casefold(),
+        (day or "").strip(),
+        (start_time or "").strip(),
+        (calendar or "").strip().casefold(),
+    ))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
