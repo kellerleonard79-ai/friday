@@ -47,8 +47,6 @@ class _Spec:
 # channels/telegram.py::_EXECUTOR_TIMEOUT_S (150) so the deadline expires
 # first and the pipeline is released by design rather than by the backstop.
 #
-# CLASSIFY and COMPOSE arrive in a later commit; this table is what they add
-# an entry to.
 _SPECS: dict[str, _Spec] = {
     "CHAT": _Spec(
         timeout_s=120.0,
@@ -63,6 +61,39 @@ _SPECS: dict[str, _Spec] = {
         # move under us, and left at the old value so a tone change reads as
         # the persona landing rather than as a temperature edit.
         default_temperature=1.0,
+    ),
+
+    # Briefings. Same persona as CHAT, and the same model: a briefing is the
+    # most-read thing Friday writes and there is nothing to save by making it
+    # worse. FORMATTING is what keeps the wit out of the body — it is the
+    # section that names briefings as somewhere the voice does not apply.
+    "COMPOSE": _Spec(
+        timeout_s=90.0,
+        persona_sections=("IDENTITY", "TIME", "VOICE", "FORMATTING"),
+        tool_scope=None,
+        max_tool_hops=0,
+        default_max_output_tokens=2048,
+        default_temperature=1.0,
+    ),
+
+    # Urgency tagging and announcement filtering: reads a record, returns a
+    # label. IDENTITY for what Friday is and what its sources are, TIME
+    # because "due tomorrow" is only urgent relative to a date. Deliberately
+    # NOT VOICE or FORMATTING — those are ~2500 characters of butler wit and
+    # markdown policy that cannot improve a one-word answer, and this profile
+    # runs once per ingested row rather than once per user message. That
+    # exclusion is where the savings are, and it is visible as a smaller
+    # prompt in llm_exchanges.
+    #
+    # temperature 0.0: two runs over the same announcement disagreeing about
+    # URGENT is a worse failure than either answer.
+    "CLASSIFY": _Spec(
+        timeout_s=45.0,
+        persona_sections=("IDENTITY", "TIME"),
+        tool_scope=None,
+        max_tool_hops=0,
+        default_max_output_tokens=64,
+        default_temperature=0.0,
     ),
 }
 
