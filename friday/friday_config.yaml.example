@@ -54,17 +54,6 @@ gemini:
   max_tokens: 1000
   api_key: ''         # env fallback: GEMINI_API_KEY
 
-# Tool dispatcher — a cheap call that picks which tools to attach to each
-# message, instead of sending all ten schemas every time. enabled: false
-# restores the old behavior exactly (all tools, no dispatcher call).
-# Every failure falls back to the full tool list, never to none.
-dispatcher:
-  enabled: true
-  provider: gemini    # gemini | ollama
-  model: models/gemini-2.5-flash-lite
-  timeout_s: 5        # wall-clock budget; the chat path never waits longer
-  ollama_model: ''    # used when provider: ollama
-
 # Calendar backend — the event store. Defaults to google on Windows and
 # apple everywhere else; set explicitly to override.
 calendar:
