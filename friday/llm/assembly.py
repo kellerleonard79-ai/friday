@@ -53,29 +53,55 @@ def build_system(request: LLMRequest, profile: Profile) -> str:
     return "\n\n".join(parts)
 
 
+# conversation_history stores exactly these two roles. Anything else is a row
+# written by something that predates this code or by a bug; it is dropped
+# rather than guessed at, because inventing a role changes who the model
+# thinks said what.
+_ROLES = ("user", "assistant")
+
+
 def build_turns(request: LLMRequest) -> tuple[Turn, ...]:
-    """History plus the current message, as one flat user turn.
+    """History as real turns, with the current message as the final one.
 
-    NOTE: this deliberately reproduces the pre-dispatcher wire format
-    byte-for-byte — history glued into an "Earlier in this conversation:"
-    preamble ahead of the real message, inside a single user turn. It is
-    preserved here only so that moving assembly up the stack is not also a
-    change to what the model reads; de-flattening it is the next commit and is
-    measured on its own.
+    This replaces the pre-dispatcher wire format, which glued every stored row
+    into one "Earlier in this conversation:\nUser: ...\nFriday: ..." blob and
+    sent it as a single user turn. That format made the model pay twice: once
+    for the role labels themselves, and again for reasoning about a transcript
+    of a conversation instead of simply having had it.
+
+    Two properties the flat format could not offer:
+
+      * Consecutive turns are merged. Providers reject or mishandle two
+        same-role turns in a row, and a double-write in conversation_history
+        (the timeout path writes user+assistant together) can produce them.
+      * A leading assistant turn is dropped. The window is a LIMIT over the
+        last N rows, so it can begin mid-exchange with Friday's reply, and a
+        conversation that opens with the model speaking is not a shape every
+        provider accepts.
+
+    Neither is cosmetic: both are cases where the old blob silently worked and
+    a real turn list silently would not.
     """
-    if not request.history:
-        return (Turn(role="user", text=request.prompt),)
+    turns: list[Turn] = []
+    for role, content in request.history:
+        if role not in _ROLES or not (content or "").strip():
+            continue
+        if turns and turns[-1].role == role:
+            turns[-1] = Turn(role=role, text=f"{turns[-1].text}\n\n{content}")
+        else:
+            turns.append(Turn(role=role, text=content))
 
-    lines = [
-        f"{'User' if role == 'user' else 'Friday'}: {content}"
-        for role, content in request.history
-    ]
-    text = (
-        "Earlier in this conversation:\n"
-        + "\n".join(lines)
-        + f"\n\nUser: {request.prompt}"
-    )
-    return (Turn(role="user", text=text),)
+    while turns and turns[0].role == "assistant":
+        turns.pop(0)
+
+    if turns and turns[-1].role == "user":
+        # The window ended on an unanswered user message — fold the new one in
+        # rather than emitting two user turns back to back.
+        turns[-1] = Turn(role="user", text=f"{turns[-1].text}\n\n{request.prompt}")
+    else:
+        turns.append(Turn(role="user", text=request.prompt))
+
+    return tuple(turns)
 
 
 def assemble(request: LLMRequest, profile: Profile) -> AssembledPrompt:
