@@ -68,9 +68,18 @@ class SendMessage(Effect):
 
     `channel` names where it goes. It is a name, not a handle: an effect
     holding a channel object would be an effect that could send itself.
+
+    `quip_key` is "<tool>:<outcome>" and asks the runner to append a quip from
+    that group. A KEY, NOT A QUIP: the tool names what happened and the runner
+    picks the words, so a tool never decides how its own answer reads.
+
+    Note what this field's ABSENCE from SendPermissionCard does. "Never a quip
+    on a permission card" is not a rule anybody has to remember — a card has
+    nowhere to put one.
     """
     text: str
     channel: str = "telegram"
+    quip_key: str = ""
 
 
 @dataclass(frozen=True, slots=True)

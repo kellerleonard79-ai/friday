@@ -57,7 +57,11 @@ _SPECS: dict[str, _Spec] = {
         # update_setting, none of which survive. The old text is kept in
         # AGENTS.md under DEFERRED, which no profile can address.
         persona_sections=("IDENTITY", "TIME", "VOICE", "FORMATTING", "TOOL_POLICY"),
-        tool_scope=("read",),
+        # "internal" is deliberately absent. commit_calendar_event carries that
+        # scope and must never appear in a prompt: it is the write that runs
+        # after a tap, and a model that could call it directly would be a model
+        # that can skip the permission gate.
+        tool_scope=("read", "write"),
         # Three rounds of tool execution, so four model calls at worst. Sized
         # against the deadline and the calendar, not picked round: the JXA
         # reader costs ~30s and the per-turn cache makes only the first read

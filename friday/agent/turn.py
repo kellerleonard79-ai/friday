@@ -54,7 +54,8 @@ from tools.types import ToolError, ToolResult
 # Importing the tool modules is what registers them. Done here rather than in
 # friday.py so the loop cannot run against an empty registry: a turn that
 # silently has no tools looks exactly like a model choosing not to call one.
-from tools import calendar_read as _register_calendar_tools  # noqa: F401
+from tools import calendar_read as _register_calendar_reads  # noqa: F401
+from tools import calendar_write as _register_calendar_writes  # noqa: F401
 
 logger = logging.getLogger("friday.turn")
 

@@ -249,6 +249,8 @@ def _record(spec: ToolSpec, outcome: ToolOutcome,
     A `refused` write records nothing, because refused means the service told
     us it did not happen.
     """
+    # gated_write takes this branch with an empty `records`: proposing a change
+    # establishes nothing. Only an actual write reaches the synthesis below.
     if spec.effect != "write":
         if ledger is not None and isinstance(outcome, ToolResult) and outcome.records:
             ledger.record(outcome.records)

@@ -44,9 +44,20 @@ _MAX_DOCSTRING = 200
 # its own ledger records and is believed, a write declares nothing and has its
 # record synthesised from the service's confirmation. See tools/executor.py.
 #
+#   read         reads. Declares what it covered.
+#   write        changes the world and reports the service's confirmation.
+#   gated_write  PROPOSES a change and does not make one. It emits a permission
+#                card and nothing else, so it establishes no fact and records
+#                nothing — the write that follows a tap is a separate `write`
+#                tool, run by effects/pending.py with the stored arguments.
+#
+# gated_write being its own value rather than a flag on `write` is what keeps
+# the executor's rule readable: only a `write` may set `committed`, and a tool
+# that merely asked a question can never be mistaken for one that acted.
+#
 # The step-3 _ALLOWED_EFFECTS guard that rejected effect="write" at
 # registration is gone, per its own instruction — writes have landed.
-EffectClass = Literal["read", "write"]
+EffectClass = Literal["read", "write", "gated_write"]
 
 _JSON_TYPES: dict[Any, str] = {
     str: "string",

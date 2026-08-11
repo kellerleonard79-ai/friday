@@ -53,6 +53,7 @@ import memory.activity as activity
 import memory.state as state
 from calendars import backend as calendar_backend
 from tools import calendar_read as tool_calendar
+from tools import calendar_write as tool_calendar_write
 from connectors import canvas as canvas_connector
 from connectors import gcal_sync
 from connectors import groupme as groupme_connector
@@ -128,6 +129,9 @@ def main() -> None:
     # through. Registration itself happens on import (agent/turn.py imports the
     # tool modules), so this only hands over config, never builds the registry.
     tool_calendar.configure(config)
+    # The write tools need the connection as well: a tool's arguments are the
+    # model's, so a database handle cannot be passed per call.
+    tool_calendar_write.configure(config, conn=conn)
 
     agent   = FridayAgent(config, conn=conn)
     handler = TelegramHandler(config, agent, conn)
