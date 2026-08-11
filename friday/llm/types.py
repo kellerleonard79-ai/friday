@@ -23,13 +23,19 @@ Finish = Literal["stop", "tool_calls", "length", "error"]
 
 # What KIND of failure, when finish == "error". This distinction is the whole
 # point of the enum and must not collapse into a generic exception:
-#   rate_limit — the API answered and refused us (429, quota). Retryable.
+#   rate_limit — the API answered and refused us (429, quota). Retryable, on
+#                the longer backoff: quota does not clear in a second.
+#   transient  — the API answered with a server fault (500, 502, 503, 504).
+#                Retryable, on the shorter backoff: nothing is exhausted, the
+#                far side is having a bad minute and the redial usually works.
 #   network    — we never reached the API (DNS, refused, timeout, dead socket).
 #                NOT retryable here; a blocked network must fail fast and say so.
 #   fatal      — anything else (bad request, auth, malformed response). Ours.
-# A later step reads `network` to detect a blocked network and surface it in the
-# dashboard, which is why it can't be lumped in with fatal.
-ErrorKind = Literal["none", "rate_limit", "network", "fatal"]
+# transient is deliberately NOT folded into rate_limit even though both retry:
+# "Google is having a bad day", "you are over quota" and "this network blocks
+# the API" are three different problems with three different answers, and the
+# dashboard and the reachability module both have to tell them apart.
+ErrorKind = Literal["none", "rate_limit", "transient", "network", "fatal"]
 
 
 @dataclass(frozen=True, slots=True)

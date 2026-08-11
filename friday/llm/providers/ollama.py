@@ -41,12 +41,20 @@ _UNREACHABLE = (
 )
 
 
+# Same split as the Gemini adapter: 429 is a refusal, 5xx is the server
+# failing on its own side and worth a quick retry. Ollama rarely emits either,
+# but a proxy in front of it will.
+_TRANSIENT_STATUS = (500, 502, 503, 504)
+
+
 def _classify(exc: BaseException) -> tuple[str, str]:
     message = str(exc).splitlines()[0][:240] if str(exc) else type(exc).__name__
     if isinstance(exc, requests.exceptions.HTTPError):
         status = getattr(getattr(exc, "response", None), "status_code", None)
         if status == 429:
             return "rate_limit", message
+        if status in _TRANSIENT_STATUS:
+            return "transient", message
         return "fatal", message
     # ConnectTimeout subclasses both ConnectionError and Timeout — check the
     # unreachable set first so it never reads as a mid-request fault.

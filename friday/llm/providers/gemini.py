@@ -62,6 +62,13 @@ _UNREACHABLE = (
 
 _QUOTA_MARKERS = ("RESOURCE_EXHAUSTED", "quota", "rate limit", "429")
 
+# Server-side faults. Google returns these under real load and they succeed on
+# a redial seconds later — Phase II retried them and this layer has to as well.
+# Matched on the SDK's parsed status code, never on a bare "500" in the message
+# text: a token count or a model name can contain those digits.
+_TRANSIENT_CODES = (500, 502, 503, 504)
+_TRANSIENT_MARKERS = ("UNAVAILABLE", "INTERNAL", "overloaded")
+
 
 def _walk(exc: BaseException):
     """The exception and everything it wraps. The SDK re-raises httpx errors
@@ -88,9 +95,10 @@ def _classify(exc: BaseException) -> tuple[str, str]:
     """(error_kind, first line of the message).
 
     429 and quota exhaustion are rate_limit — the API answered and refused us.
-    Anything transport-level is network — we never got an answer. Everything
-    else is fatal, including 4xx and 5xx: a 500 is not a rate limit and must
-    not be logged as one.
+    5xx is transient — the API answered and failed on its own side. Anything
+    transport-level is network — we never got an answer. Everything else,
+    including every 4xx, is fatal: a bad key or a malformed request will fail
+    identically forever and retrying it only spends the deadline.
     """
     message = str(exc).splitlines()[0][:240] if str(exc) else type(exc).__name__
 
@@ -99,6 +107,8 @@ def _classify(exc: BaseException) -> tuple[str, str]:
             code = getattr(e, "code", None)
             if code == 429:
                 return "rate_limit", message
+            if code in _TRANSIENT_CODES:
+                return "transient", message
             break
         if isinstance(e, (httpx.TransportError, httpx.TimeoutException)):
             return "network", message
@@ -106,6 +116,8 @@ def _classify(exc: BaseException) -> tuple[str, str]:
     lowered = message.lower()
     if any(m.lower() in lowered for m in _QUOTA_MARKERS):
         return "rate_limit", message
+    if any(m.lower() in lowered for m in _TRANSIENT_MARKERS):
+        return "transient", message
     return "fatal", message
 
 
@@ -199,6 +211,10 @@ class GeminiProvider(Provider):
                     continue
                 if kind == "network":
                     logger.warning(f"Gemini unreachable: {message}")
+                elif kind == "transient":
+                    # Warning, not error: the dispatcher retries this one and
+                    # it usually succeeds. Only the give-up line is an error.
+                    logger.warning(f"Gemini server fault: {message}")
                 else:
                     logger.error(f"Gemini call failed ({kind}): {message}")
                 return _error(kind, message)

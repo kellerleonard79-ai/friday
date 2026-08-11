@@ -3,7 +3,7 @@ llm/dispatch.py
 The chokepoint. Every LLM call in Friday goes through dispatch().
 
 What it does, and nothing else: resolve the profile, select the provider, set
-the deadline, call, retry a rate limit, return. It does not build prompts, does
+the deadline, call, retry what is worth retrying, return. It does not build prompts, does
 not know what a persona is, does not know what a Telegram message is, and does
 not import any provider SDK.
 
@@ -36,11 +36,22 @@ _PROVIDER_CLASSES: dict[str, type[Provider]] = {
     "ollama": OllamaProvider,
 }
 
-# Rate limits are the ONLY retryable failure. `network` means we never reached
+# Two retryable failures, on different clocks. `network` means we never reached
 # the API — a blocked network must fail fast and loudly instead of burning the
 # whole budget rediscovering that it is blocked. `fatal` is ours to fix.
+#
+#   rate_limit — quota. Waiting a second accomplishes nothing, so back off hard.
+#   transient  — a 5xx. Nothing is exhausted; the far side is having a bad
+#                minute and a quick redial usually lands. Phase II retried
+#                these and the rewrite has to keep doing so — treating a 503
+#                as fatal is a user-visible failure for a fault that would
+#                have cleared on its own.
 _MAX_ATTEMPTS = 3
-_BACKOFF_S = (1.0, 2.0)  # before attempts 2 and 3
+_BACKOFF_S: dict[str, tuple[float, ...]] = {
+    "rate_limit": (2.0, 5.0),   # before attempts 2 and 3
+    "transient":  (0.5, 1.5),
+}
+_RETRYABLE = tuple(_BACKOFF_S)
 
 _provider: Provider | None = None
 _conn = None
@@ -91,28 +102,29 @@ def dispatch(request: LLMRequest) -> LLMResponse:
     while True:
         response = _provider.complete(request, profile)
 
-        if response.error_kind != "rate_limit":
+        kind = response.error_kind
+        if kind not in _RETRYABLE:
             _log_exchange(request, profile, response)
             return response
 
         attempt += 1
         if attempt >= _MAX_ATTEMPTS:
-            logger.error(f"Rate limited after {attempt} attempts — giving up.")
+            logger.error(f"{kind} after {attempt} attempts — giving up.")
             _log_exchange(request, profile, response)
             return response
 
-        delay = _BACKOFF_S[min(attempt, len(_BACKOFF_S)) - 1]
+        backoff = _BACKOFF_S[kind]
+        delay = backoff[min(attempt, len(backoff)) - 1]
         remaining = deadline - time.monotonic()
         if remaining <= delay:
             logger.error(
-                f"Rate limited with {remaining:.1f}s left on the deadline — "
-                f"not retrying."
+                f"{kind} with {remaining:.1f}s left on the deadline — not retrying."
             )
             _log_exchange(request, profile, response)
             return response
 
         logger.warning(
-            f"Rate limited (attempt {attempt}/{_MAX_ATTEMPTS}) — retrying in {delay}s"
+            f"{kind} (attempt {attempt}/{_MAX_ATTEMPTS}) — retrying in {delay}s"
         )
         time.sleep(delay)
 

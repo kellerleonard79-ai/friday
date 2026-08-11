@@ -193,6 +193,11 @@ class TelegramHandler:
             if response.finish == "error":
                 if response.error_kind == "rate_limit":
                     msg = "I'm being rate limited, sir. Try again in a moment."
+                elif response.error_kind == "transient":
+                    # Distinct from rate_limit on purpose: nothing the user did
+                    # caused this and nothing they can do fixes it. The
+                    # dispatcher already retried before we got here.
+                    msg = "The model service is having trouble on its end, sir. Try again shortly."
                 elif response.error_kind == "network":
                     msg = "I can't reach the model from this network."
                 else:

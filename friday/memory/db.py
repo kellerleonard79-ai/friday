@@ -81,7 +81,7 @@ CREATE TABLE IF NOT EXISTS llm_exchanges (
     full_response    TEXT,
     profile          TEXT,    -- llm/profiles.py name: CHAT | ...
     finish           TEXT,    -- stop | tool_calls | length | error
-    error_kind       TEXT     -- none | rate_limit | network | fatal
+    error_kind       TEXT     -- none | rate_limit | transient | network | fatal
 );
 
 -- Every Gemini function-call invocation (wrapped in agent/tools.py).
