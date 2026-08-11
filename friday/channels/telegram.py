@@ -18,6 +18,7 @@ from telegram.ext import ContextTypes
 
 import memory.state as state
 from agent.turn import run_turn
+from effects import runner as effects_runner
 from llm import profiles
 from llm.types import LLMRequest
 
@@ -149,9 +150,12 @@ class TelegramHandler:
                 # run_turn() is blocking by design — the model call and the
                 # calendar reads must not run on the event loop. The whole turn
                 # goes into ONE executor call so the tool cache and the fact
-                # ledger, both thread-local, belong to it. The wait_for is the
-                # backstop under the profile's own deadline (120s), not the
-                # primary budget.
+                # ledger, which are per-turn objects the loop creates and passes
+                # down, live and die with it. (They were thread-locals once;
+                # tools run in a worker pool and could not see them, so every
+                # precondition failed closed. See tools/ledger.py.) The wait_for
+                # is the backstop under the profile's own deadline (120s), not
+                # the primary budget.
                 result = await asyncio.wait_for(
                     loop.run_in_executor(None, lambda: run_turn(request, self.conn)),
                     timeout=_EXECUTOR_TIMEOUT_S,
@@ -187,6 +191,25 @@ class TelegramHandler:
                 ("user", text, now_iso),
             )
 
+            # EFFECTS RUN BEFORE THE MODEL'S OWN REPLY, and that ordering is
+            # invariant 3 rather than a preference. A permission card has to
+            # reach the user before anything that could editorialize on it, and
+            # the model's reply is exactly such a thing. effects/runner.py puts
+            # the card first WITHIN the batch; this ordering puts the whole
+            # batch ahead of the prose.
+            #
+            # Blocking `requests` calls, so an executor. The turn's own
+            # deadline has already been spent by this point, which is why this
+            # is not inside it.
+            card_sent = False
+            if result.effects:
+                report = await loop.run_in_executor(
+                    None, lambda: effects_runner.run(result.effects, self)
+                )
+                card_sent = report.cards_sent > 0
+                if not report.ok:
+                    logger.warning(f"Effects partially failed: {report.failed}")
+
             # Failures are told apart by LLMResponse.error_kind, not by reaching
             # into the agent for a _last_error attribute. The network wording is
             # load-bearing: a blocked network has to be distinguishable from a
@@ -209,6 +232,14 @@ class TelegramHandler:
             elif result.text:
                 await update.message.reply_text(result.text)
                 assistant_log = result.text
+            elif card_sent:
+                # A card went out and the model said nothing after it. That is
+                # the CORRECT shape for a gated write, not an empty response:
+                # the card is the reply, and anything appended to it would be
+                # the preamble invariant 3 forbids. The old code answered this
+                # case with "the model returned no text", which is how the
+                # Phase II turn ended in an empty markdown fence.
+                assistant_log = "[permission card sent]"
             else:
                 msg = "Sorry, sir — the model returned no text. Try again?"
                 logger.warning(f"Empty LLM response — sending to user: {msg}")

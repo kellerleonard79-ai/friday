@@ -24,9 +24,11 @@ Four properties, each of which is a Phase II failure it exists not to repeat:
   unenforceable. Call count and call cost are separate levers and Friday needs
   both.
 
-  TOOLS NEVER MESSAGE THE USER. A tool returns data and, later, effects. This
-  loop returns text to the channel and the channel sends it. That is invariant
-  2, and it is why permission cards will be able to arrive first in step 4.
+  TOOLS NEVER MESSAGE THE USER. A tool returns data and effects. This loop
+  COLLECTS the effects and returns them; it does not run them. The channel
+  hands them to effects/runner.py, which puts permission cards first. That is
+  invariants 2 and 3, and neither is a rule anybody has to remember — the first
+  is a missing import, the second is a sort.
 
 SYNCHRONOUS, like dispatch(). The caller runs the whole turn in one executor
 thread. An async loop would put a blocking SDK call and a 30-second osascript
@@ -83,6 +85,11 @@ class TurnResult:
     hops: int = 0
     tool_calls_made: int = 0
     stopped_on: str = "answer"   # answer | hop_limit | preconditions | error
+    # What the tools asked to have happen. The loop COLLECTS these and does not
+    # run them — running one here would put the turn loop in the business of
+    # talking to channels, which is the layering this rebuild exists to undo.
+    # The channel hands them to effects/runner.py, which orders them.
+    effects: tuple = ()
 
 
 def _preview(outcome, limit: int = 400) -> str:
@@ -168,6 +175,7 @@ def run_turn(request: LLMRequest, conn=None) -> TurnResult:
     store: dict = {}
 
     tool_turns: list = []
+    effects: list = []
     precondition_failures = 0
     calls_made = 0
     hop = 0
@@ -182,10 +190,14 @@ def run_turn(request: LLMRequest, conn=None) -> TurnResult:
         for _ in range(profile.max_tool_hops + 2):
             if time.monotonic() >= deadline:
                 logger.warning(f"Turn deadline exhausted after {hop} hop(s).")
+                # Effects still travel up. A turn that ran out of time may
+                # already have emitted a card, and dropping it here would
+                # leave a pending_actions row the user was never shown.
                 return TurnResult(
                     error_kind="network",
                     error_message="the turn ran out of time",
                     hops=hop, tool_calls_made=calls_made, stopped_on="error",
+                    effects=tuple(effects),
                 )
 
             response = dispatch(dataclasses.replace(
@@ -195,7 +207,7 @@ def run_turn(request: LLMRequest, conn=None) -> TurnResult:
             # No tool calls means this is the answer — the ordinary exit, and
             # the only one on a profile with tool_scope=None.
             if response.finish == "error" or not response.tool_calls:
-                return _finish(response, hop, calls_made, "answer")
+                return _finish(response, hop, calls_made, "answer", effects)
 
             hop += 1
             # The model's request goes into the transcript before its results,
@@ -221,11 +233,17 @@ def run_turn(request: LLMRequest, conn=None) -> TurnResult:
                 final = dispatch(dataclasses.replace(
                     request, deadline=deadline, tool_turns=tuple(tool_turns)
                 ))
-                return _finish(final, hop, calls_made, "hop_limit")
+                return _finish(final, hop, calls_made, "hop_limit", effects)
 
             for call in response.tool_calls:
                 calls_made += 1
                 outcome, duration_ms, label = _execute(call, deadline, ledger, store)
+
+                # Collected in the order the tools produced them. The runner
+                # sorts; this loop must not, or there would be two places that
+                # decide whether a card goes first.
+                if isinstance(outcome, ToolResult) and outcome.effects:
+                    effects.extend(outcome.effects)
 
                 if isinstance(outcome, ToolError) and outcome.kind == "precondition_failed":
                     precondition_failures += 1
@@ -246,7 +264,7 @@ def run_turn(request: LLMRequest, conn=None) -> TurnResult:
                 final = dispatch(dataclasses.replace(
                     request, deadline=deadline, tool_turns=tuple(tool_turns)
                 ))
-                return _finish(final, hop, calls_made, "preconditions")
+                return _finish(final, hop, calls_made, "preconditions", effects)
 
         # Unreachable: every branch above returns. Kept because "unreachable"
         # and "never happens" are different claims, and a silent None here
@@ -256,6 +274,7 @@ def run_turn(request: LLMRequest, conn=None) -> TurnResult:
             error_kind="fatal",
             error_message="the turn loop did not terminate cleanly",
             hops=hop, tool_calls_made=calls_made, stopped_on="error",
+            effects=tuple(effects),
         )
 
     finally:
@@ -267,12 +286,14 @@ def run_turn(request: LLMRequest, conn=None) -> TurnResult:
 
 
 def _finish(response: LLMResponse | None, hops: int, calls: int,
-            stopped_on: str) -> TurnResult:
+            stopped_on: str, effects: list | None = None) -> TurnResult:
+    collected = tuple(effects or ())
     if response is None:
         return TurnResult(
             error_kind="fatal",
             error_message="the turn produced no model response",
             hops=hops, tool_calls_made=calls, stopped_on="error",
+            effects=collected,
         )
     return TurnResult(
         text=response.text,
@@ -281,6 +302,7 @@ def _finish(response: LLMResponse | None, hops: int, calls: int,
         hops=hops,
         tool_calls_made=calls,
         stopped_on="error" if response.finish == "error" else stopped_on,
+        effects=collected,
     )
 
 
