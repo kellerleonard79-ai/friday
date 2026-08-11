@@ -26,6 +26,7 @@ from llm.types import (
     LLMRequest,
     LLMResponse,
     Profile,
+    ToolCall,
     ToolCallTurn,
     ToolResultTurn,
     Usage,
@@ -74,6 +75,17 @@ _QUOTA_MARKERS = ("RESOURCE_EXHAUSTED", "quota", "rate limit", "429")
 # a redial seconds later — Phase II retried them and this layer has to as well.
 # Matched on the SDK's parsed status code, never on a bare "500" in the message
 # text: a token count or a model name can contain those digits.
+# JSON-Schema type names (what tools/registry.py emits) -> SDK enum. The
+# registry stays provider-neutral; this dict is the whole translation.
+_SCHEMA_TYPES = {
+    "string": types.Type.STRING,
+    "integer": types.Type.INTEGER,
+    "number": types.Type.NUMBER,
+    "boolean": types.Type.BOOLEAN,
+    "array": types.Type.ARRAY,
+    "object": types.Type.OBJECT,
+}
+
 _TRANSIENT_CODES = (500, 502, 503, 504)
 _TRANSIENT_MARKERS = ("UNAVAILABLE", "INTERNAL", "overloaded")
 
@@ -208,6 +220,30 @@ class GeminiProvider(Provider):
                 )
         return contents
 
+    def _tools(self, prompt: AssembledPrompt):
+        """Registry JSON-Schema dicts -> types.Tool. The translation lives here
+        because this is the only file allowed to name an SDK type."""
+        decls = []
+        for schema in prompt.tools:
+            params = schema.get("parameters") or {}
+            props = params.get("properties") or {}
+            decls.append(types.FunctionDeclaration(
+                name=schema["name"],
+                description=schema.get("description", ""),
+                parameters=types.Schema(
+                    type=types.Type.OBJECT,
+                    properties={
+                        pname: types.Schema(
+                            type=_SCHEMA_TYPES[pspec["type"]],
+                            description=pspec.get("description", ""),
+                        )
+                        for pname, pspec in props.items()
+                    },
+                    required=list(params.get("required") or []),
+                ),
+            ))
+        return [types.Tool(function_declarations=decls)]
+
     def _config(self, request: LLMRequest, profile: Profile, timeout_ms: int,
                 prompt: AssembledPrompt):
         kwargs = dict(
@@ -215,6 +251,20 @@ class GeminiProvider(Provider):
             temperature=profile.temperature,
             http_options=types.HttpOptions(timeout=timeout_ms),
         )
+        if prompt.tools:
+            kwargs["tools"] = self._tools(prompt)
+            # MANUAL DISPATCH, ALWAYS.
+            #
+            # Left on, the SDK runs the whole tool loop itself: it calls the
+            # Python function, feeds the result back, and returns only the
+            # final text. That hides the hop count, hides the token cost of
+            # every intermediate call, and takes ownership of the loop —
+            # so the deadline, the per-tool timeout, the precondition ledger
+            # and the tool_calls log all become unenforceable. Call count and
+            # call cost are separate levers and Friday needs both.
+            kwargs["automatic_function_calling"] = (
+                types.AutomaticFunctionCallingConfig(disable=True)
+            )
         if prompt.system:
             # The persona goes in system_instruction rather than in the first
             # user turn: it is the same text on every CHAT call, and this is
@@ -292,12 +342,36 @@ class GeminiProvider(Provider):
         )
 
         finish_reason = None
+        parts = []
         try:
-            finish_reason = resp.candidates[0].finish_reason
+            candidate = resp.candidates[0]
+            finish_reason = candidate.finish_reason
+            parts = list(candidate.content.parts or [])
         except Exception:
             pass
 
-        text = (getattr(resp, "text", "") or "").strip()
+        # Read the parts directly rather than resp.text.
+        #
+        # resp.text returns "" — with a warning on stderr — whenever the
+        # response contains a non-text part. So a perfectly good tool call
+        # reads as an empty response, and the channel's "the model returned no
+        # text" branch fires on it. Every tool call would have surfaced to the
+        # user as a failure while the API had answered correctly.
+        tool_calls = tuple(
+            ToolCall(name=p.function_call.name, arguments=dict(p.function_call.args or {}))
+            for p in parts if getattr(p, "function_call", None)
+        )
+        text = "".join(p.text for p in parts if getattr(p, "text", None)).strip()
+
+        if tool_calls:
+            # Gemini reports STOP alongside function calls; the meaningful
+            # finish is what the turn loop branches on, so it is set here from
+            # the content rather than from the SDK's reason.
+            return LLMResponse(
+                text=text, tool_calls=tool_calls, usage=usage, finish="tool_calls"
+            )
+
+        # Empty means empty only when there were no function-call parts either.
         if not text:
             logger.warning(
                 f"Gemini returned empty text. finish_reason={finish_reason} usage={usage_md}"

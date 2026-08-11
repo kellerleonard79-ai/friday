@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from llm import persona
 from llm.types import AnyTurn, AssembledPrompt, LLMRequest, Profile, Turn
+from tools import registry
 
 
 # The dashboard's Persona page writes four keys. Two of them are readable as
@@ -170,6 +171,22 @@ def build_turns(request: LLMRequest) -> tuple[AnyTurn, ...]:
     return tuple(turns)
 
 
+def build_tools(profile: Profile) -> tuple[dict, ...]:
+    """The tool declarations this profile may be offered, from the registry.
+
+    Resolved from profile.tool_scope and nothing else. A caller cannot pass
+    tools in: there is no field on LLMRequest for them, which is what makes
+    "COMPOSE never gets tools" a property of the profile table rather than a
+    thing every call site has to remember.
+
+    None scope returns an empty tuple, and the provider turns an empty tuple
+    into no `tools` argument at all — not an empty list. Some SDKs treat an
+    empty tool list as "tools enabled, none available" and still change how
+    they decode; absent is the only unambiguous way to say no.
+    """
+    return registry.schemas_for_scope(profile.tool_scope)
+
+
 def assemble(request: LLMRequest, profile: Profile,
              config: dict | None = None) -> AssembledPrompt:
     """The one call. Its result is what the provider sends AND what the
@@ -177,4 +194,5 @@ def assemble(request: LLMRequest, profile: Profile,
     return AssembledPrompt(
         system=build_system(request, profile, config),
         turns=build_turns(request),
+        tools=build_tools(profile),
     )
