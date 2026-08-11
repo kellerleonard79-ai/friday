@@ -45,6 +45,8 @@ def _strip_internal_tags(body: str) -> str:
 
 
 from agent.core import FridayAgent
+from llm import dispatch as llm_dispatch
+from llm import profiles as llm_profiles
 from channels.telegram import TelegramHandler
 from memory.db import Database
 import memory.activity as activity
@@ -118,6 +120,9 @@ def main() -> None:
     db   = Database(str(paths.db_path(config)))
     conn = db.connection()
 
+    # Every LLM call in the process goes through this one dispatcher.
+    llm_dispatch.configure(config, conn=conn)
+
     agent   = FridayAgent(config, conn=conn)
     handler = TelegramHandler(config, agent, conn)
     agent.telegram_handler = handler  # late-bound for the media → gated_write path
@@ -148,7 +153,7 @@ def main() -> None:
         state.set(conn, "status",     "running")
         state.set(conn, "started_at", datetime.datetime.now().isoformat())
         state.set(conn, "provider",   config.get("provider", "ollama"))
-        state.set(conn, "model",      agent.model_name)
+        state.set(conn, "model",      llm_profiles.get("CHAT").model)
         # Honor pre-existing pause state across restarts; default to unpaused.
         if state.get(conn, "paused") is None:
             state.set(conn, "paused", "false")
@@ -176,7 +181,7 @@ def main() -> None:
         try:
             await app.bot.send_message(
                 chat_id=chat_id,
-                text=f"Friday online — {config.get('provider', 'ollama')} / {agent.model_name}",
+                text=f"Friday online — {config.get('provider', 'ollama')} / {llm_profiles.get('CHAT').model}",
             )
         except Exception as e:
             logger.error(f"Startup message failed (check telegram.chat_id): {e}")

@@ -17,6 +17,9 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 import memory.state as state
+from llm import profiles
+from llm.dispatch import dispatch
+from llm.types import LLMRequest
 
 logger = logging.getLogger("friday.telegram")
 
@@ -34,31 +37,13 @@ _API_BASE = "https://api.telegram.org/bot{token}/{method}"
 # RULE (CLAUDE.md): this semaphore must stay at the top of on_message. Never move it.
 _semaphore = asyncio.Semaphore(1)
 
-# Ceiling on any single executor call made while holding the semaphore —
-# slightly above the Gemini worst case (60s client timeout × capped retries
-# ≈ 123s), so a hung blocking call fails loudly and releases the pipeline
-# instead of wedging it forever (July 9 outage). wait_for cannot kill the
-# executor thread: the call may still finish in the background; only the
-# pipeline is released.
+# Ceiling on any single executor call made while holding the semaphore. It is
+# now a backstop, not the budget: llm/dispatch.py enforces the CHAT profile's
+# 120s deadline and the provider clamps its own HTTP timeout to what is left,
+# so the deadline expires first by design. This stays because wait_for cannot
+# kill an executor thread — if a blocking call ever hangs past its deadline
+# anyway, this is what releases the pipeline (July 9 outage).
 _EXECUTOR_TIMEOUT_S = 150
-
-
-# TODO: throwaway — history injection is a rewrite decision.
-def _with_history(rows, text: str) -> str:
-    """conversation_history rows (newest-first) + the new message → one flat
-    prompt string. No role structure, no system framing; the transport seam
-    takes a plain string and nothing else."""
-    if not rows:
-        return text
-    lines = [
-        f"{'User' if role == 'user' else 'Friday'}: {content}"
-        for role, content in reversed(rows)
-    ]
-    return (
-        "Earlier in this conversation:\n"
-        + "\n".join(lines)
-        + f"\n\nUser: {text}"
-    )
 
 
 class TelegramHandler:
@@ -144,33 +129,35 @@ class TelegramHandler:
             })
             logger.info(f"Message: {text[:80]}")
 
+            # Unchanged from before the dispatcher: same query, same window.
+            # Rows come back newest-first; the request carries them oldest-first
+            # because rendering them is now the provider's job, not this file's.
             rows = self.conn.execute(
                 "SELECT role, content FROM conversation_history ORDER BY id DESC LIMIT ?",
                 (self._short_term_turns * 2,)
             ).fetchall()
-            # TODO: throwaway — history injection is a rewrite decision.
-            # The transport seam no longer assembles turns, so the last N
-            # exchanges go in as a flat labeled block glued to the front of
-            # the prompt. Deliberately crude. It exists so the chat loop stays
-            # usable across the teardown; the first commit of the new
-            # architecture deletes it.
-            prompt = _with_history(rows, text)
+            request = LLMRequest(
+                profile=profiles.get("CHAT"),
+                prompt=text,
+                history=tuple((role, content) for role, content in reversed(rows)),
+                triggered_by="user_message",
+            )
 
             loop = asyncio.get_running_loop()
             self.agent._last_action_emitted = None  # reset before the call
             self.agent._last_calendar_confirmation = None
 
             try:
+                # dispatch() is blocking by design — it must not run on the
+                # event loop. The wait_for is the backstop under the profile's
+                # own deadline (120s), not the primary budget.
                 response = await asyncio.wait_for(
-                    loop.run_in_executor(
-                        None, lambda: self.agent.complete(
-                            prompt, triggered_by="user_message")
-                    ),
+                    loop.run_in_executor(None, lambda: dispatch(request)),
                     timeout=_EXECUTOR_TIMEOUT_S,
                 )
             except TimeoutError:
                 logger.warning(
-                    f"on_message: agent call still running after "
+                    f"on_message: dispatch still running after "
                     f"{_EXECUTOR_TIMEOUT_S}s — releasing the pipeline. "
                     f"text={text[:80]!r}"
                 )
@@ -199,9 +186,23 @@ class TelegramHandler:
                 ("user", text, now_iso),
             )
 
-            if response:
-                await update.message.reply_text(response)
-                assistant_log = response
+            # Failures are told apart by LLMResponse.error_kind, not by reaching
+            # into the agent for a _last_error attribute. The network wording is
+            # load-bearing: a blocked network has to be distinguishable from a
+            # generic failure, here and later in the dashboard.
+            if response.finish == "error":
+                if response.error_kind == "rate_limit":
+                    msg = "I'm being rate limited, sir. Try again in a moment."
+                elif response.error_kind == "network":
+                    msg = "I can't reach the model from this network."
+                else:
+                    msg = f"LLM error, sir: {response.error_message}"
+                logger.warning(f"LLM {response.error_kind} — sending to user: {msg}")
+                await update.message.reply_text(msg)
+                assistant_log = msg
+            elif response.text:
+                await update.message.reply_text(response.text)
+                assistant_log = response.text
             elif action_emitted == "calendar_added":
                 # auto_write already sent the user a confirmation message —
                 # store that exact text so future LLM turns see a natural
@@ -209,11 +210,7 @@ class TelegramHandler:
                 # might echo back verbatim.
                 assistant_log = getattr(self.agent, "_last_calendar_confirmation", "") or ""
             else:
-                err = getattr(self.agent, "_last_error", None)
-                if err:
-                    msg = f"LLM error, sir: {err}"
-                else:
-                    msg = "Sorry, sir — the model returned no text. Try again?"
+                msg = "Sorry, sir — the model returned no text. Try again?"
                 logger.warning(f"Empty LLM response — sending to user: {msg}")
                 await update.message.reply_text(msg)
                 assistant_log = msg
