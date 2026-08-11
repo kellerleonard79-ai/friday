@@ -78,7 +78,10 @@ CREATE TABLE IF NOT EXISTS llm_exchanges (
     duration_ms      INTEGER,
     triggered_by     TEXT,    -- user_message | briefing_* | poll | ...
     full_prompt      TEXT,
-    full_response    TEXT
+    full_response    TEXT,
+    profile          TEXT,    -- llm/profiles.py name: CHAT | ...
+    finish           TEXT,    -- stop | tool_calls | length | error
+    error_kind       TEXT     -- none | rate_limit | network | fatal
 );
 
 -- Every Gemini function-call invocation (wrapped in agent/tools.py).
@@ -169,6 +172,17 @@ class Database:
             # pass to retroactively scan every historical groupme message.
             self._conn.execute("UPDATE events SET event_extracted = 1")
             logger.info("Migration: added events.event_extracted column (existing rows backfilled)")
+
+        # llm_exchanges.profile / finish / error_kind: the dispatcher (llm/dispatch.py)
+        # records WHICH calling convention ran and HOW it ended, not just what it cost.
+        # Additive on purpose — the pre-dispatcher rows are real cost history and both
+        # dashboard readers name their columns explicitly, so they are unaffected.
+        # Existing rows keep NULL: we cannot reconstruct a profile that did not exist.
+        le_cols = {r[1] for r in self._conn.execute("PRAGMA table_info(llm_exchanges)")}
+        for col in ("profile", "finish", "error_kind"):
+            if col not in le_cols:
+                self._conn.execute(f"ALTER TABLE llm_exchanges ADD COLUMN {col} TEXT")
+                logger.info(f"Migration: added llm_exchanges.{col} column")
 
         # pending_actions.resolved_at: when a row left 'pending' (confirmed /
         # cancelled / failed). NULL for existing rows — we can't reconstruct a

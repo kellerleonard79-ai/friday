@@ -35,20 +35,27 @@ def _preview(text: str | None, n: int = _PREVIEW) -> str:
 
 def record_llm_exchange(conn: sqlite3.Connection, *, model: str, prompt: str,
                         response: str, tokens_in: int, tokens_out: int,
-                        duration_ms: int, triggered_by: str) -> None:
-    """One row per FridayAgent.complete() call. Full prompt/response stored verbatim so
-    /api/llm/last can show the most recent exchange exactly as it ran."""
+                        duration_ms: int, triggered_by: str,
+                        profile: str | None = None, finish: str | None = None,
+                        error_kind: str | None = None) -> None:
+    """One row per llm.dispatch() call. Full prompt/response stored verbatim so
+    /api/llm/last can show the most recent exchange exactly as it ran.
+
+    profile/finish/error_kind come from the dispatcher and are None only for
+    rows written before it existed."""
     if conn is None:
         return
     try:
         conn.execute(
             "INSERT INTO llm_exchanges "
             "(timestamp, model, prompt_preview, response_preview, tokens_in, "
-            " tokens_out, duration_ms, triggered_by, full_prompt, full_response) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " tokens_out, duration_ms, triggered_by, full_prompt, full_response, "
+            " profile, finish, error_kind) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (datetime.now().isoformat(), model, _preview(prompt), _preview(response),
              int(tokens_in or 0), int(tokens_out or 0), int(duration_ms or 0),
-             triggered_by, prompt or "", response or ""),
+             triggered_by, prompt or "", response or "",
+             profile, finish, error_kind),
         )
         conn.commit()
     except Exception as e:
