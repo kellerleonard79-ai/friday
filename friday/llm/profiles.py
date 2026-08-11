@@ -35,7 +35,7 @@ class _Spec:
     """The half of a profile that config may not touch."""
     timeout_s: float
     persona_sections: tuple[str, ...] = ()
-    tool_scope: None = None
+    tool_scope: tuple[str, ...] | None = None
     max_tool_hops: int = 0
     # Used only when config names no value for this profile.
     default_max_output_tokens: int = 1000

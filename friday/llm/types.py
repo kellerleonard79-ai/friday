@@ -44,18 +44,43 @@ class Profile:
     """A named calling convention: which model, how much of the persona, which
     tools, and what it may spend. Only CHAT exists in step 1.
 
-    persona_sections and tool_scope are declared but inert — the persona layer
-    lands in step 2 and the tool layer in step 3. They are in the type now so
-    those steps add a table entry rather than a field to every call site.
+    tool_scope is the set of scope tags whose tools this profile may see.
+    None means NO TOOLS, and that is the guarantee — not "no filter". A profile
+    that never opted in cannot be handed tools by a caller, a config edit, or a
+    refactor that forgets to pass a scope: the provider is never given a tools
+    argument at all.
+
+    The annotation was literally `None` in step 1, which made the guarantee a
+    type error. Widening it to a tuple weakens that, so __post_init__ enforces
+    what the annotation no longer can — including rejecting the empty tuple,
+    which would silently mean "no tools" while reading like it means something.
     """
     name: str
     model: str
     persona_sections: tuple[str, ...] = ()
-    tool_scope: None = None
+    tool_scope: tuple[str, ...] | None = None
     max_output_tokens: int = 1024
     temperature: float = 0.7
     timeout_s: float = 60.0
     max_tool_hops: int = 0
+
+    def __post_init__(self) -> None:
+        if self.tool_scope is None:
+            return
+        if not isinstance(self.tool_scope, tuple) or not self.tool_scope:
+            raise ValueError(
+                f"Profile {self.name}: tool_scope must be None (no tools) or a "
+                f"non-empty tuple of scope tags, got {self.tool_scope!r}. An "
+                f"empty tuple means no tools while looking like it means "
+                f"something — say None."
+            )
+        if self.max_tool_hops < 1:
+            raise ValueError(
+                f"Profile {self.name}: tool_scope={self.tool_scope} with "
+                f"max_tool_hops={self.max_tool_hops}. A profile offered tools "
+                f"it can never call would burn the schema tokens on every "
+                f"request and never use one."
+            )
 
 
 @dataclass(frozen=True, slots=True)
