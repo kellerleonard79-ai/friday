@@ -5,25 +5,26 @@ affordable.
 
 READ-ONLY. Neither of these writes; writes and their permission gate are step 4.
 
-WHY THERE IS A CACHE. The Apple JXA reader costs 26-35 seconds per call on this
-machine and the cost is per-calendar-scanned, not per-day-requested — a one-day
-window costs the same as a week. Measured, repeatedly, with no warm-cache
-benefit. Against CHAT's 120s deadline that means one read plus two model hops
-fits and two reads is tight, so the single most natural follow-up a user
-produces ("what's tomorrow?" then "when am I free?") would routinely time out.
-One read per turn, reused across hops, is what makes the loop fit its own
-budget.
+WHY THERE IS A CACHE. It was built when every calendar read cost 26-35 seconds,
+because the daemon lacked a Calendars TCC grant and fell back to the JXA
+reader — where the cost is per-calendar-scanned, not per-day-requested, so a
+one-day window cost the same as a week. Against CHAT's 120s deadline that made
+"what's tomorrow?" followed by "when am I free?" a routine timeout.
 
-The cache holds payload; the fact ledger holds coverage. They are deliberately
-not the same object, and this module can only reach one of them: if the
-ledger's answer to "what has been read" depended on cache eviction, a
-precondition could pass because something was still cached rather than because
-it was actually read. Coverage is DECLARED in each tool's return value and
-written to the ledger by tools/executor.py — see tools/types.py.
+That grant now exists and the daemon reads through EventKit, which answers from
+the local store in milliseconds. The cache is therefore an optimization rather
+than the thing that makes the loop fit its budget. It is kept because a read
+that costs nothing is still worth not doing twice, and because the JXA fallback
+is one revoked permission away — see connectors/apple_calendar.py, where the
+status check runs on every call precisely so a grant can come and go without a
+restart.
 
-The real fix is granting the daemon full Calendar access — EventKit answers the
-same query in ~3ms and this cache stops mattering. See the module docstring in
-connectors/apple_calendar.py.
+The cache is per-turn and holds payload; the fact ledger holds coverage. They
+are deliberately not the same object, and this module can only reach one of
+them: if the ledger's answer to "what has been read" depended on cache
+eviction, a precondition could pass because something was still cached rather
+than because it was actually read. Coverage is DECLARED in each tool's return
+value and written to the ledger by tools/executor.py — see tools/types.py.
 """
 
 from __future__ import annotations

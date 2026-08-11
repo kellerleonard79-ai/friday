@@ -604,6 +604,20 @@ the request resolves to *write-only* access, which reports as granted and then r
 zero events — the reader treats that as unavailable and falls back. Authorization is
 requested once per process and cached both ways.
 
+**The daemon now HAS the grant** (`kTCCServiceCalendar` → allowed for the
+interpreter in the LaunchAgent), and reads through EventKit. The log line to
+check is `Apple Calendar reads using EventKit` versus `EventKit access not
+granted (status 4)`. Status 4 is `writeOnly`, not "denied".
+
+**⚠️ TCC attributes to the RESPONSIBLE process, not the binary you invoked.**
+A probe run from a shell is attributed to the terminal app, so
+`authorizationStatusForEntityType_` reports whatever *Terminal* was granted —
+which read `writeOnly` and returned zero events while the daemon was
+simultaneously on the EventKit fast path. **Never conclude anything about the
+daemon's calendar access from a command-line probe.** Read the daemon's own log
+line, or measure through a real turn's `tool_calls.duration_ms`. This cost real
+time once already.
+
 The EventKit completion handler must return `None`. PyObjC checks the block signature
 against the ObjC `void` return and raises inside the callback thread otherwise, which
 surfaces as an uncaught NSException that aborts the process — not something the calling
