@@ -28,8 +28,13 @@ logger = logging.getLogger("friday.llm.profiles")
 # channel's backstop.
 _CHAT_TIMEOUT_S = 120.0
 
-# Gemini's own default is higher; chat wants steadier phrasing than that.
-_CHAT_TEMPERATURE = 0.7
+# 1.0 is Gemini's own default, which is what every chat call ran at before the
+# dispatcher. Set explicitly so it is a decision rather than an SDK default that
+# can move under us — but set to the OLD value on purpose. Tuning it in the same
+# change that moved the call path would make a phrasing difference impossible to
+# attribute, and step 2 has to be able to read a tone change as the persona
+# landing. Tune it deliberately once there is something to attribute it to.
+_CHAT_TEMPERATURE = 1.0
 
 _DEFAULT_MAX_OUTPUT_TOKENS = 1000
 
