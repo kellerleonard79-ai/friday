@@ -262,6 +262,18 @@ class ToolCall:
     """
     name: str
     arguments: dict[str, Any] = field(default_factory=dict)
+    # Opaque provider metadata attached to this call, replayed verbatim.
+    #
+    # Gemini 3.x returns a `thought_signature` on every function-call part and
+    # REJECTS the next request with 400 INVALID_ARGUMENT if it is not replayed
+    # alongside the call. So a tool call cannot be reconstructed from just its
+    # name and arguments — something the model produced has to survive the
+    # round trip untouched.
+    #
+    # bytes, not an SDK object, and nothing above the provider looks inside it:
+    # this stays a value the layer that made it can recognize and every other
+    # layer can carry. A provider with no such concept leaves it None.
+    signature: bytes | None = None
 
 
 @dataclass(frozen=True, slots=True)

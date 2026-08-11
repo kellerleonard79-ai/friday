@@ -114,19 +114,20 @@ def mark_dispatch_fallback(conn: sqlite3.Connection, row_id: int | None) -> None
 
 
 def record_tool_call(conn: sqlite3.Connection, *, tool_name: str, args_json: str,
-                     result_preview: str, duration_ms: int,
-                     triggered_by: str) -> None:
-    """One row per Gemini function-call invocation."""
+                     result_preview: str, duration_ms: int, triggered_by: str,
+                     hop: int = 0, outcome: str = "") -> None:
+    """One row per tool invocation, written by agent/turn.py."""
     if conn is None:
         return
     try:
         conn.execute(
             "INSERT INTO tool_calls "
-            "(timestamp, tool_name, args_json, result_preview, duration_ms, triggered_by) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "(timestamp, tool_name, args_json, result_preview, duration_ms, "
+            " triggered_by, hop, outcome) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (datetime.now().isoformat(), tool_name, args_json,
              _preview(result_preview, _RESULT_PREVIEW), int(duration_ms or 0),
-             triggered_by),
+             triggered_by, int(hop or 0), outcome),
         )
         conn.commit()
     except Exception as e:

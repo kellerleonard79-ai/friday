@@ -84,7 +84,12 @@ CREATE TABLE IF NOT EXISTS llm_exchanges (
     error_kind       TEXT     -- none | rate_limit | transient | network | fatal
 );
 
--- Every Gemini function-call invocation (wrapped in agent/tools.py).
+-- One row per tool invocation, written by agent/turn.py's loop.
+--
+-- hop and outcome are what make this table answer the questions worth asking:
+-- how many hops a turn really took (the model can request several), and how
+-- often a call failed rather than merely how long it took. A table of
+-- durations alone cannot distinguish a fast success from a fast rejection.
 CREATE TABLE IF NOT EXISTS tool_calls (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp      TEXT,
@@ -92,7 +97,9 @@ CREATE TABLE IF NOT EXISTS tool_calls (
     args_json      TEXT,
     result_preview TEXT,
     duration_ms    INTEGER,
-    triggered_by   TEXT
+    triggered_by   TEXT,
+    hop            INTEGER,  -- 1-based; which pass through the loop
+    outcome        TEXT      -- ok | <ToolErrorKind> | unknown_tool | timeout
 );
 
 -- One row per tool-dispatcher decision (agent/dispatcher.py), including the
@@ -183,6 +190,18 @@ class Database:
             if col not in le_cols:
                 self._conn.execute(f"ALTER TABLE llm_exchanges ADD COLUMN {col} TEXT")
                 logger.info(f"Migration: added llm_exchanges.{col} column")
+
+        # tool_calls.hop / .outcome: the turn loop records which pass through
+        # the loop a call was made on and how it ended, not just what it cost.
+        # Existing rows keep NULL — they predate the loop, and there is no hop
+        # number to reconstruct for a call the old dispatcher made.
+        tc_cols = {r[1] for r in self._conn.execute("PRAGMA table_info(tool_calls)")}
+        if "hop" not in tc_cols:
+            self._conn.execute("ALTER TABLE tool_calls ADD COLUMN hop INTEGER")
+            logger.info("Migration: added tool_calls.hop column")
+        if "outcome" not in tc_cols:
+            self._conn.execute("ALTER TABLE tool_calls ADD COLUMN outcome TEXT")
+            logger.info("Migration: added tool_calls.outcome column")
 
         # pending_actions.resolved_at: when a row left 'pending' (confirmed /
         # cancelled / failed). NULL for existing rows — we can't reconstruct a

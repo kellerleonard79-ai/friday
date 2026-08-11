@@ -192,13 +192,19 @@ class GeminiProvider(Provider):
                 # the call it made in the transcript before the response to
                 # it; without this the next hop sees an answer to a question
                 # it has no record of asking.
-                contents.append({
-                    "role": "model",
-                    "parts": [
-                        {"function_call": {"name": c.name, "args": dict(c.arguments)}}
-                        for c in t.calls
-                    ],
-                })
+                fc_parts = []
+                for c in t.calls:
+                    part: dict = {
+                        "function_call": {"name": c.name, "args": dict(c.arguments)}
+                    }
+                    if c.signature:
+                        # Required, not optional. Gemini 3.x rejects the next
+                        # request with 400 INVALID_ARGUMENT when a replayed
+                        # function_call arrives without the thought_signature
+                        # it was issued with.
+                        part["thought_signature"] = c.signature
+                    fc_parts.append(part)
+                contents.append({"role": "model", "parts": fc_parts})
             elif isinstance(t, ToolResultTurn):
                 # function_response rides on the user side — Gemini's shape
                 # for "here is what the tool said". The error flag travels
@@ -358,7 +364,11 @@ class GeminiProvider(Provider):
         # text" branch fires on it. Every tool call would have surfaced to the
         # user as a failure while the API had answered correctly.
         tool_calls = tuple(
-            ToolCall(name=p.function_call.name, arguments=dict(p.function_call.args or {}))
+            ToolCall(
+                name=p.function_call.name,
+                arguments=dict(p.function_call.args or {}),
+                signature=getattr(p, "thought_signature", None),
+            )
             for p in parts if getattr(p, "function_call", None)
         )
         text = "".join(p.text for p in parts if getattr(p, "text", None)).strip()
