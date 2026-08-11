@@ -1,6 +1,41 @@
+# Friday's quip palette.
+#
+# GROUPED BY TOOL AND OUTCOME. A quip used to be picked from one flat list for
+# every occasion, which is how "I'm adding 'touch grass' to your to-do list"
+# ended up appended to an outdoor event. A quip that contradicts what just
+# happened is worse than no quip at all — silence beats wrong vibe — so a group
+# with nothing in it produces nothing rather than borrowing from a neighbour.
+#
+# Outcomes are the same three everywhere:
+#   success  the thing happened
+#   no_op    nothing needed doing (already there, nothing to change)
+#   failure  it did not happen
+#
+# Selection is random.choice in code with a short no-repeat memory. There is no
+# model call — Phase II spent a second call per auto-write turn choosing one of
+# these, which cost more than the quip is worth.
+#
+# Anything the user teaches Friday at runtime goes to friday_voice.yaml under
+# the data dir, NEVER here — this file is read-only inside a frozen build.
+# Learned quips join the success groups, which is what a taught confirmation
+# quip is for.
+
+tools:
+  commit_calendar_event:
+    success:
+      - "Your wish is my mild inconvenience."
+      - "My circuits are just thrilled at the prospect."
+      - "I've scheduled it. Your sleep schedule remains offended."
+      - "Thrilling. Another all-nighter in the making."
+      - "Noted, and filed with the enthusiasm it deserves."
+      - "Consider it immortalised."
+    no_op:
+      - "Already handled, sir. I do pay attention."
+      - "You've asked me that once already."
+    failure: []
+
+# The flat list the learned-quip store and the dashboard still speak. Bundled
+# entries here are a fallback pool for success groups; keeping the key means
+# self_edit.py, /api/quips and friday_voice.yaml need no migration.
 confirm_quips:
-  - "Your wish is my mild inconvenience."
-  - "My circuits are just thrilled at the prospect."
-  - "I've scheduled it. Your sleep schedule remains offended."
-  - "Thrilling. Another all-nighter in the making."
   - "I'm adding 'touch grass' to your to-do list. Doctor's orders."

@@ -437,13 +437,13 @@ def confirm_pending(pending_key: str, conn: sqlite3.Connection, telegram) -> boo
         logger.error(f"confirm_pending — bad payload for {pending_key}")
         return False
 
-    # The approval-card confirmation is the one surviving user-facing calendar
-    # write, so it is where the quip palette still ships. Selection is random
-    # now — the LLM index pick went with agent/tools.py.
+    # Legacy path — nothing stages calendar_add rows any more (step 4 replaced
+    # them with tool_call rows resolved by effects/pending.py). Kept working so
+    # a card already sitting in someone's chat still resolves, and pointed at
+    # the same quip group the new path uses so the two cannot drift.
     import phrases
-    title = (event.get("title") or "that event").strip()
     uid = auto_write(event, telegram=telegram,
-                     quip=phrases.random_quip(f"Just added '{title}' to the calendar."))
+                     quip=phrases.quip_for("commit_calendar_event", "success"))
     conn.execute(
         "UPDATE pending_actions SET status = ?, resolved_at = ? WHERE id = ?",
         ("confirmed" if uid else "failed", datetime.now().isoformat(), pending_key),

@@ -35,6 +35,12 @@ finds nothing, and neither does the same grep over tools/.
 SYNCHRONOUS, like everything below the channel. Both send methods are blocking
 `requests` calls, so the caller runs this in an executor.
 
+QUIPS ARE RENDERED HERE. A SendMessage may carry a quip_key naming what
+happened ("<tool>:<outcome>"); the runner asks phrases.py for a line and
+appends it. The tool never picks the words, and SendPermissionCard has no
+quip_key at all — which is how "never a quip on a card" stops being a rule
+anyone has to remember.
+
 ONE FAILING EFFECT DOES NOT STOP THE REST. A batch is not a transaction and
 cannot be made into one — the message that already went out cannot be recalled.
 Failures are collected and reported; the loop keeps going. The alternative is
@@ -50,6 +56,16 @@ from tools.types import (CancelScheduled, Effect, ScheduleItem, SendMessage,
                          SendPermissionCard)
 
 logger = logging.getLogger("friday.effects")
+
+
+def _quip(quip_key: str) -> str:
+    """Wrapped: a broken quip palette must never cost the user their message."""
+    try:
+        import phrases
+        return phrases.quip_for_key(quip_key)
+    except Exception as e:
+        logger.debug(f"quip lookup failed for {quip_key!r}: {e}")
+        return ""
 
 # Lower runs first. The card's 0 is load-bearing; the rest is ordinary.
 #
@@ -111,7 +127,21 @@ def _run_one(effect: Effect, channel, tally: _Tally) -> None:
         return
 
     if isinstance(effect, SendMessage):
-        if channel.send(effect.text):
+        # THE QUIP IS APPLIED HERE, not by the tool. The tool named what
+        # happened; choosing the words is rendering, and rendering is the
+        # runner's job. It also means the rule "never a quip on a permission
+        # card" needs no enforcing: this branch is the only place a quip is
+        # ever added, and a card does not pass through it.
+        #
+        # An empty quip is a real answer — see phrases.py. Nothing is appended,
+        # and there is no fallback line, because a quip that contradicts its
+        # outcome is worse than no quip at all.
+        text = effect.text
+        if effect.quip_key:
+            quip = _quip(effect.quip_key)
+            if quip:
+                text = f"{text} {quip}"
+        if channel.send(text):
             tally.executed += 1
         else:
             tally.failed.append("SendMessage")

@@ -140,6 +140,55 @@ check("effects declared-but-unused are ignored, not run",
                  FakeChannel()).executed == 0)
 
 
+# ── Quips are rendered by the runner, and never on a card ───────────────────
+
+import phrases  # noqa: E402
+
+_success = set(phrases._group("commit_calendar_event", "success")[0])
+
+ch = FakeChannel()
+runner.run([SendMessage(text="Lunch added.",
+                        quip_key="commit_calendar_event:success")], ch)
+sent = ch.calls[0][1]
+check("a quip is appended to the message", sent != "Lunch added.")
+check("the message text still leads", sent.startswith("Lunch added. "))
+check("the appended quip comes from the right group",
+      sent[len("Lunch added. "):] in _success)
+
+# An empty group appends nothing. Silence beats the wrong vibe.
+ch = FakeChannel()
+runner.run([SendMessage(text="That didn't work.",
+                        quip_key="commit_calendar_event:failure")], ch)
+check("an empty quip group appends nothing",
+      ch.calls[0][1] == "That didn't work.")
+
+# A key that does not resolve is silence, not a random line.
+ch = FakeChannel()
+runner.run([SendMessage(text="Plain.", quip_key="no_such_tool:success")], ch)
+check("an unresolvable quip key appends nothing", ch.calls[0][1] == "Plain.")
+
+ch = FakeChannel()
+runner.run([SendMessage(text="Plain.")], ch)
+check("a message with no quip key is sent verbatim", ch.calls[0][1] == "Plain.")
+
+# A card cannot carry a quip: there is nowhere to put one.
+check("SendPermissionCard has no quip_key field",
+      not hasattr(SendPermissionCard(proposal="p", pending_key="k", tool="t"),
+                  "quip_key"))
+
+ch = FakeChannel()
+runner.run([SendPermissionCard(proposal="Add to calendar?\nLunch",
+                               pending_key="k", tool="t")], ch)
+check("a card reaches the channel with nothing appended",
+      ch.calls[0][1] == "Add to calendar?\nLunch")
+
+# No-repeat memory: over a full rotation of a group, nothing repeats.
+_n = len(_success)
+picks = [phrases.quip_for("commit_calendar_event", "success") for _ in range(_n)]
+check("a full rotation of a group produces no repeat",
+      len(set(picks)) == _n)
+
+
 print()
 if _failures:
     print(f"{len(_failures)} FAILED:")

@@ -140,6 +140,11 @@ def list_phrases() -> dict:
             "bundled":  [q for q in bundled if q.casefold() not in disabled],
             "disabled": list(store["disabled_quips"]),
         },
+        # The palette's real shape: tool -> outcome -> quips. `bundled` above
+        # is the same quips flattened, kept because the existing dashboard
+        # reads it. A group listed here with an empty list is a deliberate
+        # silence — see quips.yaml — not a gap waiting to be filled.
+        "groups": phrases.quip_groups(),
         "voice": {"learned": list(store["voice_phrases"])},
     }
 
