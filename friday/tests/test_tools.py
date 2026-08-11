@@ -94,6 +94,49 @@ try:
 except TypeError:
     check("an unannotated parameter is a registration error", True)
 
+# ── Validation: the missing-parameter gate ───────────────────────────────────
+
+import yaml  # noqa: E402
+
+from calendars import backend as _backend  # noqa: E402
+from tools import calendar_read as _cal, executor, registry  # noqa: E402
+
+_cfg = yaml.safe_load(open(Path(__file__).resolve().parent.parent / "friday_config.yaml"))
+_backend.init(_cfg)
+_cal.configure(_cfg)
+
+_schedule = registry.get("get_schedule")
+_free = registry.get("find_free_blocks")
+
+# The tool must not run. If it did, this would take ~30s against the real
+# calendar rather than milliseconds — so the timing is itself the assertion.
+import time as _time  # noqa: E402
+
+_t = _time.monotonic()
+_out, _ms = executor.run(_schedule, {"date_from": "2026-08-12"})
+_elapsed = _time.monotonic() - _t
+
+check("a missing required parameter yields missing_parameter",
+      isinstance(_out, ToolError) and _out.kind == "missing_parameter")
+check("the missing-parameter error names the field",
+      isinstance(_out, ToolError) and _out.field == "date_to")
+check("the tool never executed (no calendar read occurred)", _elapsed < 1.0)
+
+_clean, _err = executor.validate(_free, {"date": "2026-08-12", "min_minutes": "90"})
+check("a numeric string coerces to int", _err is None and _clean["min_minutes"] == 90)
+
+_clean, _err = executor.validate(_free, {"date": "2026-08-12", "bogus": 1})
+check("an undeclared argument is dropped, not passed through",
+      _err is None and "bogus" not in _clean)
+
+_clean, _err = executor.validate(_free, {"date": "2026-08-12", "min_minutes": "soon"})
+check("an uncoercible argument yields invalid_argument",
+      isinstance(_err, ToolError) and _err.kind == "invalid_argument")
+
+check("bool coercion does not treat 'false' as True",
+      executor._coerce("false", "boolean") is False)
+
+
 # ── ToolError shape ──────────────────────────────────────────────────────────
 
 err = ToolError(kind="missing_parameter", message="date_from is required", field="date_from")
