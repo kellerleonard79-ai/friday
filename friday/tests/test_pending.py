@@ -219,6 +219,40 @@ check("the row carries a created timestamp and a TTL", bool(row[4]) and bool(row
 check("a new row starts pending", row[6] == "pending")
 
 
+# ── The confirm path closes the loop in conversation_history ─────────────────
+#
+# It did not, and that is what produced three cards from one message: the
+# proposing turn recorded "I put a confirmation card in front of you for X",
+# the reply saying X was added went only to Telegram, and a model looking at
+# an unresolved proposal proposes it again.
+
+def history(conn):
+    return [r[0] for r in conn.execute(
+        "SELECT content FROM conversation_history ORDER BY id")]
+
+
+_seen.clear()
+conn, ch = db(), FakeChannel()
+stage(conn)
+pending.confirm("k1", conn, ch)
+check("a confirmed write's reply reaches conversation_history",
+      any("Lunch added." in h for h in history(conn)))
+
+conn, ch = db(), FakeChannel()
+stage(conn)
+pending.cancel("k1", conn, ch)
+check("a cancellation reaches conversation_history",
+      any("Cancelled" in h for h in history(conn)))
+
+conn, ch = db(), FakeChannel()
+stage(conn, tool="_p_fails", args={"title": "Doomed"})
+pending.confirm("k1", conn, ch)
+check("a failure reaches conversation_history too",
+      any("didn't go through" in h for h in history(conn)))
+check("the tool's internal message never reaches history",
+      not any("internal detail" in h for h in history(conn)))
+
+
 # ── Idempotency: the same write twice inside the TTL happens once ────────────
 #
 # The check has to be LOCAL. The case it exists for is a write whose service

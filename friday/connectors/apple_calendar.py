@@ -146,12 +146,21 @@ def refresh() -> bool:
     Returns True if a refresh was performed. False on the JXA path, where there
     is no cached store and nothing to refresh — a JXA read talks to
     Calendar.app, which already knows.
+
+    Cheap: reset() drops cached objects, it does not re-authorize. The
+    authorization check is cached separately in _eventkit_store().
     """
     store = _eventkit_store()
     if store is None:
         return False
     try:
-        store.refreshSourcesIfNecessary()
+        # reset(), not refreshSourcesIfNecessary(). The latter refreshes REMOTE
+        # sources — CalDAV, Exchange — and does nothing about the store's own
+        # in-memory caches, which is where a JXA write is invisible. reset() is
+        # the documented response to an EKEventStoreChanged notification and is
+        # what actually invalidates them. Tried the other one first; the
+        # read-back still missed every write.
+        store.reset()
         return True
     except Exception as e:
         logger.debug(f"EventKit refresh failed: {e}")

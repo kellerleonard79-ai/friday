@@ -47,6 +47,25 @@ _semaphore = asyncio.Semaphore(1)
 _EXECUTOR_TIMEOUT_S = 150
 
 
+def _card_history_line(card_text: str) -> str:
+    """A card, as a settled past-tense line for conversation_history.
+
+    Reduces the card to one sentence: what was proposed, not the proposal
+    itself. See the note at the call site for why neither the raw card nor a
+    marker works here.
+    """
+    fields = {}
+    for line in card_text.splitlines():
+        if ":" in line:
+            key, _, value = line.partition(":")
+            fields[key.strip().casefold()] = value.strip()
+    event = fields.get("event", "")
+    when = fields.get("when", "")
+    if event and when:
+        return f"I put a confirmation card in front of you for {event} ({when})."
+    return "I put a confirmation card in front of you."
+
+
 class TelegramHandler:
     def __init__(self, config: dict, agent, conn: sqlite3.Connection):
         tg = config.get("telegram", config)  # accept full config or telegram sub-dict
@@ -258,16 +277,28 @@ class TelegramHandler:
                 # case with "the model returned no text", which is how the
                 # Phase II turn ended in an empty markdown fence.
                 #
-                # THE CARD'S OWN TEXT GOES INTO HISTORY, and it must be the
-                # real text rather than a marker like "[permission card sent]".
-                # That marker was tried and it taught the model to say it: two
-                # turns later, having seen two assistant rows reading exactly
-                # that, flash-lite produced the literal string "[permission
-                # card sent]" as its user-facing reply. History rows are
-                # examples, and a fake one is an example of writing fake
-                # markers — the same failure as the stray token, in a new
-                # costume. Store what the user actually saw.
-                assistant_log = "\n\n".join(card_texts)
+                # WHAT GOES IN HISTORY HERE IS DELICATE, AND BOTH OBVIOUS
+                # ANSWERS ARE WRONG. Recorded for whoever changes it next.
+                #
+                #   "[permission card sent]" — a marker. Two turns later the
+                #   model, having seen two assistant rows reading exactly that,
+                #   emitted the literal string to the user as prose. History
+                #   rows are EXAMPLES; a fake one is an example of writing fake
+                #   markers.
+                #
+                #   The card's verbatim text — worse. The card is phrased as an
+                #   open question ("Add to calendar? Event: ..."), so the model
+                #   read two of them in history as two things still to do and
+                #   re-proposed both alongside the new request: one message,
+                #   three cards.
+                #
+                # So: a past-tense sentence naming what was proposed. True,
+                # settled, and not a template for anything. The outcome is
+                # appended separately when the user taps — see
+                # effects/pending.py, which logs its own reply — so the model
+                # sees a closed loop rather than an open one.
+                assistant_log = " ".join(
+                    _card_history_line(t) for t in card_texts)
             else:
                 msg = "Sorry, sir — the model returned no text. Try again?"
                 logger.warning(f"Empty LLM response — sending to user: {msg}")
