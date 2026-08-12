@@ -137,6 +137,38 @@ check("history holds the user turn and NOTHING in the assistant slot",
       history(conn) == [("user", "add lunch thursday", "dashboard")])
 
 
+# ── Prose after a card is suppressed ─────────────────────────────────────────
+#
+# Invariant 3: nothing may delay, editorialize on, or bury a card. The model
+# narrating its own tool call underneath one is the commonest way to do it, and
+# the branch used to run only when the model happened to say nothing.
+
+print("\n-- the model talks over its own card --")
+stub(TurnResult(text="I have called the tool; please confirm the card below.",
+                effects=(SendPermissionCard(
+                    proposal="Add to calendar?\nLunch", pending_key="k2",
+                    tool="add_calendar_event", arguments={}),)))
+conn = db()
+ch = Fake("dashboard")
+reply = run("add lunch", ch, conn)
+check("the card went out", ch.cards == ["Add to calendar?\nLunch"])
+check("the model's trailing prose was NOT sent", ch.sent == [])
+check("the reply reports nothing said", reply.text == "")
+check("and nothing reached history either",
+      history(conn) == [("user", "add lunch", "dashboard")])
+
+# An error on a turn that emitted a card: the card stands, the error line does
+# not. A card the user is looking at must not be followed by "LLM error, sir".
+stub(TurnResult(text="", error_kind="transient", error_message="503",
+                effects=(SendPermissionCard(
+                    proposal="Add to calendar?\nLunch", pending_key="k3",
+                    tool="add_calendar_event", arguments={}),)))
+conn = db()
+ch = Fake("dashboard")
+run("add lunch", ch, conn)
+check("an error after a card is not read out over it", ch.sent == [])
+
+
 # ── A tool's own message is logged, on both channels ─────────────────────────
 
 print("\n-- a tool that speaks --")

@@ -1256,3 +1256,43 @@ select.input {
 
 .chat-composer .input { flex: 1; }
 .chat-composer .btn { flex: 0 0 auto; }
+
+/* Permission cards, in the chat. The text is the server's, verbatim; the only
+   thing this styling decides is that it does not look like a reply. */
+
+.chat-card-line { max-width: 88%; }
+
+.chat-card {
+  background: var(--panel-2);
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--orange);
+  border-radius: 4px;
+  padding: 14px 16px;
+}
+
+.chat-card-text {
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.chat-card-actions { display: flex; gap: 10px; margin-top: 14px; }
+
+.chat-card-status {
+  margin-top: 12px;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--teal);
+}
+
+.chat-card-resolved { opacity: 0.55; }
+.chat-card-resolved .chat-card { border-left-color: var(--muted-2); }
+
+/* A tool proposal in the Today panel — the same verbatim text, no edit box. */
+.pending-proposal {
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}

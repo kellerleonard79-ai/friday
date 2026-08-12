@@ -120,6 +120,7 @@ function navigate(route) {
   CURRENT_ROUTE = route;
   if (STATUS_TIMER) { clearInterval(STATUS_TIMER); STATUS_TIMER = null; }
   if (VOICE_TIMER) { clearInterval(VOICE_TIMER); VOICE_TIMER = null; }
+  if (CHAT_PENDING_TIMER) { clearInterval(CHAT_PENDING_TIMER); CHAT_PENDING_TIMER = null; }
   document.querySelectorAll('.nav-item').forEach((a) => {
     a.classList.toggle('active', a.dataset.route === route);
   });
@@ -376,77 +377,116 @@ function drawPending(rows) {
   const host = document.getElementById('pending-list');
   host.innerHTML = '';
   for (const row of rows) {
-    const dr = row.draft || {};
-    const card = document.createElement('div');
-    card.className = 'pending-card';
-    const when = [dr.date, dr.start_time].filter(Boolean).join(' ')
-      + (dr.end_time ? `–${dr.end_time}` : '');
-    card.innerHTML = `
-      <div class="pending-summary">
-        <div class="pending-title">${escapeHtml(dr.title || '(untitled)')}</div>
-        <div class="pending-meta mono">${escapeHtml(when || '(all day)')} · ${escapeHtml(dr.calendar || 'default')}</div>
-        ${dr.notes ? `<div class="pending-notes">${escapeHtml(dr.notes)}</div>` : ''}
-      </div>
-      <div class="pending-actions">
-        <button class="btn btn-primary btn-sm" data-act="confirm">Confirm</button>
-        <button class="btn btn-outline btn-sm" data-act="edit">Edit</button>
-        <button class="btn btn-danger btn-sm" data-act="cancel">Cancel</button>
-      </div>
-      <div class="pending-edit hidden">
-        <label class="field-label">TITLE</label>
-        <input class="input" data-f="title" value="${escapeAttr(dr.title || '')}">
-        <div class="pending-edit-grid">
-          <div><label class="field-label">DATE</label><input class="input" data-f="date" value="${escapeAttr(dr.date || '')}" placeholder="YYYY-MM-DD"></div>
-          <div><label class="field-label">START</label><input class="input" data-f="start_time" value="${escapeAttr(dr.start_time || '')}" placeholder="HH:MM"></div>
-          <div><label class="field-label">END</label><input class="input" data-f="end_time" value="${escapeAttr(dr.end_time || '')}" placeholder="HH:MM"></div>
-        </div>
-        <label class="field-label">CALENDAR</label>
-        <input class="input" data-f="calendar" value="${escapeAttr(dr.calendar || '')}">
-        <label class="field-label">NOTES</label>
-        <input class="input" data-f="notes" value="${escapeAttr(dr.notes || '')}">
-        <div class="row" style="margin-top:12px;">
-          <button class="btn btn-teal btn-sm" data-act="save">Save</button>
-          <button class="btn btn-outline btn-sm" data-act="edit-cancel">Cancel</button>
-        </div>
-      </div>
-    `;
-    const id = row.id;
-    const editBox = card.querySelector('.pending-edit');
-    const actions = card.querySelector('.pending-actions');
-    card.querySelector('[data-act="confirm"]').onclick = () => pendingAction(id, 'confirm');
-    card.querySelector('[data-act="cancel"]').onclick = () => pendingAction(id, 'cancel');
-    card.querySelector('[data-act="edit"]').onclick = () => {
-      PENDING_EDITING = true;
-      editBox.classList.remove('hidden');
-      actions.classList.add('hidden');
-    };
-    card.querySelector('[data-act="edit-cancel"]').onclick = () => {
-      PENDING_EDITING = false;
-      editBox.classList.add('hidden');
-      actions.classList.remove('hidden');
-    };
-    card.querySelector('[data-act="save"]').onclick = async () => {
-      const obj = {};
-      editBox.querySelectorAll('[data-f]').forEach((i) => { obj[i.dataset.f] = i.value; });
-      try {
-        await api.post(`/api/pending-approvals/${id}/edit`, { edited_body: JSON.stringify(obj) });
-        PENDING_EDITING = false;
-        PENDING_SIG = null;   // force a refetch on the next tick
-        flash('DRAFT UPDATED');
-      } catch { flash('FAILED', true); }
-    };
-    host.appendChild(card);
+    host.appendChild(row.action_type === 'tool_call'
+      ? drawToolProposal(row) : drawLegacyDraft(row));
   }
+}
+
+// A tool proposal. NOT EDITABLE, and no Edit button — step 4 established that
+// an edit which drops a field changes what was approved, so the server refuses
+// it. The button was still being rendered and 400'd every time, which is worse
+// than not offering it.
+//
+// The card text is the server's `proposal`, VERBATIM: the exact string that
+// went to Telegram. Rebuilding a summary from the arguments would be a second
+// rendering of the same proposal, free to drift from the one the user saw.
+function drawToolProposal(row) {
+  const card = document.createElement('div');
+  card.className = 'pending-card';
+  card.innerHTML = `
+    <div class="pending-summary">
+      <div class="pending-proposal">${escapeHtml(row.proposal || '').replace(/\n/g, '<br>')}</div>
+    </div>
+    <div class="pending-actions">
+      <button class="btn btn-primary btn-sm" data-act="confirm">Confirm</button>
+      <button class="btn btn-danger btn-sm" data-act="cancel">Cancel</button>
+    </div>`;
+  card.querySelector('[data-act="confirm"]').onclick = () => pendingAction(row.id, 'confirm');
+  card.querySelector('[data-act="cancel"]').onclick = () => pendingAction(row.id, 'cancel');
+  return card;
+}
+
+// Rows staged before step 4 by the old gated_write. Nothing produces these any
+// more; kept, with edit intact, so a card already in the table still resolves.
+function drawLegacyDraft(row) {
+  const dr = row.draft || {};
+  const card = document.createElement('div');
+  card.className = 'pending-card';
+  const when = [dr.date, dr.start_time].filter(Boolean).join(' ')
+    + (dr.end_time ? `\u2013${dr.end_time}` : '');
+  card.innerHTML = `
+    <div class="pending-summary">
+      <div class="pending-title">${escapeHtml(dr.title || '(untitled)')}</div>
+      <div class="pending-meta mono">${escapeHtml(when || '(all day)')} \u00b7 ${escapeHtml(dr.calendar || 'default')}</div>
+      ${dr.notes ? `<div class="pending-notes">${escapeHtml(dr.notes)}</div>` : ''}
+    </div>
+    <div class="pending-actions">
+      <button class="btn btn-primary btn-sm" data-act="confirm">Confirm</button>
+      <button class="btn btn-outline btn-sm" data-act="edit">Edit</button>
+      <button class="btn btn-danger btn-sm" data-act="cancel">Cancel</button>
+    </div>
+    <div class="pending-edit hidden">
+      <label class="field-label">TITLE</label>
+      <input class="input" data-f="title" value="${escapeAttr(dr.title || '')}">
+      <div class="pending-edit-grid">
+        <div><label class="field-label">DATE</label><input class="input" data-f="date" value="${escapeAttr(dr.date || '')}" placeholder="YYYY-MM-DD"></div>
+        <div><label class="field-label">START</label><input class="input" data-f="start_time" value="${escapeAttr(dr.start_time || '')}" placeholder="HH:MM"></div>
+        <div><label class="field-label">END</label><input class="input" data-f="end_time" value="${escapeAttr(dr.end_time || '')}" placeholder="HH:MM"></div>
+      </div>
+      <label class="field-label">CALENDAR</label>
+      <input class="input" data-f="calendar" value="${escapeAttr(dr.calendar || '')}">
+      <label class="field-label">NOTES</label>
+      <input class="input" data-f="notes" value="${escapeAttr(dr.notes || '')}">
+      <div class="row" style="margin-top:12px;">
+        <button class="btn btn-teal btn-sm" data-act="save">Save</button>
+        <button class="btn btn-outline btn-sm" data-act="edit-cancel">Cancel</button>
+      </div>
+    </div>`;
+  const id = row.id;
+  const editBox = card.querySelector('.pending-edit');
+  const actions = card.querySelector('.pending-actions');
+  card.querySelector('[data-act="confirm"]').onclick = () => pendingAction(id, 'confirm');
+  card.querySelector('[data-act="cancel"]').onclick = () => pendingAction(id, 'cancel');
+  card.querySelector('[data-act="edit"]').onclick = () => {
+    PENDING_EDITING = true;
+    editBox.classList.remove('hidden');
+    actions.classList.add('hidden');
+  };
+  card.querySelector('[data-act="edit-cancel"]').onclick = () => {
+    PENDING_EDITING = false;
+    editBox.classList.add('hidden');
+    actions.classList.remove('hidden');
+  };
+  card.querySelector('[data-act="save"]').onclick = async () => {
+    const obj = {};
+    editBox.querySelectorAll('[data-f]').forEach((i) => { obj[i.dataset.f] = i.value; });
+    try {
+      await api.post(`/api/pending-approvals/${id}/edit`, { edited_body: JSON.stringify(obj) });
+      PENDING_EDITING = false;
+      PENDING_SIG = null;   // force a refetch on the next tick
+      flash('DRAFT UPDATED');
+    } catch { flash('FAILED', true); }
+  };
+  return card;
 }
 
 async function pendingAction(id, verb) {
   try {
     const r = await api.post(`/api/pending-approvals/${id}/${verb}`);
-    if (verb === 'confirm') flash(r.ok ? 'CONFIRMED' : 'WRITE FAILED', !r.ok);
+    // `stale` is not a failure: the card was old, so it was re-proposed rather
+    // than run, and a fresh one is now waiting. Saying WRITE FAILED there
+    // would be wrong in the direction that matters.
+    if (r.status === 'stale') flash('RE-PROPOSED — CONFIRM AGAIN');
+    else if (verb === 'confirm') flash(r.ok ? 'CONFIRMED' : 'WRITE FAILED', !r.ok);
     else flash('CANCELLED');
     PENDING_SIG = null;   // force refetch
     PENDING_EDITING = false;
-  } catch { flash('FAILED', true); }
+  } catch (e) {
+    // 409 carries the same sentence Telegram gives for an already-resolved
+    // card, in `detail`. Shown rather than swallowed behind a generic FAILED.
+    flash(e.detail || 'FAILED', true);
+    PENDING_SIG = null;
+  }
 }
 
 function renderTodayStats(s) {
@@ -1245,8 +1285,8 @@ function chatAppend(node) {
 // vocabulary (channels/dashboard.py) — switched on rather than sniffed,
 // because a typo here would silently drop a message.
 function chatRenderEvent(ev) {
-  if (ev.kind === 'card') return;              // cards land in their own commit
   if (chatAlreadyRendered(ev)) return;
+  if (ev.kind === 'card') { chatAppend(chatCard(ev.key, ev.text)); return; }
   const text = ev.kind === 'notify'
     ? [ev.title, ev.text].filter(Boolean).join(' — ') : (ev.text || '');
   if (text) chatAppend(chatLine('assistant', text, 'dashboard', ev.at));
@@ -1258,6 +1298,7 @@ function chatRenderEvent(ev) {
 // reads when it opens.
 onStream('message', (ev) => { if (CURRENT_ROUTE === 'chat') chatRenderEvent(ev); });
 onStream('notify',  (ev) => { if (CURRENT_ROUTE === 'chat') chatRenderEvent(ev); });
+onStream('card',    (ev) => { if (CURRENT_ROUTE === 'chat') chatRenderEvent(ev); });
 
 // Anything this browser rendered from its own POST response must not be
 // rendered a second time when the same event arrives on the stream. Keyed on
@@ -1293,11 +1334,103 @@ async function chatSend(text) {
     thinking.remove();
     // A transport failure, not a model failure — the model's own errors come
     // back as ordinary messages with an error_kind. Worth telling apart.
-    chatAppend(chatLine('assistant', `Couldn't reach Friday: ${e.message}`,
+    chatAppend(chatLine('assistant',
+                        `Couldn't reach Friday: ${e.detail || e.message}`,
                         'dashboard', new Date().toISOString()));
   } finally {
     input.disabled = false; send.disabled = false; input.focus();
   }
+}
+
+
+// ── Permission cards, in the chat ──────────────────────────────────────
+//
+// The SAME pending_actions keys Telegram's inline buttons carry. A card
+// confirmed here and a card confirmed there resolve the same row, run the
+// same stored arguments through the same executor, and cannot both execute —
+// the second tap, on either surface, is refused with a message.
+//
+// The text is the server's, verbatim. No persona, no quip, nothing prepended
+// (invariants 3 and 6). This function chooses buttons and nothing else.
+
+const CHAT_CARDS = new Map();       // pending key → element
+
+function chatCard(key, text) {
+  const el = document.createElement('div');
+  el.className = 'chat-line chat-friday chat-card-line';
+  el.innerHTML = `
+    <div class="chat-card">
+      <div class="chat-card-text">${escapeHtml(text || '').replace(/\n/g, '<br>')}</div>
+      <div class="chat-card-actions">
+        <button class="btn btn-primary btn-sm" data-act="confirm">Confirm</button>
+        <button class="btn btn-outline btn-sm" data-act="cancel">Cancel</button>
+      </div>
+      <div class="chat-card-status mono hidden"></div>
+    </div>`;
+  el.querySelector('[data-act="confirm"]').onclick = () => chatResolve(key, 'confirm', el);
+  el.querySelector('[data-act="cancel"]').onclick  = () => chatResolve(key, 'cancel', el);
+  if (key) CHAT_CARDS.set(key, el);
+  return el;
+}
+
+function chatCardSettle(el, label) {
+  const actions = el.querySelector('.chat-card-actions');
+  const status = el.querySelector('.chat-card-status');
+  if (actions) actions.remove();
+  if (status) { status.textContent = label; status.classList.remove('hidden'); }
+  el.classList.add('chat-card-resolved');
+}
+
+async function chatResolve(key, verb, el) {
+  el.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+  try {
+    const r = await api.post(`/api/pending-approvals/${key}/${verb}`);
+    // A stale card is re-proposed rather than run: the row is superseded and a
+    // NEW card arrives in the events below. Settling this one as "replaced"
+    // rather than "confirmed" is the whole point of that mechanism being
+    // visible — the user has not approved anything yet.
+    const label = { confirmed: 'CONFIRMED', cancelled: 'CANCELLED',
+                    stale: 'REPLACED', superseded: 'REPLACED',
+                    expired: 'EXPIRED' }[r.status] || (r.status || '').toUpperCase();
+    chatCardSettle(el, label);
+    (r.events || []).forEach(chatRenderEvent);
+    if (key) CHAT_CARDS.delete(key);
+  } catch (e) {
+    // 409 is the cross-channel case: resolved in Telegram while this button
+    // was still on screen. It fails closed server-side; here it has to stop
+    // looking live.
+    chatCardSettle(el, 'ALREADY RESOLVED');
+    chatAppend(chatLine('assistant',
+                        e.detail || "That one's already been dealt with, sir.",
+                        'dashboard', new Date().toISOString()));
+    if (key) CHAT_CARDS.delete(key);
+  }
+}
+
+// Cards resolved somewhere else. The dashboard's own resolutions arrive here
+// too, harmlessly — the element is already out of the map by then.
+onStream('pending', (ev) => {
+  const el = CHAT_CARDS.get(ev.id);
+  if (!el) return;
+  chatCardSettle(el, (ev.status || 'resolved').toUpperCase());
+  CHAT_CARDS.delete(ev.id);
+});
+
+// A card resolved by tapping the button IN TELEGRAM is resolved inside
+// effects/pending.py, which must not know a dashboard exists — so there is no
+// event to listen for. This poll is what closes that direction, and it is the
+// honest cost of not cross-wiring two channels together.
+let CHAT_PENDING_TIMER = null;
+
+async function chatSyncPending() {
+  if (!CHAT_CARDS.size) return;
+  try {
+    const r = await api.get('/api/pending-approvals');
+    const live = new Set((r.pending || []).map((p) => p.id));
+    for (const [key, el] of [...CHAT_CARDS]) {
+      if (!live.has(key)) { chatCardSettle(el, 'RESOLVED ELSEWHERE'); CHAT_CARDS.delete(key); }
+    }
+  } catch { /* a failed poll is a stale card, not a broken page */ }
 }
 
 async function renderChat() {
@@ -1317,6 +1450,22 @@ async function renderChat() {
   } catch (e) {
     log.innerHTML = `<div class="hint">Couldn't load the transcript: ${escapeHtml(e.message)}</div>`;
   }
+  // Cards already waiting — proposed before this tab was opened, or on the
+  // other surface. Rendered after the transcript because they are the live
+  // question, not part of the history.
+  CHAT_CARDS.clear();
+  try {
+    const p = await api.get('/api/pending-approvals');
+    (p.pending || []).forEach((row) => {
+      if (row.action_type === 'tool_call') {
+        chatAppend(chatCard(row.id, row.proposal));
+      }
+    });
+  } catch { /* the transcript is still worth showing without them */ }
+
+  if (CHAT_PENDING_TIMER) clearInterval(CHAT_PENDING_TIMER);
+  CHAT_PENDING_TIMER = setInterval(chatSyncPending, 5000);
+
   form.addEventListener('submit', (ev) => {
     ev.preventDefault();
     const text = input.value.trim();

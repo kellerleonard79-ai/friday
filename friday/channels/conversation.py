@@ -93,8 +93,14 @@ _ERROR_MSG = {
 class Reply:
     """What happened, for the channel to present.
 
-    `text` is what was said and is "" when the turn's only output was a card —
-    which is the correct shape for a gated write, not an empty response.
+    `text` is what was said and is "" when a card went out — which is the
+    correct shape for a gated write, not an empty response. NOTHING GOES IN
+    THE ASSISTANT SLOT AFTER A CARD. Three phrasings were tried in step 4 and
+    the model sent all three to the user verbatim on the next turn:
+    "[permission card sent]", the card's own text, and a sentence describing
+    the card. The pattern is not about wording — WHATEVER SITS IN THE
+    ASSISTANT SLOT AFTER A CARD, THE MODEL WILL EVENTUALLY SAY. The
+    assistant's turn for a card is the OUTCOME, written when the user taps.
     """
     text: str = ""
     cards: tuple[str, ...] = ()
@@ -228,26 +234,45 @@ async def handle(text: str, channel, conn, config: dict) -> Reply:
             if not report.ok:
                 logger.warning(f"Effects partially failed: {report.failed}")
 
-        if result.error_kind != "none":
+        if cards:
+            # A CARD WAS SENT, SO NOTHING FOLLOWS IT. Not the model's trailing
+            # prose, not an error line. Invariant 3 — nothing may delay,
+            # editorialize on, or bury a permission card — and a sentence
+            # after one is the commonest way to editorialize on it.
+            #
+            # This is not hypothetical. The first card the dashboard produced
+            # was followed by "观察到您已调用工具，请在确认卡片中确认该日程" —
+            # the model narrating its own tool call, in Chinese, underneath a
+            # card that already said everything. The branch used to run only
+            # when result.text was empty, so the model's willingness to add a
+            # line was the only thing keeping the rule.
+            #
+            # Suppressed, not sent-and-not-logged: a sentence the user reads is
+            # a sentence that belongs in history, so the only correct handling
+            # of prose that must not be read is to not send it.
+            if result.text:
+                logger.info(
+                    f"Suppressed prose after a card ({len(result.text)} chars): "
+                    f"{result.text[:120]!r}"
+                )
+            if result.error_kind != "none":
+                logger.warning(
+                    f"LLM {result.error_kind} on a turn that emitted a card — "
+                    f"not reported to the user, the card stands: "
+                    f"{result.error_message}"
+                )
+            said = ""
+        elif result.error_kind != "none":
             said = _ERROR_MSG.get(result.error_kind,
                                   f"LLM error, sir: {result.error_message}")
             logger.warning(f"LLM {result.error_kind} — sending to user: {said}")
         elif result.text:
             said = result.text
         elif effects_spoke:
-            # The turn's effects already answered the user and the model added
-            # nothing. For a card that is the CORRECT shape, not an empty
-            # response: the card IS the reply, and anything appended to it
-            # would be the preamble invariant 3 forbids. For a tool's own
-            # message it is simply an answer that came from the tool.
+            # The turn's effects already answered the user — a tool's own
+            # SendMessage — and the model added nothing on top. That is an
+            # answer, not an empty response.
             #
-            # NOTHING GOES IN THE ASSISTANT SLOT HERE. Three phrasings were
-            # tried and the model sent all three to the user verbatim on the
-            # next turn — "[permission card sent]", the card's own text, and a
-            # sentence describing the card. The pattern is not about wording:
-            # WHATEVER SITS IN THE ASSISTANT SLOT AFTER A CARD, THE MODEL WILL
-            # EVENTUALLY SAY. The assistant's turn is the OUTCOME, written when
-            # the user taps; effects/pending.py logs it.
             said = ""
         else:
             said = _EMPTY_MSG

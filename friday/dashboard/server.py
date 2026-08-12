@@ -418,6 +418,33 @@ def _whats_next(conn: sqlite3.Connection, config_path: Path) -> dict:
     }
 
 
+class ChatIn(BaseModel):
+    """The chat request body.
+
+    MODULE SCOPE, NOT INSIDE create_app(). `from __future__ import annotations`
+    turns every annotation into a string and FastAPI resolves them against the
+    module namespace — a model defined in a function body is invisible there,
+    and the parameter degrades into a required query argument with no error
+    until the first request.
+    """
+    text: str
+
+
+def _publish_pending(broadcaster, pid: str, status: str) -> None:
+    """Tell every attached browser that a card is no longer live.
+
+    ONLY COVERS RESOLUTIONS THAT HAPPEN HERE. A card confirmed by tapping the
+    Telegram button is resolved inside effects/pending.py, which must not
+    import a dashboard — that is the layering the whole rebuild exists to
+    protect. The browser catches those on its pending poll a few seconds
+    later, which is the honest cost of not cross-wiring two channels together.
+    """
+    try:
+        broadcaster.publish({"kind": "pending", "id": pid, "status": status})
+    except Exception as e:
+        logger.debug(f"pending broadcast failed: {e}")
+
+
 def _pending_approvals(conn: sqlite3.Connection) -> list[dict]:
     """Pending approval rows with the full draft text decoded from payload JSON."""
     out = []
@@ -960,9 +987,6 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
                      "X-Accel-Buffering": "no"},
         )
 
-    class ChatIn(BaseModel):
-        text: str
-
     @app.post("/api/chat")
     async def api_chat(payload: ChatIn) -> dict:
         from channels import conversation
@@ -1027,11 +1051,20 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
             from effects import pending as _pending
             raise HTTPException(409, _pending.refusal_message(status))
 
-        # A lightweight TelegramHandler (send-only) mirrors the confirmation the
-        # user would have seen had they tapped the inline button in Telegram.
-        cfg = _load_config(config_path)
-        from channels.telegram import TelegramHandler
-        tg = TelegramHandler(cfg, agent=None, conn=conn)
+        # THE CHANNEL THAT HANDLED THE TAP IS THE CHANNEL THAT ANSWERS.
+        #
+        # This used to build a send-only TelegramHandler, so a card confirmed
+        # in the dashboard produced a confirmation that went to Telegram. On
+        # school Wi-Fi — the entire reason the dashboard exists — that
+        # confirmation went nowhere at all: the user tapped Confirm, the event
+        # was written, and nothing came back. Worse, the write's own history
+        # row was the one message they never saw.
+        #
+        # effects/entry.py takes effects and a channel for exactly this. The
+        # confirm path has always been channel-agnostic; it was only ever
+        # handed a Telegram.
+        from channels.dashboard import DashboardChannel
+        channel = DashboardChannel(sink=broadcaster.publish)
 
         if action_type == "tool_call":
             # INVARIANT 9: the dashboard is a channel adapter, not a second
@@ -1049,8 +1082,13 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
                          "cancel it and ask again.")
             from effects import pending
             fn = pending.confirm if verb == "confirm" else pending.cancel
-            status = fn(pid, conn, tg)
-            return {"ok": status in ("confirmed", "cancelled"), "status": status}
+            status = fn(pid, conn, channel)
+            # A stale card is re-proposed rather than run — the row is
+            # superseded and a NEW card comes back on this response and on the
+            # stream. Reported as not-ok because nothing was written.
+            _publish_pending(broadcaster, pid, status)
+            return {"ok": status in ("confirmed", "cancelled"),
+                    "status": status, "events": channel.events}
 
         if action_type != "calendar_add":
             raise HTTPException(400, f"Unsupported action type: {action_type}")
@@ -1080,11 +1118,14 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
                     "draft": _pending_approvals(conn)}
 
         if verb == "confirm":
-            ok = cal_action.confirm_pending(pid, conn, tg)
-            return {"ok": bool(ok), "status": "confirmed" if ok else "failed"}
+            ok = cal_action.confirm_pending(pid, conn, channel)
+            _publish_pending(broadcaster, pid, "confirmed" if ok else "failed")
+            return {"ok": bool(ok), "status": "confirmed" if ok else "failed",
+                    "events": channel.events}
 
-        cal_action.cancel_pending(pid, conn, tg)
-        return {"ok": True, "status": "cancelled"}
+        cal_action.cancel_pending(pid, conn, channel)
+        _publish_pending(broadcaster, pid, "cancelled")
+        return {"ok": True, "status": "cancelled", "events": channel.events}
 
     @app.post("/api/test/canvas")
     def api_test_canvas() -> dict:
