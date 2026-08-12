@@ -1173,3 +1173,86 @@ select.input {
   font-size: 18px;
   color: var(--orange-soft);
 }
+
+/* ── Chat ─────────────────────────────────────────────────────────────────
+   The dashboard's own conversation surface. Same transcript as Telegram —
+   messages from either surface render here, and the `via` tag says which.  */
+
+.chat-panel {
+  display: flex;
+  flex-direction: column;
+  /* Fills the viewport minus the header and the panel's own margins, so the
+     composer sits at the bottom of the window rather than at the bottom of a
+     transcript that may be three lines long. */
+  height: calc(100vh - 190px);
+  min-height: 340px;
+}
+
+.chat-log {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.chat-line { display: flex; flex-direction: column; max-width: 78%; }
+.chat-line.chat-user   { align-self: flex-end;   align-items: flex-end; }
+.chat-line.chat-friday { align-self: flex-start; align-items: flex-start; }
+
+.chat-bubble {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px 14px;
+  color: var(--text-2);
+  font-size: 15px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-user .chat-bubble {
+  background: #FF6B0018;
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.chat-meta {
+  font-size: 11px;
+  color: var(--muted-2);
+  margin-top: 5px;
+  letter-spacing: 0.04em;
+}
+
+/* Which surface a line came from. Only rendered when it is NOT this one —
+   "via telegram" is information; "via dashboard" on the dashboard is noise. */
+.chat-via {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border: 1px solid var(--teal-dim);
+  border-radius: 3px;
+  color: var(--teal);
+  text-transform: uppercase;
+  font-size: 10px;
+}
+
+.chat-thinking .chat-bubble {
+  color: var(--muted);
+  letter-spacing: 0.3em;
+  animation: chat-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes chat-pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+
+.chat-composer {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.chat-composer .input { flex: 1; }
+.chat-composer .btn { flex: 0 0 auto; }

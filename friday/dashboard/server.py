@@ -921,6 +921,59 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
             logger.debug(f"sync-status query failed: {e}")
         return {"last_sync": last_sync}
 
+    # ── Chat ─────────────────────────────────────────────────────────────────
+    #
+    # THE SAME PIPELINE TELEGRAM RUNS. Not a similar one — the same
+    # channels/conversation.py::handle(), the same TURN_GATE, the same
+    # conversation_history rows, the same effects entry point. Invariant 9
+    # says the dashboard is a channel adapter and not a second chat
+    # implementation, and the way that is enforced here is that there is
+    # nothing below these lines to fork: everything this route knows how to do
+    # is construct a DashboardChannel and hand it over.
+    #
+    # Async, on the shared loop, which is what lets it take the same gate as
+    # the Telegram handler. A dashboard turn and a Telegram turn cannot
+    # interleave against the same history.
+
+    class ChatIn(BaseModel):
+        text: str
+
+    @app.post("/api/chat")
+    async def api_chat(payload: ChatIn) -> dict:
+        from channels import conversation
+        from channels.dashboard import DashboardChannel
+        # No sink yet — the events come back on this response. The live
+        # stream is the next commit; until then a card resolved elsewhere is
+        # seen on the next poll rather than pushed.
+        channel = DashboardChannel()
+        reply = await conversation.handle(
+            payload.text, channel, conn, _load_config(config_path))
+        # The events are what the channel was told to say, in order.
+        return {
+            "paused": reply.paused,
+            "error_kind": reply.error_kind,
+            "stopped_on": reply.stopped_on,
+            "events": channel.events,
+        }
+
+    @app.get("/api/chat/history")
+    def api_chat_history(limit: int = Query(60)) -> dict:
+        """The transcript, oldest-first, UNFILTERED BY CHANNEL.
+
+        A message typed in the dashboard and a message sent over Telegram are
+        one conversation with one person. The channel column says where a line
+        came from; it is not a partition, and rendering only this surface's
+        half would show the user a conversation they never had.
+        """
+        rows = conn.execute(
+            "SELECT role, content, created_at, channel FROM conversation_history "
+            "ORDER BY id DESC LIMIT ?", (max(1, min(limit, 500)),)
+        ).fetchall()
+        return {"messages": [
+            {"role": r[0], "content": r[1], "at": r[2], "channel": r[3] or ""}
+            for r in reversed(rows)
+        ]}
+
     @app.get("/api/pending-approvals")
     def api_pending_approvals() -> dict:
         return {"pending": _pending_approvals(conn)}

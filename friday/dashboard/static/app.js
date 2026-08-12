@@ -102,6 +102,7 @@ function bindInput(el, path, opts = {}) {
 
 const ROUTES = {
   today: renderToday,
+  chat: renderChat,
   ai: renderAI,
   persona: renderPersona,
   integrations: renderIntegrations,
@@ -1160,6 +1161,111 @@ function escapeHtml(s) {
 }
 
 function escapeAttr(s) { return escapeHtml(s); }
+
+
+// ── Chat ───────────────────────────────────────────────────────────────
+//
+// A rendering surface and nothing else. Every message goes to POST /api/chat,
+// which runs the same channels/conversation.py::handle() the Telegram handler
+// runs — same gate, same history, same effects. Nothing here decides what
+// Friday says, and nothing here talks to the model.
+
+function chatLine(role, text, channel, at) {
+  const div = document.createElement('div');
+  div.className = `chat-line chat-${role === 'user' ? 'user' : 'friday'}`;
+  const from = channel && channel !== 'dashboard'
+    ? `<span class="chat-via mono">${escapeHtml(channel)}</span>` : '';
+  div.innerHTML =
+    `<div class="chat-bubble">${escapeHtml(text).replace(/\n/g, '<br>')}</div>` +
+    `<div class="chat-meta mono">${escapeHtml(chatTime(at))}${from}</div>`;
+  return div;
+}
+
+function chatTime(at) {
+  if (!at) return '';
+  try {
+    return new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  } catch { return ''; }
+}
+
+function chatScroll() {
+  const log = document.getElementById('chat-log');
+  if (log) log.scrollTop = log.scrollHeight;
+}
+
+function chatAppend(node) {
+  const log = document.getElementById('chat-log');
+  if (!log) return;
+  log.appendChild(node);
+  chatScroll();
+}
+
+// A dashboard event from POST /api/chat. `kind` is the channel's own
+// vocabulary (channels/dashboard.py) — switched on rather than sniffed,
+// because a typo here would silently drop a message.
+function chatRenderEvent(ev) {
+  if (ev.kind === 'card') return;              // cards land in their own commit
+  const text = ev.kind === 'notify'
+    ? [ev.title, ev.text].filter(Boolean).join(' — ') : (ev.text || '');
+  if (text) chatAppend(chatLine('assistant', text, 'dashboard', ev.at));
+}
+
+async function chatSend(text) {
+  const input = document.getElementById('chat-input');
+  const send = document.getElementById('chat-send');
+  input.disabled = true; send.disabled = true;
+  chatAppend(chatLine('user', text, 'dashboard', new Date().toISOString()));
+  const thinking = document.createElement('div');
+  thinking.className = 'chat-line chat-friday chat-thinking';
+  thinking.innerHTML = '<div class="chat-bubble">…</div>';
+  chatAppend(thinking);
+  try {
+    const r = await api.post('/api/chat', { text });
+    thinking.remove();
+    if (r.paused) {
+      chatAppend(chatLine('assistant', 'Paused — nothing was processed.',
+                          'dashboard', new Date().toISOString()));
+    }
+    (r.events || []).forEach(chatRenderEvent);
+  } catch (e) {
+    thinking.remove();
+    // A transport failure, not a model failure — the model's own errors come
+    // back as ordinary messages with an error_kind. Worth telling apart.
+    chatAppend(chatLine('assistant', `Couldn't reach Friday: ${e.message}`,
+                        'dashboard', new Date().toISOString()));
+  } finally {
+    input.disabled = false; send.disabled = false; input.focus();
+  }
+}
+
+async function renderChat() {
+  const log = document.getElementById('chat-log');
+  const form = document.getElementById('chat-form');
+  const input = document.getElementById('chat-input');
+  try {
+    const r = await api.get('/api/chat/history');
+    log.innerHTML = '';
+    if (!(r.messages || []).length) {
+      log.innerHTML = '<div class="hint">Nothing yet. Say something.</div>';
+    }
+    (r.messages || []).forEach((m) => {
+      log.appendChild(chatLine(m.role, m.content, m.channel, m.at));
+    });
+    chatScroll();
+  } catch (e) {
+    log.innerHTML = `<div class="hint">Couldn't load the transcript: ${escapeHtml(e.message)}</div>`;
+  }
+  form.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    const hint = log.querySelector('.hint');
+    if (hint) hint.remove();
+    chatSend(text);
+  });
+  input.focus();
+}
 
 // ── Boot ───────────────────────────────────────────────────────────────
 

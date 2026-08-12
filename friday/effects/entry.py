@@ -60,20 +60,37 @@ from effects.runner import EffectReport
 logger = logging.getLogger("friday.effects.entry")
 
 
-def log_history(conn, role: str, text: str) -> None:
+def _channel_name(channel) -> str:
+    """A Channel, a bare name, or nothing. Accepts all three because the
+    callers legitimately have all three: conversation.py holds the channel
+    object, the confirm path holds a wrapped one, and a caller with no channel
+    at all (a job, a test) has neither."""
+    if channel is None:
+        return ""
+    if isinstance(channel, str):
+        return channel
+    return str(getattr(channel, "name", "") or "")
+
+
+def log_history(conn, role: str, text: str, channel=None) -> None:
     """Append one conversation_history row. Best-effort, by design.
 
-    THE ONLY conversation_history WRITE UNDER effects/. Kept as a named
-    function rather than inlined so the column list lives in one place — when
-    history grows a column, this is the line that changes.
+    THE ONLY conversation_history WRITE UNDER effects/, and the only one any
+    channel makes. Kept as a named function rather than inlined so the column
+    list lives in one place — `channel` was added here and nowhere else.
+
+    THE CHANNEL IS RECORDED, NOT USED TO PARTITION. The window every turn
+    reads is unfiltered: a message typed in the dashboard has to be in scope
+    when the user asks about it over Telegram. This column answers "where did
+    this line come from", which is an operator question, not a model one.
     """
     if conn is None or not text:
         return
     try:
         conn.execute(
-            "INSERT INTO conversation_history (role, content, created_at) "
-            "VALUES (?, ?, ?)",
-            (role, text, datetime.now().isoformat()),
+            "INSERT INTO conversation_history (role, content, created_at, channel) "
+            "VALUES (?, ?, ?, ?)",
+            (role, text, datetime.now().isoformat(), _channel_name(channel)),
         )
         conn.commit()
     except Exception as e:
@@ -119,7 +136,7 @@ class HistoryChannel:
     def send(self, text: str) -> bool:
         ok = self._inner.send(text)
         if ok:
-            log_history(self._conn, "assistant", text)
+            log_history(self._conn, "assistant", text, channel=self._inner)
         return ok
 
     def send_permission_request(self, proposal: str, pending_key: str) -> bool:

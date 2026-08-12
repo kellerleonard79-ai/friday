@@ -18,6 +18,7 @@
     <div class="logo-sub">CONTROL CONSOLE</div>
     <nav>
       <a class="nav-item" data-route="today">Today</a>
+      <a class="nav-item" data-route="chat">Chat</a>
       <a class="nav-item" data-route="ai">AI Model</a>
       <a class="nav-item" data-route="persona">Persona</a>
       <a class="nav-item" data-route="integrations">Integrations</a>
@@ -109,6 +110,25 @@
         <span class="stat-mini-label">COST TODAY</span>
         <span class="stat-mini-val" id="ts-cost">—</span>
       </div>
+    </section>
+  </template>
+
+  <!-- Chat. The same conversation as Telegram, over loopback, so it works
+       with the Wi-Fi switched off — which is most of the school day. -->
+  <template id="page-chat">
+    <header class="page-header">
+      <h1>CHAT</h1>
+    </header>
+
+    <section class="panel chat-panel">
+      <div class="chat-log" id="chat-log">
+        <div class="hint">Loading…</div>
+      </div>
+      <form class="chat-composer" id="chat-form" autocomplete="off">
+        <input type="text" class="input" id="chat-input" placeholder="Message Friday…" autocomplete="off">
+        <button class="btn btn-primary" type="submit" id="chat-send">SEND</button>
+      </form>
+      <div class="hint" id="chat-hint">One conversation, both surfaces — anything said here is in scope over Telegram, and the other way round.</div>
     </section>
   </template>
 

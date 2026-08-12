@@ -48,7 +48,8 @@ CREATE TABLE IF NOT EXISTS conversation_history (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     role       TEXT,
     content    TEXT,
-    created_at TEXT
+    created_at TEXT,
+    channel    TEXT
 );
 
 CREATE TABLE IF NOT EXISTS synced_events (
@@ -221,6 +222,21 @@ class Database:
         if "ledger_json" not in tc_cols:
             self._conn.execute("ALTER TABLE tool_calls ADD COLUMN ledger_json TEXT")
             logger.info("Migration: added tool_calls.ledger_json column")
+
+        # conversation_history.channel: which surface a line came from —
+        # "telegram", "dashboard". Recorded, never used to partition the
+        # window a turn reads: a message typed in the dashboard has to be in
+        # scope when the user asks about it over Telegram an hour later. They
+        # are one conversation with one person, and a window split by surface
+        # would make Friday forget things for a reason the user cannot see.
+        # Empty for every row written before this column existed, which is
+        # honest — those predate there being a second channel.
+        ch_cols = {r[1] for r in
+                   self._conn.execute("PRAGMA table_info(conversation_history)")}
+        if "channel" not in ch_cols:
+            self._conn.execute(
+                "ALTER TABLE conversation_history ADD COLUMN channel TEXT")
+            logger.info("Migration: added conversation_history.channel column")
 
         # pending_actions.resolved_at: when a row left 'pending' (confirmed /
         # cancelled / failed). NULL for existing rows — we can't reconstruct a
