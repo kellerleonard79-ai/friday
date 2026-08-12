@@ -305,6 +305,103 @@ check("a prior write outside the TTL no longer blocks", recent.find(conn, "fp-1"
 check("prune removes the expired row", recent.prune(conn) >= 1)
 
 
+# ── Stale: still valid, but one tap is no longer enough ──────────────────────
+#
+# The mechanism is a RE-PROPOSAL, not a flag. That matters: the second
+# confirmation has to be a tap on a different button, or the reflexive
+# double-tap this exists to catch would satisfy it.
+
+def _age(conn, key: str, minutes: int) -> None:
+    conn.execute("UPDATE pending_actions SET created_at = ? WHERE id = ?",
+                 ((datetime.now() - timedelta(minutes=minutes)).isoformat(), key))
+    conn.commit()
+
+
+_seen.clear()
+conn, ch = db(), FakeChannel()
+stage(conn)
+_age(conn, "k1", pending.stale_minutes() + 90)
+result = pending.confirm("k1", conn, ch)
+check("a stale card does not run the tool", _seen == [])
+check("a stale card reports stale", result == "stale")
+check("the stale row is superseded, not left pending",
+      status_of(conn, "k1") == "superseded")
+
+cards = [c for c in ch.calls if c[0] == "card"]
+check("a stale tap produces exactly one new card", len(cards) == 1)
+check("the new card says how old the proposal was",
+      "ago" in cards[0][1] and "confirm again" in cards[0][1].lower())
+check("the new card still carries the original proposal verbatim",
+      "Add to calendar?\nLunch" in cards[0][1])
+
+fresh = conn.execute(
+    "SELECT id, tool_name, arguments_json FROM pending_actions "
+    "WHERE status='pending'").fetchall()
+check("exactly one live row remains", len(fresh) == 1)
+check("the replacement is a DIFFERENT key", fresh[0][0] != "k1")
+check("the replacement carries the same tool", fresh[0][1] == "_p_write")
+check("the replacement carries the SAME stored arguments — not re-extracted",
+      json.loads(fresh[0][2]) == json.loads(
+          conn.execute("SELECT arguments_json FROM pending_actions "
+                       "WHERE id='k1'").fetchone()[0]))
+
+# Tapping the replacement is the second confirmation, and it runs.
+result = pending.confirm(fresh[0][0], conn, ch)
+check("confirming the replacement runs the tool", len(_seen) == 1)
+check("confirming the replacement reports confirmed", result == "confirmed")
+
+# The reflex this exists to catch: tapping the OLD button twice, fast.
+_seen.clear()
+conn, ch = db(), FakeChannel()
+stage(conn)
+_age(conn, "k1", pending.stale_minutes() + 90)
+pending.confirm("k1", conn, ch)
+pending.confirm("k1", conn, ch)
+check("a double tap on the stale button never runs the tool", _seen == [])
+
+# Under the threshold, one tap is still one tap.
+_seen.clear()
+conn, ch = db(), FakeChannel()
+stage(conn)
+_age(conn, "k1", max(0, pending.stale_minutes() - 5))
+result = pending.confirm("k1", conn, ch)
+check("a fresh card still runs on the first tap", len(_seen) == 1)
+check("a fresh card reports confirmed", result == "confirmed")
+
+
+# ── A resolved card is refused OUT LOUD ──────────────────────────────────────
+#
+# The fail-closed half was always here. The silent half is the bug: a card
+# confirmed in the dashboard leaves a live-looking button in Telegram, and a
+# tap that does nothing visible reads as broken and earns another tap.
+
+for prior_verb, expected in (("confirm", "confirmed"), ("cancel", "cancelled")):
+    _seen.clear()
+    conn, ch = db(), FakeChannel()
+    stage(conn)
+    getattr(pending, prior_verb)("k1", conn, ch)
+    before = len(ch.calls)
+    result = pending.confirm("k1", conn, ch)
+    check(f"a second tap after {prior_verb} reports {expected}", result == expected)
+    check(f"a second tap after {prior_verb} SAYS something", len(ch.calls) > before)
+    check(f"a second tap after {prior_verb} runs nothing",
+          len(_seen) == (1 if prior_verb == "confirm" else 0))
+
+# A superseded card explains itself rather than repeating the re-proposal.
+_seen.clear()
+conn, ch = db(), FakeChannel()
+stage(conn)
+_age(conn, "k1", pending.stale_minutes() + 90)
+pending.confirm("k1", conn, ch)
+before = len(ch.calls)
+result = pending.confirm("k1", conn, ch)
+check("a tap on a superseded card reports superseded", result == "superseded")
+check("a tap on a superseded card says so",
+      any("newer" in c[1] for c in ch.calls[before:]))
+check("a tap on a superseded card does not produce a third card",
+      len([c for c in ch.calls if c[0] == "card"]) == 1)
+
+
 print()
 if _failures:
     print(f"{len(_failures)} FAILED:")

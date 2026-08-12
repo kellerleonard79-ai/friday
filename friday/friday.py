@@ -53,6 +53,7 @@ import memory.activity as activity
 import memory.state as state
 from calendars import backend as calendar_backend
 from tools import calendar_read as tool_calendar
+from effects import pending as pending_actions
 from tools import calendar_write as tool_calendar_write
 from connectors import canvas as canvas_connector
 from connectors import gcal_sync
@@ -132,6 +133,9 @@ def main() -> None:
     # The write tools need the connection as well: a tool's arguments are the
     # model's, so a database handle cannot be passed per call.
     tool_calendar_write.configure(config, conn=conn)
+    # The card TTL and the stale threshold. confirm() is reached from a
+    # button tap and has nowhere on that path for a config to travel.
+    pending_actions.configure(config)
 
     agent   = FridayAgent(config, conn=conn)
     handler = TelegramHandler(config, agent, conn)

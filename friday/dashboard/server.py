@@ -942,7 +942,11 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
             raise HTTPException(404, "Unknown or expired approval.")
         action_type, payload, status = row
         if status != "pending":
-            raise HTTPException(409, f"Already {status}.")
+            # THE SAME SENTENCE TELEGRAM GIVES. A card resolved in the other
+            # channel leaves a live-looking button here; the tap has to fail
+            # closed AND say why. A bare status code was the silent half.
+            from effects import pending as _pending
+            raise HTTPException(409, _pending.refusal_message(status))
 
         # A lightweight TelegramHandler (send-only) mirrors the confirmation the
         # user would have seen had they tapped the inline button in Telegram.

@@ -26,6 +26,13 @@ agent:
   # refused with a message, never honoured and never silently ignored.
   pending_action_ttl_minutes: 1440
 
+  # How long ONE TAP is enough for. Past this the card still works, but it is
+  # re-proposed as a fresh card and the user confirms that one instead — so
+  # the second confirmation is a tap on a different button, which a reflexive
+  # double-tap cannot supply. Shortening the TTL instead would trade the real
+  # overnight case for this one; two thresholds cost nothing and keep both.
+  pending_action_stale_minutes: 30
+
   # Fallback calendar used when a write target doesn't exist (e.g. Canvas
   # auto-sync with no 'Canvas' calendar present). macOS exposes no scriptable
   # "default calendar", so this must be explicit.
