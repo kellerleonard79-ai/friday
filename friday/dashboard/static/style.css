@@ -1296,3 +1296,11 @@ select.input {
   line-height: 1.5;
   white-space: pre-wrap;
 }
+
+/* Installed as an app: no browser chrome, so the page owns the notch and the
+   home indicator. viewport-fit=cover is set in index.html; without these the
+   sidebar sits under the status bar on a phone. */
+@supports (padding: env(safe-area-inset-top)) {
+  .sidebar { padding-top: calc(24px + env(safe-area-inset-top)); }
+  #page    { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+}

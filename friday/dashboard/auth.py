@@ -58,7 +58,18 @@ COOKIE_MAX_AGE = 365 * 24 * 60 * 60
 # Paths reachable without a token. Deliberately almost empty — the favicon,
 # because a browser fetches it before anything else and a 401 there makes the
 # tab look broken while the user is trying to read the 401 page.
-_OPEN_PATHS = frozenset({"/static/favicon.png"})
+# The PWA icons are here for the same reason plus a sharper one: an install
+# prompt fetches them from the OS's own installer context, which carries no
+# cookie at all. A 401 there means no home-screen icon and no error message
+# anywhere. None of these files contain anything.
+_OPEN_PATHS = frozenset({
+    "/static/favicon.png",
+    "/static/manifest.webmanifest",
+    "/static/icon-192.png",
+    "/static/icon-512.png",
+    "/static/icon-maskable-192.png",
+    "/static/icon-maskable-512.png",
+})
 
 
 def generate() -> str:

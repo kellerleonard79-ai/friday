@@ -2,9 +2,25 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>F.R.I.D.A.Y.</title>
   <link rel="icon" type="image/png" href="/static/favicon.png">
+
+  <!-- Installable. On the Mac this becomes a dock icon and a chrome-less
+       window; on the phone, a home-screen app. That is most of what makes the
+       dashboard feel like the thing rather than a browser tab it is easy to
+       lose behind twenty others.
+
+       crossorigin="use-credentials" is load-bearing: a manifest is fetched
+       with credentials OMITTED by default, and every route here needs the auth
+       cookie. Without it the manifest 401s and the install prompt never
+       appears — with no error anywhere the user can see. -->
+  <link rel="manifest" href="/static/manifest.webmanifest" crossorigin="use-credentials">
+  <meta name="theme-color" content="#1A0800">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Friday">
+  <link rel="apple-touch-icon" href="/static/icon-192.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
