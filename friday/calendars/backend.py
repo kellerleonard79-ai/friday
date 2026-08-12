@@ -91,17 +91,37 @@ def write_event(calendar_name: str, title: str, start, end,
         outcome, verified=_readback_confirms(outcome.uid, start))
 
 
-# The read-back races the write it is checking. On the Apple backend the two
-# use different views of the same database — writes go out through JXA, reads
-# come back through a cached EKEventStore that only refreshes when it processes
-# a change notification — so a read twenty milliseconds after a write reliably
-# missed it and reported a real write as unconfirmed.
+# THE READ-BACK MUST NOT APPLY THE BRIEFING WHITELIST, and this cost an hour to
+# find. agent.briefing_calendars answers "which calendars should Friday show
+# the user"; every read goes through it, including this one. So a write to a
+# calendar outside the whitelist was written, existed, and then failed its own
+# verification — because the reader had been told not to look there.
 #
-# refresh() plus a short bounded retry closes it. Bounded tightly because the
-# user is waiting on a confirmation: three tries is enough for the notification
-# to land, and a fourth would be waiting on something that is not coming.
+# It is a different question. "Does this specific event exist" is not "what
+# should I brief on", and conflating them makes `verified` permanently False
+# for any user whose default_calendar is not also a briefing calendar. A flag
+# that is always wrong is worse than no flag, and this is the flag invariant 4
+# rests on.
+#
+# The default exclusions (holidays, Siri Suggestions) still apply. Nothing
+# Friday writes can land there.
+#
+# The refresh-and-retry below is belt and braces rather than the fix. Writes go
+# out through JXA and reads come back through a cached EKEventStore, so a race
+# is possible in principle even though the whitelist turned out to be what was
+# actually biting. Kept because it is cheap; bounded tightly because the user
+# is waiting on a confirmation.
 _READBACK_TRIES = 3
 _READBACK_PAUSE_S = 0.4
+
+
+def _readback_config() -> dict:
+    """The config with the briefing whitelist removed. See the note above."""
+    cfg = dict(_CONFIG)
+    agent = dict(cfg.get("agent") or {})
+    agent.pop("briefing_calendars", None)
+    cfg["agent"] = agent
+    return cfg
 
 
 def _readback_confirms(uid: str, start) -> bool:
@@ -115,6 +135,7 @@ def _readback_confirms(uid: str, start) -> bool:
         return False
     day = start.date() if hasattr(start, "date") else start
     mod = _mod()
+    cfg = _readback_config()
     for attempt in range(_READBACK_TRIES):
         try:
             if attempt:
@@ -125,7 +146,7 @@ def _readback_confirms(uid: str, start) -> bool:
                 mod.refresh()
             except Exception as e:
                 logger.debug(f"read-back refresh failed: {e}")
-            for evt in mod.events_for_day(_CONFIG, day):
+            for evt in mod.events_for_day(cfg, day):
                 if evt.get("uid") == uid:
                     return True
         except Exception as e:

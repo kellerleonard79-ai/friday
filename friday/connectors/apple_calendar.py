@@ -156,10 +156,15 @@ def refresh() -> bool:
     try:
         # reset(), not refreshSourcesIfNecessary(). The latter refreshes REMOTE
         # sources — CalDAV, Exchange — and does nothing about the store's own
-        # in-memory caches, which is where a JXA write is invisible. reset() is
-        # the documented response to an EKEventStoreChanged notification and is
-        # what actually invalidates them. Tried the other one first; the
-        # read-back still missed every write.
+        # in-memory caches, which is where a JXA write would be invisible.
+        # reset() is the documented response to an EKEventStoreChanged
+        # notification and is what invalidates them.
+        #
+        # Honest note on provenance: this was written while chasing a read-back
+        # that missed every write, and that turned out to be the briefing
+        # whitelist rather than a stale cache (see calendars/backend.py). So
+        # this is the right call for the problem it names, but it is not
+        # load-bearing for anything observed.
         store.reset()
         return True
     except Exception as e:
