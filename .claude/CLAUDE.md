@@ -22,21 +22,39 @@
 >   and quips grouped by tool and outcome. Friday can write to the calendar from
 >   chat again, behind a permission card.
 >
-> See **The LLM Layer**, **The Tool Layer** and **The Effects Layer** below.
+> - **Step 5** — the second channel: `effects/entry.py` (the one door effects
+>   go out of), `channels/base.py` (the contract), `channels/conversation.py`
+>   (one user message, any channel), `channels/dashboard.py`, SSE, cards in
+>   the browser, dashboard auth, a PWA manifest, and the interrupt path.
+>   **The dashboard is now a full conversational channel and works with the
+>   Wi-Fi off.**
 >
-> **Step 4 is complete.** A gated write round-trips end to end over Telegram:
-> card, tap, service-confirmed write, verified read-back, quip.
+> See **The LLM Layer**, **The Tool Layer**, **The Effects Layer** and
+> **The Channel Layer** below.
 >
-> **Next is step 5**, in this order: (a) a thin effects **entry point** owning
-> the runner call plus conversation-history logging, so the turn loop and the
-> card-confirm path stop being two independent executors — the confirm path was
-> missing history logging for exactly that reason; then (b) the **dashboard as
-> a channel adapter** (invariant 9), which is what makes the entry point pay
-> for itself rather than being a refactor for its own sake.
+> **Step 5 is complete.** Both surfaces run the identical turn path, share one
+> transcript, and resolve the same permission cards.
+>
+> **Next is step 6** — context and policy: the deterministic pre-fetch layer,
+> suppression and visibility rules, and the connectors that produce inferred
+> facts.
+>
+> **One deferred item carries forward from step 5.** Resolving a card in the
+> dashboard does not edit the Telegram message it was sent as — that needs a
+> `message_id` column and an `editMessage` call, and the value is cosmetic
+> because the Telegram tap already fails closed with "That one's already done,
+> sir". Deliberately deferred, not forgotten.
+>
+> **Tailscale is not installed on this machine, so the dashboard still binds
+> to 127.0.0.1.** Auth landed anyway and covers every route. See
+> **The Channel Layer → Binding beyond loopback** for the exact edit that
+> remains.
 >
 > **Not yet rebuilt:** urgency tagging and the connectors that produce inferred
 > facts (step 6 onward). Nothing is tagged URGENT and GroupMe produces no
-> approval cards. That is the current expected behavior, not a bug.
+> approval cards. `Channel.notify` is implemented on both channels and has no
+> producer yet — the alert that will call it arrives with the tagger. That is
+> the current expected behavior, not a bug.
 >
 > **There are no update or delete tools.** `add_calendar_event` is the only
 > write. The precondition machinery and `policy/gating.py`'s AUTO cells exist
@@ -65,6 +83,11 @@
 >    are examples, and there is no phrasing of a non-reply that is a good
 >    example of a reply. The assistant's turn for a gated write is its
 >    **outcome**, written by `effects/pending.py` when the user taps.
+>    Step 5 hardened this: prose after a card is now suppressed even when the
+>    model *does* produce some, because the branch enforcing the rule only ran
+>    when the model happened to say nothing. The first card the dashboard ever
+>    produced was followed by the model narrating its own tool call, in
+>    Chinese.
 > 4. **A calendar write is verified through the door it went out of.**
 >    `calendars/backend.py` calls the backend's `event_exists()`, not the
 >    ordinary reader. The reader applies `agent.briefing_calendars` (a different
@@ -90,9 +113,9 @@ Friday is **not** a simple chatbot. It is a structured, event-driven agent with 
 - **Every LLM call goes through the dispatcher.** `llm/dispatch.py::dispatch()` is the chokepoint; a direct provider call anywhere else is a bug however convenient. Below it, `llm/providers/` owns every SDK detail — one file per provider, selected by the `provider` config key.
 - **Tools never send messages; they return effects.** `effects/runner.py` is the only code that calls a channel on a tool's behalf, and it runs `SendPermissionCard` first, unconditionally. Invariant 3 is a stable sort inside one function rather than a rule anyone has to remember. `grep -rE "^\s*(from|import) channels" friday/tools/ friday/effects/` must stay empty.
 - **Reads declare their own ledger records; writes do not.** A read states what it covered and the executor believes it. A write's record is synthesised by the executor from the service's confirmation, and `committed` comes from the same object — so the two cannot disagree. A failed *write* still records an attempt, because it may have landed server-side. See **The Tool Layer**.
-- **Telegram is the primary UI.** Briefings, alerts, approvals, and conversational queries all happen there. Two secondary surfaces exist and are read/control planes, not conversation: the local web dashboard (`dashboard/`, 127.0.0.1:5174) and the voice satellite (`voice/`), which bridges speech back in as an ordinary Telegram message.
+- **There are two conversational channels, and one path through them.** Telegram and the local web dashboard (`dashboard/`, 127.0.0.1:5174) both run `channels/conversation.py::handle()` — same gate, same history, same effects, same cards. Telegram is still the primary UI, but it is blocked on school Wi-Fi for ~7h a day, which is what the dashboard exists for. The voice satellite (`voice/`) is not a third channel: it bridges speech back in as an ordinary Telegram message.
 - **PTB JobQueue is the only scheduler.** `python-telegram-bot` is fully async. Never introduce a second scheduling library (`apscheduler`, `schedule`, `while True: sleep()`). All scheduled jobs register directly on `application.job_queue`. The dashboard's web server runs inside that same loop — it is not a second process.
-- **The semaphore lives at the entry point.** `asyncio.Semaphore(1)` at the very top of `channels/telegram.py::on_message()` — before SQLite queries, before context assembly, before anything.
+- **One gate, acquired first.** `channels/conversation.py::TURN_GATE` is the process's single `asyncio.Semaphore(1)`, taken at the top of `handle()` before any SQLite query, any context assembly, any model call. It moved out of `telegram.py` in step 5 because a gate owned by one channel serializes that channel against itself while letting a dashboard turn and a Telegram turn interleave against the same `conversation_history`. **Never add a second one.**
 - **The LLM is the decision maker for ingested data.** *(Suspended — ingestion reaches no model at all right now. The rule stands for the rewrite: do not answer the gap with deterministic tagging.)* Deterministic code fetches, parses, and writes rows. The LLM decides urgency, filters announcements, extracts events from natural language, and writes every user-facing sentence.
 - **The calendar backend is the event store.** Due dates, shifts, appointments live in Apple Calendar (macOS) or Google Calendar (Windows) — never in SQLite. See `calendars/backend.py`.
 - **SQLite is the operational backbone.** No `state.json`. No vector store. No RAG. No Redis. It holds runtime key-value state, conversation history, the raw events buffer, cursors, pending approvals, and activity/observability rows.
@@ -112,11 +135,12 @@ Non-obvious placements:
 - `tools/` — the tool layer. `types.py` (the contract), `registry.py`, `calendar_read.py` (the only two tools), `executor.py`, `ledger.py`, `scratch.py`. **Not** the deleted `agent/tools.py`.
 - `agent/` — `turn.py` (the bounded tool loop), `core.py` (media intake only — PDF rasterization and byte/mime plumbing; it reaches no model today) and `briefings.py` (deterministic context bundling + plain renderers). `tools.py`, `dispatcher.py` and `profiles.py` are deleted; `agent/profiles.py` is NOT the same file as `llm/profiles.py`.
 - `calendars/` — backend dispatcher plus the two implementations (`apple.py`, `google_cal.py`), and `eventtime.py`, which is the ONE place event timestamps are parsed: the JXA reader emits UTC with a Z, EventKit emits naive local, and a second implementation is correct on one machine and five hours wrong on another. Distinct from `actions/calendar.py`, which is the write API both backends sit behind, and from `connectors/apple_calendar.py`, which is the reader.
-- `tests/test_tools.py` — plain asserts, no test dependency. `python3 tests/test_tools.py` from the package dir.
-- `dashboard/` — a FastAPI package, not a Tkinter script.
+- `channels/` — `base.py` (the contract: send, send_permission_request, notify), `conversation.py` (**one user message on any surface — the gate lives here**), `telegram.py` (transport only), `dashboard.py` (the dashboard channel). A new channel adds a file here and calls `conversation.handle()`.
+- `tests/` — plain asserts, no test dependency. `python3 tests/test_tools.py` from the package dir; likewise `test_entry`, `test_channels`, `test_conversation`, `test_effects`, `test_pending`, `test_gating`.
+- `dashboard/` — a FastAPI package, not a Tkinter script. `server.py` (routes), `stream.py` (SSE fan-out), `auth.py` (the shared token), `static/` (plain files, no build step).
 - `memory/activity.py` — best-effort instrumentation writes. Never raises into the hot path.
 - `self_edit.py` + `phrases.py` + `quips.yaml` + `friday_voice.yaml` — the narrow slice of itself Friday may rewrite at runtime. `quips.yaml` is grouped **tool → outcome → quips**; `phrases.quip_for(tool, outcome)` selects, and an empty group means silence rather than a borrowed line. The effects runner appends the quip, never the tool. `self_edit.version()` and `update_setting()` have no caller and are kept for the rewrite.
-- `effects/` — `runner.py` (ordering: cards first, then messages, then the rest) and `pending.py` (the card lifecycle: stage, confirm with the STORED arguments, cancel, expire).
+- `effects/` — `entry.py` (**the only caller of the runner**; welds history logging to the runner call), `runner.py` (ordering: cards first, then messages, then the rest) and `pending.py` (the card lifecycle: stage, confirm with the STORED arguments, cancel, expire, re-propose when stale).
 - `policy/gating.py` — one function answering "does this action need a card?". Decides and acts on nothing.
 - `memory/writes.py` — `recent_writes`, the ten-minute fingerprint ledger that stops a timed-out write being retried into a duplicate.
 - `paths.py` and `compat.py` — the cross-platform seams.
@@ -130,7 +154,13 @@ Defined in `friday/memory/db.py` — read it there rather than trusting a copy.
 Two families of table:
 
 - **Operational** — `system_state`, `conversation_history`, `events`, `last_seen`,
-  `pending_actions`, `synced_events`.
+  `pending_actions`, `synced_events`, `recent_writes`.
+  - `conversation_history.channel` records which surface a line came from
+    ("telegram", "dashboard", empty for rows predating the second channel).
+    **A record, never a filter** — see the Channel Layer.
+  - `pending_actions` carries `tool_name`, `arguments_json`, `proposal`,
+    `expires_at`, `turn_id`, `resolved_at`. Statuses: `pending`, `confirmed`,
+    `cancelled`, `expired`, `failed`, `superseded`.
 - **Activity capture** — `llm_exchanges`, `tool_calls`, `dispatch_log`,
   `briefings_sent`, `urgent_alerts_sent`. These record what Friday actually *did*
   and power the dashboard's Today surface. Written through `memory/activity.py`,
@@ -145,19 +175,30 @@ Calendar-type data never lives here — see the event-store rule above.
 ```
 friday.py
 └── builds PTB Application
-    ├── MessageHandler → telegram.py::on_message()
-    │     └── asyncio.Semaphore(1)  ← gate is HERE, before everything
-    │           ├── query SQLite for conversation history
-    │           ├── build LLMRequest(profile=CHAT)
-    │           ├── run_in_executor → agent/turn.py::run_turn()   ← whole turn, one call
-    │           │       ├── llm/dispatch.py::dispatch()
-    │           │       │       └── llm/providers/gemini.py::complete()
-    │           │       └── _TOOL_POOL → tools/executor.py::run()
-    │           └── reply, keyed on result.error_kind
+    ├── MessageHandler  → telegram.py::on_message()   ─┐  transport only
+    ├── POST /api/chat  → DashboardChannel            ─┤  (3 lines each)
+    │                                                  │
+    │   both call ─────────────────────────────────────┘
+    │     └── channels/conversation.py::handle()
+    │           └── async with TURN_GATE   ← THE gate, before everything
+    │                 ├── pause check
+    │                 ├── query SQLite for conversation history (unfiltered)
+    │                 ├── build LLMRequest(profile=CHAT)
+    │                 ├── run_in_executor → agent/turn.py::run_turn()  ← whole turn, one call
+    │                 │       ├── llm/dispatch.py::dispatch()
+    │                 │       │       └── llm/providers/gemini.py::complete()
+    │                 │       └── _TOOL_POOL → tools/executor.py::run()
+    │                 ├── run_in_executor → effects/entry.py::deliver()  ← cards first
+    │                 │       └── effects/runner.py::run()
+    │                 └── channel.send(reply), keyed on result.error_kind
     │
-    ├── CallbackQueryHandler → approval-card buttons (confirm/cancel)
+    ├── CallbackQueryHandler   → approval-card taps ─┐
+    ├── POST /api/pending-...  → approval-card taps ─┤  both → effects/pending.py
+    │                                                 │      → effects/entry.py
+    │   (the channel that handled the tap answers it) ┘
     │
     ├── dashboard web server (same loop, 127.0.0.1:5174)
+    │     └── GET /api/stream → dashboard/stream.py (SSE)
     │
     └── job_queue
           ├── run_daily        → morning_briefing_job     (tz-window guarded)
@@ -191,12 +232,15 @@ to buy — Phase II failed because Gemini's function-calling shape leaked into
 every layer and because tools messaged the user mid-turn.
 
 ```
-Channels          Telegram · Dashboard · Voice              ← Telegram only today
-                  Own concurrency, surface formatting, transport
+Channels          Telegram · Dashboard                    ← BUILT (channels/)
+                  Transport ONLY. base.py is the contract.
+        ↓
+Conversation      One user message, any channel. THE gate. ← BUILT (channels/conversation.py)
         ↓
 Turn runner       Bounded tool loop, one deadline, effects       ← BUILT (agent/turn.py)
         ↓
 Effects           Intent → side effects, ordered, card first    ← BUILT (effects/)
+                  entry.py is the ONLY door in.
 Context           Deterministic pre-fetch → labeled blocks        [step 6; agent/briefings.py is the surviving half]
 Policy            Gating, suppression, visibility               ← BUILT (policy/gating.py)
 Tools             Registry, preconditions, structured returns   ← BUILT (friday/tools/)
@@ -482,13 +526,58 @@ set**. `commit_calendar_event` has scope `("internal",)`, which no profile's
 `pending_actions` carries the tool, its arguments, the card text, the proposing
 turn and an expiry. **Confirm runs the stored arguments** — no model is
 consulted on that path. Re-extracting them means the user approves one event and
-receives another. Expiry (24h, `agent.pending_action_ttl_minutes`) refuses out
-loud; honouring a stale tap is a button that still writes days later, and
-ignoring it is worse because the user taps again.
+receives another.
 
-The confirm path is **its own entry point into the runner**. It arrives from a
-callback, has no turn, and builds a fresh empty ledger — honest, because the
-reads that justified the proposal belonged to a turn that ended.
+### Two thresholds, because they answer different questions
+
+| | key | default | on tap |
+|---|---|---|---|
+| **TTL** | `agent.pending_action_ttl_minutes` | 1440 (24h) | refused out loud, nothing runs |
+| **Stale** | `agent.pending_action_stale_minutes` | 30 | **re-proposed**, nothing runs |
+
+The TTL is long deliberately: a card sent at 11pm has to survive until morning,
+and shortening it would trade that real case for a rarer one. But a card that
+has sat for hours is the one that gets tapped reflexively, and the model
+occasionally proposes a card nobody asked for — so past the stale threshold one
+tap is no longer enough.
+
+**A stale card is re-proposed, not refused.** The old row is resolved
+`superseded`, a fresh row with **the same stored arguments** is staged, and a
+new card goes out saying how old the original was. The second confirmation is
+therefore a tap on a *different button*, which is the entire point: a flag on
+the row honoured by the next tap would be satisfied by exactly the reflex it
+exists to catch.
+
+**A resolved card is refused out loud.** It could never execute twice — the
+status check has always been there — but the silence was the bug. A card
+confirmed in the dashboard leaves a live-looking button in Telegram, and a tap
+that does nothing visible reads as broken and earns another tap.
+`pending.refusal_message(status)` is the one wording, used by both channels;
+the dashboard's 409 carries it as `detail`.
+
+The confirm path arrives from a callback, has no turn, and builds a fresh empty
+ledger — honest, because the reads that justified the proposal belonged to a
+turn that ended. It goes out through `effects/entry.py` like everything else.
+
+### One door: `effects/entry.py`
+
+**`deliver(effects, channel, conn)` is the only caller of `effects/runner.py`.**
+Grep-enforceable and worth grepping.
+
+It exists because of what has to happen *alongside* the runner call and is not
+part of it: every sentence that reaches the user has to reach
+`conversation_history` too, or the model's next request is built without it.
+That obligation used to be discharged twice, differently — `telegram.py` wrote
+history inline several branches later and never logged a tool's own
+`SendMessage`; `pending.py` wrapped its channel. Neither was reusable, and the
+dashboard was the third caller.
+
+It takes effects and a channel and nothing else. **No request, no deadline, no
+ledger** — the confirm path has none of the three, and requiring them would
+mean fabricating a turn around a settled decision.
+
+`entry.log_history()` is the only `conversation_history` write under
+`effects/` and the only one any channel makes. Cards are never logged as prose.
 
 ### Gating
 
@@ -521,6 +610,149 @@ deletes it, since refused means it did not happen.
 ### What the model must not be shown
 
 See trap 3 in the banner. Nothing goes in the assistant slot after a card.
+
+
+## The Channel Layer
+
+Everything under `friday/channels/`, plus `dashboard/` as its transport host.
+Built in step 5. **Two channels, one path.**
+
+### The files
+
+- **`base.py`** — the contract: `send`, `send_permission_request`, `notify`,
+  plus a `name`. A `runtime_checkable` Protocol with abstract methods, so duck
+  typing still works (the tests and `entry.HistoryChannel` rely on it) while a
+  real channel that forgets a method fails at *construction*. It lived in
+  `effects/runner.py`'s docstring until now, which is where a contract goes to
+  be almost true.
+- **`conversation.py`** — `handle(text, channel, conn, config)`. The gate, the
+  pause check, the history window, the request, the executor hop, the effects,
+  the reply selection, the history writes. **This is the whole of a user
+  message on any surface.**
+- **`telegram.py`** — transport. `on_message` is three lines.
+- **`dashboard.py`** — the dashboard channel. Buffers each send as an event and
+  hands it to a sink.
+- **`dashboard/stream.py`** — SSE fan-out.
+- **`dashboard/auth.py`** — the shared token.
+
+### Rules that must not be relaxed
+
+1. **A new channel implements `channels/base.py` and calls
+   `conversation.handle()`.** It does not read history, build a request, call
+   the model, or decide what to say. If a channel duplicates anything from
+   another beyond transport, the pipeline has forked — invariant 9.
+
+2. **One gate.** `conversation.TURN_GATE`. Never a second `Semaphore(1)`
+   anywhere.
+
+3. **`conversation_history.channel` is a record, never a filter.** Every turn
+   reads the window unfiltered. A message typed in the dashboard has to be in
+   scope when the user asks about it over Telegram an hour later — they are one
+   conversation with one person, and a window split by surface would make
+   Friday forget things for a reason the user cannot see.
+
+4. **The channel that handled a tap is the channel that answers it.** The
+   dashboard used to build a send-only `TelegramHandler` to resolve a card, so
+   a card confirmed in the dashboard sent its confirmation to Telegram — which
+   on school Wi-Fi, the whole reason the dashboard exists, went nowhere.
+
+5. **`notify` is literal.** Invariant 6. Never persona, never a quip. It is an
+   interrupt, not a reply.
+
+6. **Cards carry the same `pending_actions` key on every surface.** That is
+   what makes a card confirmed in one resolve in the other. Both taps go
+   through `effects/pending.py`; the second one, wherever it comes from, is
+   refused out loud.
+
+### The dashboard, specifically
+
+`GET /api/chat/history`, `POST /api/chat`, `GET /api/stream`, and the existing
+`/api/pending-approvals` endpoints. The chat route constructs a
+`DashboardChannel` and calls `conversation.handle()` — there is nothing else in
+it, which is the enforcement of rule 1.
+
+**SSE, not WebSocket** (`dashboard/stream.py`). Only one direction is needed;
+the browser already has POST. It reconnects natively when the Mac sleeps.
+`publish()` is called from the executor threads effects run in, so it crosses
+back via `call_soon_threadsafe` — touching an `asyncio.Queue` from a worker
+thread is a race with no error message. Subscriber queues are bounded and a
+slow subscriber is **dropped, never awaited**: a suspended background tab must
+not become backpressure on a turn.
+
+**No replay buffer, no `Last-Event-ID`.** Every event is also in
+`conversation_history` or `pending_actions`, and every route that emits one
+also returns it. A browser that missed the stream recovers by reading. A replay
+log would be a second, worse copy of the database.
+
+**Tool proposals are not editable in the dashboard.** The server has refused
+that since step 4 (an edit that drops a field changes what was approved); the
+Edit button was still rendered and 400'd every time. It is gone for
+`tool_call` rows and intact for the dead `calendar_add` ones.
+
+### Auth
+
+`dashboard/auth.py`. One user, one token, one cookie — no user table, no
+sessions, no login form. Three presentations, one door:
+
+| | used by |
+|---|---|
+| cookie `friday_auth` | the browser, after the first visit |
+| header `X-Friday-Token` | menubar, tray, `mac_app.py` |
+| query `?token=…` | the first visit — sets the cookie, then **redirects** |
+
+**Every route requires it**, including the SPA, `app.js`, the stream and the
+card endpoints. `/api/config` alone returns the Telegram bot token and the
+Gemini key in plaintext. Only the favicon, the manifest and the PWA icons are
+open — an install prompt fetches icons from the OS installer's context, which
+carries no cookie, and a 401 there means no home-screen icon and no error
+anywhere.
+
+The token is **generated on first boot**, written back to
+`friday_config.yaml` under `dashboard.auth_token`, and logged once as a
+ready-made URL. There is no blank default and **no disable switch**: a
+dashboard with auth off is a dashboard that is open the moment the bind
+changes.
+
+Comparison is `secrets.compare_digest`. The bind is loopback today; the code is
+not written for today.
+
+### Binding beyond loopback — **[NOT DONE: Tailscale is not installed]**
+
+Auth landed first on purpose. The bind change is a separate, small edit and
+this is exactly what it needs:
+
+1. Install Tailscale and enable MagicDNS (**the user's job, not Claude's**).
+2. `dashboard/server.py::start_server()` — resolve the tailnet address at
+   startup and pass it as `host`. Bind to **that address specifically, never
+   `0.0.0.0`**: nothing on school Wi-Fi should be able to see the port at all,
+   which is tighter than a firewall rule.
+3. Bind loopback **as well**, or point `menubar.py` / `mac_app.py` /
+   `tray.py`'s `127.0.0.1:5174` at the tailnet name — a socket bound only to
+   the tailnet address is unreachable from `127.0.0.1`, and those three
+   supervisors poll it.
+4. Nothing else. Auth, the cookie flags and the open-path list are already
+   correct for a non-loopback origin. `secure=False` on the cookie is
+   deliberate: a tailnet HTTP origin has no TLS, and a `Secure` cookie would
+   simply never be sent. Confidentiality is Tailscale's job.
+
+### The interrupt path
+
+`notify` has **two doors on the dashboard, because neither is enough alone**:
+
+- **macOS `osascript display notification`** — reaches the user when the app is
+  not running, which is the case the dashboard exists for. It does **not**
+  click through: the notification is attributed to osascript, so clicking
+  activates that. Accepted rather than worked around.
+- **A Web Notification raised by the page** from the stream event — belongs to
+  the dashboard window, so `onclick` focuses it. Needs the app open.
+
+The osascript body is **escaped, not sanitised**: it is Friday's own text, but
+text the model may have influenced, and an unescaped quote ends the AppleScript
+literal. Permission is requested on a user gesture (sending a message), because
+browsers refuse the request outside one and the refusal is permanent.
+
+`notify` has **no producer yet** — the urgent-alert path that will call it
+arrives with the tagger.
 
 
 ## Calendar Writes: which path gates
@@ -586,20 +818,28 @@ profiles, persona assembly and every prompt. **Steps 1–3 have landed** on
 real multi-turn history and the CLASSIFY/COMPOSE profiles; and the tool layer
 with two read-only calendar tools and a bounded turn loop.
 
-Friday can now answer questions about the calendar in persona, using real
-tool calls. It still does NOT: write to the calendar from chat, tag urgency,
-extract events from GroupMe or images/PDFs, fire urgent alerts, or select a
-quip by context.
+**Done — Phase III step 5 (the second channel).** `effects/entry.py` is the
+only door effects go out of; `channels/base.py` is the contract;
+`channels/conversation.py` is one user message on any surface, and holds the
+one gate. The dashboard is a full conversational channel: chat, SSE, permission
+cards, shared transcript, shared card keys, token auth on every route, a PWA
+manifest, and a native interrupt path. **It works with the Wi-Fi off**, which
+is the seven hours a day Telegram is blocked.
 
-**Next is step 4** — the effects layer, permission cards and the first gated
-write. It is where invariants 3, 4 and 5 start to bind, which is why it is its
-own step.
+Friday can answer questions about the calendar in persona, write to it behind a
+permission card, and do both from either surface. It still does NOT: tag
+urgency, extract events from GroupMe or images/PDFs, fire urgent alerts, or
+select a quip by context.
+
+**Next is step 6** — context and policy: the deterministic pre-fetch layer,
+suppression and visibility rules, and the connectors that produce inferred
+facts. That is where `Channel.notify` gets its first producer.
 
 ---
 
 ## Key Constraints & Rules for Claude Code
 
-1. **Never remove or move the semaphore.** Top of `on_message()` in `telegram.py`. No exceptions.
+1. **One gate, and it is acquired first.** `channels/conversation.py::TURN_GATE` — an `asyncio.Semaphore(1)` taken at the top of `handle()` before any SQLite query, any context assembly, any model call. It was at the top of `telegram.py::on_message()` until step 5 and moved for one reason: a gate owned by one channel serializes that channel against itself while letting a dashboard turn and a Telegram turn interleave against the same `conversation_history`. **Never add a second semaphore, and never do work above the `async with`.**
 2. **Never use a second scheduling library.** No `schedule`, no raw `apscheduler`, no background threads for timing. PTB `JobQueue` only.
 3. **Never poll iMessage.** Not via AppleScript, not via `chat.db`, not via any method.
 4. **Never write an *inferred* event without an approval gate.** Explicitly requested writes and Canvas due dates use `auto_write`; everything Friday deduced uses `gated_write`. See the calendar-writes section.
@@ -618,12 +858,17 @@ own step.
 17. **The assistant slot after a permission card must be empty.** Whatever text sits there, the model will repeat or act on. All three encodings were tried and all three failed: a `[permission card sent]` marker leaked to the user as prose two turns later; the card's own text caused the model to re-propose old events (one message, three cards); a past-tense "I put a confirmation card in front of you for X" was emitted verbatim as a reply. Nothing is written to that slot. **The outcome is the assistant's turn**, written by `effects/pending.py` when the user taps. History rows are examples, and there is no phrasing of a non-reply that is a good example of a reply.
 18. **EventKit cannot see JXA writes — verify a write through the door it went out of.** Measured: a JXA read-back sees its own write in 0.57 s; an EventKit read still could not see it minutes later. Read-back verification is therefore per-backend — `calendars/backend.py` calls the backend's `event_exists()`, never the ordinary reader (which also applies `agent.briefing_calendars`, a different question entirely). Two diagnoses were chased here and both were wrong: `refreshSourcesIfNecessary()` (refreshes remote sources only, does nothing for local caches) and `EKEventStore.reset()`. Both are removed and neither was load-bearing. **Do not try them again.**
 19. **A write outcome is a result type, never `None`.** `calendars/writes.py::WriteOutcome` has three statuses and the difference between two of them is the whole point. **`refused`** — calendar not found, structured service error — definitely did not happen, and records nothing. **`unknown`** — timeout, non-zero returncode, unparseable JSON — may have succeeded server-side, and records a `WriteAttempt` carrying its fingerprint so a retry has something local to check. A sentinel gets compared with `is None` downstream and the distinction evaporates at the one place it mattered.
-20. **A permission card structurally cannot carry a quip.** `SendPermissionCard` has no `quip_key` field; only `SendMessage` does, and `effects/runner.py` is the only place a quip is ever appended. This makes invariant 6 on cards **unviolatable rather than merely enforced** — there is nowhere to put one. Do not add the field "for symmetry".
-21. **A staged proposal is not editable.** An edit that drops a field changes what the user approved, which is the one thing the gate exists to protect. Refuse rather than half-implement — see `dashboard/server.py`, which returns 400 for `edit` on a `tool_call` row and tells the user to cancel and ask again.
-17. **A tool returns a `ToolResult` or a `ToolError`** — never a string, never `None`, never a raised exception for an expected failure.
-18. **Tools never write the ledger.** They declare coverage in their return value; `tools/executor.py` records it. There is no accessor in `tools/ledger.py` to reach, and it must stay that way.
-19. **Never pass turn state to a tool through a thread-local.** Tools run in a worker pool and will not see it. Pass it explicitly — this failed silently once already.
-20. **Parse event timestamps only through `calendars/eventtime.py`.** The two Apple readers disagree about timezone spelling and a second parser is wrong on one of them.
+20. **Nothing follows a permission card — not even the model's own text.** `conversation.handle()` suppresses `result.text` outright when a card went out, and suppresses the error line too. This is stronger than rule 17, which is about the history slot; this is about what reaches the user. The branch used to run only when the model happened to say nothing, and the first card the dashboard ever produced was followed by the model narrating its own tool call in Chinese. Suppressed rather than sent-and-not-logged: a sentence the user reads belongs in history, so the only correct handling of prose that must not be read is to not send it.
+21. **A new channel implements `channels/base.py` and calls `conversation.handle()`.** It does not read history, build a request, call the model, or decide what to say. If it duplicates anything from another channel beyond transport, the pipeline has forked — invariant 9. See the Channel Layer.
+22. **`conversation_history.channel` is a record, never a filter.** Every turn reads the window unfiltered. A message typed in the dashboard has to be in scope when the user asks about it over Telegram.
+23. **The channel that handled a tap is the channel that answers it.** Never construct another channel to send a confirmation. The dashboard did exactly that and every card confirmed there answered into Telegram — which on school Wi-Fi went nowhere.
+24. **Every dashboard route requires the auth token.** Including the SPA, `app.js`, the stream and the card endpoints. Only the favicon, manifest and PWA icons are open, and only because an OS install prompt fetches icons without a cookie. There is no disable switch and there must not be one.
+25. **A permission card structurally cannot carry a quip.** `SendPermissionCard` has no `quip_key` field; only `SendMessage` does, and `effects/runner.py` is the only place a quip is ever appended. This makes invariant 6 on cards **unviolatable rather than merely enforced** — there is nowhere to put one. Do not add the field "for symmetry".
+26. **A staged proposal is not editable.** An edit that drops a field changes what the user approved, which is the one thing the gate exists to protect. Refuse rather than half-implement — see `dashboard/server.py`, which returns 400 for `edit` on a `tool_call` row and tells the user to cancel and ask again.
+27. **A tool returns a `ToolResult` or a `ToolError`** — never a string, never `None`, never a raised exception for an expected failure.
+28. **Tools never write the ledger.** They declare coverage in their return value; `tools/executor.py` records it. There is no accessor in `tools/ledger.py` to reach, and it must stay that way.
+29. **Never pass turn state to a tool through a thread-local.** Tools run in a worker pool and will not see it. Pass it explicitly — this failed silently once already.
+30. **Parse event timestamps only through `calendars/eventtime.py`.** The two Apple readers disagree about timezone spelling and a second parser is wrong on one of them.
 
 ---
 
@@ -689,6 +934,8 @@ Blocks worth knowing about:
 - `notifications` — the dashboard-facing mirror. `groupme_polling: false` is a real kill switch read by `poll_connectors_job`; the `agent` block stays canonical for the JobQueue and wins if the two disagree.
 - `groupme.groups[].priority` — `high` (can interrupt) | `normal` (briefings only) | `muted` (ingested, never surfaced). `low` is the legacy spelling of `muted`.
 - `voice` — read only by `voice/listen.py`, which does not reload it. Restart the voice agent after changing it.
+- `dashboard.auth_token` — the shared token every dashboard route requires. Generated on first boot, written back, and logged once as a ready-made `?token=…` URL. Blank means "generate one", never "no auth". `menubar.py`, `mac_app.py` and `tray.py` read it from this same file and send it as `X-Friday-Token`.
+- `agent.pending_action_ttl_minutes` (1440) and `agent.pending_action_stale_minutes` (30) — see The Effects Layer. Both are read at startup by `effects/pending.configure()`, so a change needs a restart.
 
 ---
 
