@@ -40,6 +40,24 @@ _PYTHON = sys.executable
 _LOG    = str(paths.log_dir() / "friday.log")
 
 _DASH_URL = "http://127.0.0.1:5174"
+
+# The dashboard requires a token on every route, including these. Read from the
+# same config file the server reads it from — there is no credential to
+# distribute, only a file both sides already have.
+#
+# TOPPED UP LAZILY, NOT SET ONCE AT IMPORT. On a first run the server generates
+# the token and writes it to the config, and the menubar may well have started
+# first — a header captured at import would then be empty forever, and every
+# poll would 401 against a perfectly healthy daemon.
+class _AuthedSession(requests.Session):
+    def request(self, method, url, **kwargs):
+        from dashboard import auth as _dash_auth
+        if not self.headers.get(_dash_auth.HEADER):
+            self.headers.update(_dash_auth.local_headers())
+        return super().request(method, url, **kwargs)
+
+
+_S = _AuthedSession()
 _STATUS   = f"{_DASH_URL}/api/status"
 _PAUSE    = f"{_DASH_URL}/api/friday/pause"
 _BRIEF    = f"{_DASH_URL}/api/friday/brief"
@@ -55,7 +73,7 @@ def _friday_running_proc() -> bool:
 
 def _status_snapshot() -> dict:
     try:
-        r = requests.get(_STATUS, timeout=1.5)
+        r = _S.get(_STATUS, timeout=1.5)
         if r.status_code != 200:
             return {"state": "error" if _friday_running_proc() else "offline"}
         d = r.json()
@@ -72,7 +90,7 @@ def _voice_snapshot() -> dict:
     """Best-effort snapshot of the voice LaunchAgent. Returns
     {state: 'online'|'listening'|'offline'|'error', session_present: bool}."""
     try:
-        r = requests.get(_VOICE_STATUS, timeout=1.5)
+        r = _S.get(_VOICE_STATUS, timeout=1.5)
         if r.status_code != 200:
             return {"state": "error"}
         d = r.json()
@@ -303,7 +321,7 @@ class FridayMenuBar(rumps.App):
         # message and the existing tick shows it.
         def worker() -> None:
             try:
-                r = requests.post(_BRIEF, timeout=180)
+                r = _S.post(_BRIEF, timeout=180)
                 if r.status_code != 200:
                     detail = r.text[:200].strip()
                     self._brief_error = (
@@ -338,14 +356,21 @@ class FridayMenuBar(rumps.App):
         if until:
             body["until"] = until
         try:
-            r = requests.post(_PAUSE, json=body, timeout=5)
+            r = _S.post(_PAUSE, json=body, timeout=5)
             if r.status_code != 200:
                 rumps.alert("Friday", f"Pause failed: HTTP {r.status_code}")
         except Exception as e:
             rumps.alert("Friday", f"Pause failed: {e}")
 
     def open_dashboard(self, _):
-        subprocess.Popen(["open", _DASH_URL], start_new_session=True)
+        # Carries the token, so a browser that has never had the cookie
+        # set still opens straight into the dashboard.
+        try:
+            from dashboard import auth as _a
+            url = _a.local_url(_DASH_URL)
+        except Exception:
+            url = _DASH_URL
+        subprocess.Popen(["open", url], start_new_session=True)
 
     def open_logs(self, _):
         if os.path.exists(_LOG):
@@ -355,7 +380,7 @@ class FridayMenuBar(rumps.App):
 
     def restart_voice(self, _):
         try:
-            r = requests.post(_VOICE_RESTART, timeout=5)
+            r = _S.post(_VOICE_RESTART, timeout=5)
             if r.status_code != 200:
                 rumps.alert("Friday", f"Voice restart failed: HTTP {r.status_code}")
         except Exception as e:
@@ -368,7 +393,7 @@ class FridayMenuBar(rumps.App):
         # click reads as "mute".
         new_state = not (self._wake_enabled if self._wake_enabled is not None else True)
         try:
-            r = requests.post(_VOICE_WAKE, json={"enabled": new_state}, timeout=5)
+            r = _S.post(_VOICE_WAKE, json={"enabled": new_state}, timeout=5)
             if r.status_code != 200:
                 rumps.alert("Friday", f"Wake toggle failed: HTTP {r.status_code}")
                 return
@@ -408,7 +433,7 @@ class FridayMenuBar(rumps.App):
             if proc.returncode != 0:
                 return  # cancelled or errored — leave the running core alone
             try:
-                requests.post(f"{_DASH_URL}/api/friday/restart", timeout=5)
+                _S.post(f"{_DASH_URL}/api/friday/restart", timeout=5)
             except Exception:
                 pass
         threading.Thread(target=worker, daemon=True).start()

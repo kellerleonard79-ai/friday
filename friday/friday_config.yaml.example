@@ -194,3 +194,21 @@ gmail:
   # Present so the config shape stays stable; not implemented.
   credentials_path: gmail_credentials.json
   token_path: gmail_token.json
+
+# ── Dashboard ────────────────────────────────────────────────────────────────
+dashboard:
+  # Shared access token. EVERY route requires it — the page, the config
+  # endpoint (which returns your bot token and API key), the event stream, and
+  # the permission-card endpoints that write to your calendar.
+  #
+  # Leave it out and one is generated on first boot, written back here, and
+  # printed to the log once as a ready-made link:
+  #
+  #     http://127.0.0.1:5174/?token=...
+  #
+  # Open that link once per device. It sets a cookie that lasts a year; the
+  # token never appears in the address bar afterwards. There is no way to turn
+  # auth off, on purpose: the bind address is loopback today and will not
+  # always be, and a dashboard with auth disabled is a dashboard that is open
+  # the moment that changes.
+  auth_token: ''

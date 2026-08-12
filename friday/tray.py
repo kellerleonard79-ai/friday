@@ -53,10 +53,17 @@ def _spawn_core() -> subprocess.Popen:
 
 def _api(method: str, path: str, json_body=None, timeout: float = 10):
     import requests
+    # Every dashboard route requires the shared token. Read from the same
+    # config file the server reads it from — see dashboard/auth.py.
+    try:
+        from dashboard import auth as _dash_auth
+        headers = _dash_auth.local_headers()
+    except Exception:
+        headers = {}
     url = f"{API_BASE}{path}"
     if method == "GET":
-        return requests.get(url, timeout=timeout)
-    return requests.post(url, json=json_body, timeout=timeout)
+        return requests.get(url, headers=headers, timeout=timeout)
+    return requests.post(url, json=json_body, headers=headers, timeout=timeout)
 
 
 def _make_icon_image(color: str = "#ff8c1a"):

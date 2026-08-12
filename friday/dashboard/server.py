@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import os
+import secrets
 import shutil
 import signal
 import sqlite3
@@ -30,13 +31,14 @@ import requests
 import uvicorn
 import yaml
 from fastapi import Body, FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import (FileResponse, JSONResponse, RedirectResponse,
+                               StreamingResponse)
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import compat
 import memory.state as state
-from dashboard import stream
+from dashboard import auth, stream
 import paths
 import self_edit
 from connectors.groupme import normalize_priority
@@ -511,9 +513,64 @@ def _pending_approvals(conn: sqlite3.Connection) -> list[dict]:
 #   POST /api/test/{telegram,canvas} → connectivity self-tests
 def create_app(config_path: Path, conn: sqlite3.Connection,
                started_at: datetime,
-               on_demand_briefing: Callable[[], Awaitable[str]] | None = None
+               on_demand_briefing: Callable[[], Awaitable[str]] | None = None,
+               port_hint: int = 5174,
                ) -> FastAPI:
     app = FastAPI(title="F.R.I.D.A.Y. Dashboard", docs_url=None, redoc_url=None)
+
+    # ── Auth ─────────────────────────────────────────────────────────────────
+    #
+    # EVERY route. Not "every API route" — the SPA itself, app.js, the stream,
+    # the card endpoints. /api/config alone hands back the Telegram bot token
+    # and the Gemini key in plaintext, and the card endpoints write to the
+    # user's calendar.
+    #
+    # This lands while the bind is still loopback, on purpose: the moment the
+    # address changes, "only this machine can reach it" stops being true
+    # everywhere at once, and adding auth after that has a window in it.
+    cfg_at_boot = _load_config(config_path)
+    auth_token, generated = auth.resolve(cfg_at_boot)
+    if generated:
+        # Persisted through the same atomic save every config write uses, so a
+        # crash mid-write cannot leave a truncated config and a locked-out user.
+        try:
+            cfg_at_boot.setdefault("dashboard", {})["auth_token"] = auth_token
+            _save_config_atomic(config_path, cfg_at_boot)
+        except Exception as e:
+            logger.error(f"Could not persist the dashboard auth token: {e}")
+    auth.announce(auth_token, generated, port_hint)
+
+    @app.middleware("http")
+    async def _require_token(request, call_next):
+        path = request.url.path
+        if auth.is_open_path(path) or auth.authorized(request, auth_token):
+            return await call_next(request)
+
+        # ?token=… — the first visit, and the form that makes this usable from
+        # a phone. The cookie is set and the browser is sent to the bare path,
+        # so the secret does not linger in the address bar or the history.
+        presented = request.query_params.get(auth.QUERY)
+        if presented and secrets.compare_digest(str(presented), auth_token):
+            clean = str(request.url.replace(query=""))
+            response = RedirectResponse(clean, status_code=303)
+            response.set_cookie(
+                auth.COOKIE, auth_token,
+                max_age=auth.COOKIE_MAX_AGE,
+                httponly=True,      # no JS on this page needs to read it
+                samesite="lax",     # a cross-site POST must not carry it
+                # secure=False: there is no TLS on a tailnet HTTP origin, and a
+                # Secure cookie would simply never be sent. The transport's
+                # confidentiality is Tailscale's, not this cookie's.
+            )
+            return response
+
+        logger.info(f"Unauthenticated request to {path} — refused.")
+        return JSONResponse(
+            {"detail": "Not authorized. Open the dashboard with ?token=… once; "
+                       "the token is in friday_config.yaml under "
+                       "dashboard.auth_token."},
+            status_code=401,
+        )
 
     # Server→client push. One per app. It binds itself to the running loop
     # when the first browser subscribes, which is the earliest moment it can
@@ -1164,7 +1221,7 @@ async def start_server(config_path: Path, conn: sqlite3.Connection,
     Omitted, the Brief button reports 503 rather than silently doing nothing.
     """
     app = create_app(config_path, conn, started_at=datetime.now(),
-                     on_demand_briefing=on_demand_briefing)
+                     on_demand_briefing=on_demand_briefing, port_hint=port)
     cfg = uvicorn.Config(
         app,
         host=host,
