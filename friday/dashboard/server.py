@@ -30,12 +30,13 @@ import requests
 import uvicorn
 import yaml
 from fastapi import Body, FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import compat
 import memory.state as state
+from dashboard import stream
 import paths
 import self_edit
 from connectors.groupme import normalize_priority
@@ -487,6 +488,12 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
                ) -> FastAPI:
     app = FastAPI(title="F.R.I.D.A.Y. Dashboard", docs_url=None, redoc_url=None)
 
+    # Server→client push. One per app. It binds itself to the running loop
+    # when the first browser subscribes, which is the earliest moment it can
+    # possibly be needed — publish() with no subscribers is a no-op.
+    broadcaster = stream.Broadcaster()
+    app.state.broadcaster = broadcaster
+
     # Generate a circular favicon from the user's menubar PNG if available.
     # Best-effort — never let an icon failure block server startup.
     try:
@@ -935,6 +942,24 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
     # the Telegram handler. A dashboard turn and a Telegram turn cannot
     # interleave against the same history.
 
+    @app.get("/api/stream")
+    async def api_stream() -> StreamingResponse:
+        """The live channel: replies, cards appearing, cards resolved
+        elsewhere. See dashboard/stream.py for why this is SSE and not a
+        WebSocket, and why it is not a replay log.
+
+        X-Accel-Buffering is for the proxy this does not have yet and will one
+        day sit behind; without it an nginx in front would buffer the stream
+        into uselessness.
+        """
+        return StreamingResponse(
+            broadcaster.subscribe(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache",
+                     "Connection": "keep-alive",
+                     "X-Accel-Buffering": "no"},
+        )
+
     class ChatIn(BaseModel):
         text: str
 
@@ -942,10 +967,11 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
     async def api_chat(payload: ChatIn) -> dict:
         from channels import conversation
         from channels.dashboard import DashboardChannel
-        # No sink yet — the events come back on this response. The live
-        # stream is the next commit; until then a card resolved elsewhere is
-        # seen on the next poll rather than pushed.
-        channel = DashboardChannel()
+        # The sink is the live stream; the events also come back on this
+        # response. Both, deliberately: the stream is what makes a second tab
+        # (or a card resolved from Telegram) update, and the response is what
+        # makes the browser that asked immune to having missed it.
+        channel = DashboardChannel(sink=broadcaster.publish)
         reply = await conversation.handle(
             payload.text, channel, conn, _load_config(config_path))
         # The events are what the channel was told to say, in order.

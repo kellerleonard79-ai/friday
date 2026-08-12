@@ -1163,6 +1163,47 @@ function escapeHtml(s) {
 function escapeAttr(s) { return escapeHtml(s); }
 
 
+
+// ── Live stream ────────────────────────────────────────────────────────
+//
+// One EventSource for the whole page, opened at boot rather than by the chat
+// view: a card resolved in Telegram has to reach a browser sitting on the
+// Today page, and an interrupt has to arrive whether or not the user is
+// looking at the transcript.
+//
+// Reconnection is EventSource's own — it retries by itself when the Mac sleeps
+// or the Wi-Fi drops, which is most of why this is SSE. Nothing here replays:
+// every event is also in the database, and a browser that missed one recovers
+// by reading. See dashboard/stream.py.
+
+let STREAM = null;
+const STREAM_HANDLERS = {};
+
+function onStream(kind, fn) {
+  (STREAM_HANDLERS[kind] = STREAM_HANDLERS[kind] || []).push(fn);
+}
+
+function openStream() {
+  if (STREAM) return;
+  try {
+    STREAM = new EventSource('/api/stream');
+  } catch (e) {
+    return;   // No stream is a degraded page, not a broken one.
+  }
+  STREAM.onmessage = (m) => {
+    let ev;
+    try { ev = JSON.parse(m.data); } catch { return; }
+    (STREAM_HANDLERS[ev.kind] || []).forEach((fn) => {
+      try { fn(ev); } catch (e) { /* one bad handler must not kill the stream */ }
+    });
+  };
+  STREAM.onerror = () => {
+    // EventSource reconnects on its own; this exists so the failure is
+    // visible in the console rather than silent.
+    console.warn('stream disconnected — retrying');
+  };
+}
+
 // ── Chat ───────────────────────────────────────────────────────────────
 //
 // A rendering surface and nothing else. Every message goes to POST /api/chat,
@@ -1205,9 +1246,30 @@ function chatAppend(node) {
 // because a typo here would silently drop a message.
 function chatRenderEvent(ev) {
   if (ev.kind === 'card') return;              // cards land in their own commit
+  if (chatAlreadyRendered(ev)) return;
   const text = ev.kind === 'notify'
     ? [ev.title, ev.text].filter(Boolean).join(' — ') : (ev.text || '');
   if (text) chatAppend(chatLine('assistant', text, 'dashboard', ev.at));
+}
+
+// Events arriving on the stream, as opposed to on this browser's own POST
+// response. Rendered only when the chat view is mounted — a message that
+// arrives while the user is on Settings is in the transcript, which the view
+// reads when it opens.
+onStream('message', (ev) => { if (CURRENT_ROUTE === 'chat') chatRenderEvent(ev); });
+onStream('notify',  (ev) => { if (CURRENT_ROUTE === 'chat') chatRenderEvent(ev); });
+
+// Anything this browser rendered from its own POST response must not be
+// rendered a second time when the same event arrives on the stream. Keyed on
+// the timestamp the channel stamped, which is the same value in both copies.
+const CHAT_SEEN = new Set();
+
+function chatAlreadyRendered(ev) {
+  const key = `${ev.kind}:${ev.at}:${ev.text || ev.title || ''}`;
+  if (CHAT_SEEN.has(key)) return true;
+  CHAT_SEEN.add(key);
+  if (CHAT_SEEN.size > 400) CHAT_SEEN.clear();   // bounded; it is a dedupe, not a log
+  return false;
 }
 
 async function chatSend(text) {
@@ -1279,6 +1341,7 @@ async function boot() {
     return;
   }
   updateSidebar();
+  openStream();
   const initial = (location.hash.replace('#/', '') || 'today');
   navigate(initial);
 }
