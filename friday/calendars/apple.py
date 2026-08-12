@@ -14,8 +14,7 @@ import subprocess
 from datetime import date, datetime
 
 from calendars import writes
-from connectors.apple_calendar import (events_for_day,  # noqa: F401
-                                       events_in_window, refresh)
+from connectors.apple_calendar import events_for_day, events_in_window  # noqa: F401
 
 logger = logging.getLogger("friday.applecal.write")
 _TIMEOUT_S = 15
@@ -206,6 +205,59 @@ if (!hit) {{
         logger.error(f"Apple Calendar update error: {out['error']}")
         return None
     return out
+
+
+# Bounded hard. This runs while the user is waiting on a confirmation, and on
+# a very large calendar the uid scan is slow enough (~12.8s measured on 2,600
+# events — see update_event) that waiting for it would be worse than answering
+# "unconfirmed". A timeout here is not an error: it is the honest state.
+_EXISTS_TIMEOUT_S = 6
+
+
+def event_exists(cfg: dict, calendar_name: str, uid: str) -> bool:
+    """Whether Calendar.app holds `uid` in `calendar_name`.
+
+    ASKS THE AUTHORITY THAT ACCEPTED THE WRITE. The EventKit reader is a
+    different view of the same database and lags a JXA write by long enough
+    that a read-back a second later reliably misses it — so verifying a JXA
+    write through EventKit means asking a component that has not heard about it
+    yet. This asks Calendar.app, which has.
+
+    Scoped to one named calendar, which is what keeps it affordable: the cost
+    of a uid scan is per event IN THE CALENDAR SCANNED, and the write path
+    always knows which calendar it just wrote to.
+
+    False on timeout, on failure, and on genuinely-not-there alike. The caller
+    reports it as "written but unconfirmed" and does not downgrade the write,
+    so conflating them costs nothing — see calendars/backend.py.
+    """
+    if not uid or not calendar_name:
+        return False
+    script = f"""
+const Calendar = Application('Calendar');
+const cals = Calendar.calendars.whose({{name: {json.dumps(calendar_name)}}})();
+let found = false;
+for (const c of cals) {{
+  if (c.events.whose({{uid: {json.dumps(uid)}}})().length > 0) {{ found = true; break; }}
+}}
+JSON.stringify({{exists: found}});
+"""
+    try:
+        result = subprocess.run(
+            ["osascript", "-l", "JavaScript", "-e", script],
+            capture_output=True, text=True, timeout=_EXISTS_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired:
+        logger.info(
+            f"Read-back of {uid} in {calendar_name!r} exceeded "
+            f"{_EXISTS_TIMEOUT_S}s; reporting the write as unconfirmed.")
+        return False
+    if result.returncode != 0:
+        return False
+    try:
+        return bool(json.loads(result.stdout.strip()).get("exists"))
+    except json.JSONDecodeError:
+        return False
 
 
 def _run_jxa(script: str) -> dict | None:

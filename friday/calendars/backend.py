@@ -14,7 +14,6 @@ Reads take cfg explicitly, matching the old apple_calendar signatures.
 import dataclasses
 import logging
 import sys
-import time
 
 from calendars.writes import WriteOutcome
 
@@ -88,75 +87,41 @@ def write_event(calendar_name: str, title: str, start, end,
     if not verify or not outcome.ok:
         return outcome
     return dataclasses.replace(
-        outcome, verified=_readback_confirms(outcome.uid, start))
+        outcome, verified=_readback_confirms(calendar_name, outcome.uid))
 
 
-# THE READ-BACK MUST NOT APPLY THE BRIEFING WHITELIST, and this cost an hour to
-# find. agent.briefing_calendars answers "which calendars should Friday show
-# the user"; every read goes through it, including this one. So a write to a
-# calendar outside the whitelist was written, existed, and then failed its own
-# verification — because the reader had been told not to look there.
+# THE READ-BACK ASKS THE AUTHORITY THAT ACCEPTED THE WRITE, and getting here
+# took two wrong turns worth recording.
 #
-# It is a different question. "Does this specific event exist" is not "what
-# should I brief on", and conflating them makes `verified` permanently False
-# for any user whose default_calendar is not also a briefing calendar. A flag
-# that is always wrong is worse than no flag, and this is the flag invariant 4
-# rests on.
+# It was first written against the ordinary reader — events_for_day. That
+# failed twice over. The reader applies agent.briefing_calendars, which
+# answers "which calendars should Friday show the user" and is a different
+# question from "does this specific event exist"; a write to a calendar
+# outside the whitelist was therefore written, existed, and failed its own
+# verification. And even with the whitelist stripped it still failed, because
+# on macOS writes go out through JXA and the reader comes back through
+# EventKit — two views of the same database, and the second does not learn
+# about the first for a long time. Measured: a JXA read-back sees the write in
+# 0.57s; an EventKit read still could not see it minutes later.
 #
-# The default exclusions (holidays, Siri Suggestions) still apply. Nothing
-# Friday writes can land there.
-#
-# The refresh-and-retry below is belt and braces rather than the fix. Writes go
-# out through JXA and reads come back through a cached EKEventStore, so a race
-# is possible in principle even though the whitelist turned out to be what was
-# actually biting. Kept because it is cheap; bounded tightly because the user
-# is waiting on a confirmation.
-_READBACK_TRIES = 3
-_READBACK_PAUSE_S = 0.4
-
-
-def _readback_config() -> dict:
-    """The config with the briefing whitelist removed. See the note above."""
-    cfg = dict(_CONFIG)
-    agent = dict(cfg.get("agent") or {})
-    agent.pop("briefing_calendars", None)
-    cfg["agent"] = agent
-    return cfg
-
-
-def _readback_confirms(uid: str, start) -> bool:
-    """Whether the service reports an event under `uid` on `start`'s day.
+# So verification goes back through the same door the write did. Each backend
+# provides event_exists(); Apple scans one named calendar for the uid, Google
+# does a single GET because it indexes by id. No retry loop and no cache
+# refresh — those were built against the wrong diagnosis and removed.
+def _readback_confirms(calendar_name: str, uid: str) -> bool:
+    """Whether the service reports `uid` in `calendar_name`.
 
     Wrapped: a read-back that raises must not fail a write that already
-    succeeded. It reports False, which reads as "unconfirmed" — the honest
-    state — rather than taking down the turn.
+    succeeded. It reports False, which reads as "written but unconfirmed" —
+    the honest state — rather than taking down the turn.
     """
     if not uid:
         return False
-    day = start.date() if hasattr(start, "date") else start
-    mod = _mod()
-    cfg = _readback_config()
-    for attempt in range(_READBACK_TRIES):
-        try:
-            if attempt:
-                time.sleep(_READBACK_PAUSE_S)
-            # Before every attempt including the first: the write happened
-            # microseconds ago and the store is stale by construction.
-            try:
-                mod.refresh()
-            except Exception as e:
-                logger.debug(f"read-back refresh failed: {e}")
-            for evt in mod.events_for_day(cfg, day):
-                if evt.get("uid") == uid:
-                    return True
-        except Exception as e:
-            logger.warning(f"Write read-back failed (reporting unconfirmed): {e}")
-            return False
-    logger.warning(
-        f"Write reported uid {uid} but {_READBACK_TRIES} read-backs of {day} "
-        f"did not find it. Reporting the event as written but unconfirmed."
-    )
-    return False
+    try:
+        return bool(_mod().event_exists(_CONFIG, calendar_name, uid))
+    except Exception as e:
+        logger.warning(f"Write read-back failed (reporting unconfirmed): {e}")
+        return False
 
 
 def update_event(uid: str, calendar_name: str = "", **fields) -> dict | None:

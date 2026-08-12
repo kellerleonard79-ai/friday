@@ -132,46 +132,6 @@ def _eventkit_store():
         return _ek_store
 
 
-def refresh() -> bool:
-    """Pull the EventKit store up to date with writes made outside it.
-
-    THE PROBLEM THIS SOLVES. Writes go out through JXA (calendars/apple.py) and
-    reads come back through EventKit. Those are two different views of the same
-    database, and EKEventStore serves a cached snapshot that is refreshed when
-    it processes an EKEventStoreChanged notification — which has not happened
-    yet twenty milliseconds after a write. So a write's own read-back looked
-    for the event it had just created and did not find it, and reported a real
-    write as unconfirmed.
-
-    Returns True if a refresh was performed. False on the JXA path, where there
-    is no cached store and nothing to refresh — a JXA read talks to
-    Calendar.app, which already knows.
-
-    Cheap: reset() drops cached objects, it does not re-authorize. The
-    authorization check is cached separately in _eventkit_store().
-    """
-    store = _eventkit_store()
-    if store is None:
-        return False
-    try:
-        # reset(), not refreshSourcesIfNecessary(). The latter refreshes REMOTE
-        # sources — CalDAV, Exchange — and does nothing about the store's own
-        # in-memory caches, which is where a JXA write would be invisible.
-        # reset() is the documented response to an EKEventStoreChanged
-        # notification and is what invalidates them.
-        #
-        # Honest note on provenance: this was written while chasing a read-back
-        # that missed every write, and that turned out to be the briefing
-        # whitelist rather than a stale cache (see calendars/backend.py). So
-        # this is the right call for the problem it names, but it is not
-        # load-bearing for anything observed.
-        store.reset()
-        return True
-    except Exception as e:
-        logger.debug(f"EventKit refresh failed: {e}")
-        return False
-
-
 def _eventkit_events(start: datetime, end: datetime) -> list[dict] | None:
     """Events starting in [start, end), or None if EventKit can't serve it."""
     store = _eventkit_store()

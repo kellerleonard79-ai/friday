@@ -121,11 +121,21 @@ def calendar_exists(cfg: dict, name: str) -> bool:
     return name in _calendar_map()
 
 
-def refresh() -> bool:
-    """No-op. The API is not a cached local store — a read after a write sees
-    the write. Present so calendars/backend.py can call it unconditionally
-    rather than branching on the backend."""
-    return False
+def event_exists(cfg: dict, calendar_name: str, uid: str) -> bool:
+    """Whether the API reports `uid` in `calendar_name`. One GET — no scan,
+    because Google indexes by id and Calendar.app does not."""
+    if not uid:
+        return False
+    cal_id = _calendar_map().get(calendar_name)
+    service = _get_service()
+    if cal_id is None or service is None:
+        return False
+    try:
+        got = service.events().get(calendarId=cal_id, eventId=uid).execute()
+        return got.get("status") != "cancelled"
+    except Exception as e:
+        logger.debug(f"Google Calendar read-back failed for {uid}: {e}")
+        return False
 
 
 def _ensure_calendar(cfg: dict, name: str) -> str | None:
