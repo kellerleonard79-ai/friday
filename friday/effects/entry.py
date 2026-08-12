@@ -97,11 +97,24 @@ class HistoryChannel:
         self._inner = inner
         self._conn = conn
 
-    # Transparent for anything the runner or a caller reaches for that is not
-    # one of the two methods below — `name`, `notify`, and whatever a future
-    # channel adds. Without this a wrapped channel quietly loses capabilities.
+    # Transparent for anything a caller reaches for that is not spelled out
+    # below. Without this a wrapped channel quietly loses capabilities.
     def __getattr__(self, item):
         return getattr(self._inner, item)
+
+    # Spelled out rather than left to __getattr__ because isinstance() against
+    # a runtime_checkable Protocol looks at the class, not the instance — a
+    # wrapper whose whole interface arrives through __getattr__ stops being a
+    # Channel as far as any type check is concerned.
+    @property
+    def name(self) -> str:
+        return getattr(self._inner, "name", "")
+
+    def notify(self, title: str, text: str) -> bool:
+        """Delegated and NOT logged. A notification is an interrupt, not a
+        conversational turn — and it accompanies a send() that is logged, so
+        logging it too would put the same sentence in history twice."""
+        return self._inner.notify(title, text)
 
     def send(self, text: str) -> bool:
         ok = self._inner.send(text)

@@ -23,14 +23,12 @@ when a SendMessage in the same batch explains it. The user must see what they
 are approving before they see anything about it — a card that arrives after a
 paragraph of preamble is a card the user has already been talked into.
 
-WHAT A CHANNEL HAS TO PROVIDE. Two synchronous methods:
-
-    send(text) -> bool
-    send_permission_request(proposal, pending_key) -> bool
-
-channels/telegram.py::TelegramHandler already has both. The runner takes the
-channel as an argument and never imports one — `grep -rn "channels" effects/`
-finds nothing, and neither does the same grep over tools/.
+WHAT A CHANNEL HAS TO PROVIDE. See channels/base.py — the contract used to be
+described here, in a docstring, which is where a contract goes to be almost
+true. This module uses two of its three methods (send, send_permission_request)
+and takes the channel as an argument; it never imports one. A grep for
+"channels" under effects/ finds only this sentence, and the same grep over
+tools/ finds nothing at all.
 
 SYNCHRONOUS, like everything below the channel. Both send methods are blocking
 `requests` calls, so the caller runs this in an executor.

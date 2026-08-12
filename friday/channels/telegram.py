@@ -18,6 +18,7 @@ from telegram.ext import ContextTypes
 
 import memory.state as state
 from agent.turn import run_turn
+from channels.base import Channel
 from effects import entry as effects_entry
 from llm import profiles
 from llm.types import LLMRequest
@@ -47,7 +48,13 @@ _semaphore = asyncio.Semaphore(1)
 _EXECUTOR_TIMEOUT_S = 150
 
 
-class TelegramHandler:
+class TelegramHandler(Channel):
+    """Telegram, as a channel. Subclassed explicitly rather than left to duck
+    typing: the base's methods are abstract, so forgetting one fails here at
+    construction instead of at 2am when the first card needs sending."""
+
+    name = "telegram"
+
     def __init__(self, config: dict, agent, conn: sqlite3.Connection):
         tg = config.get("telegram", config)  # accept full config or telegram sub-dict
         self.bot_token    = tg.get("bot_token") or os.environ.get("TELEGRAM_BOT_TOKEN", "")
@@ -110,6 +117,18 @@ class TelegramHandler:
         except Exception as e:
             logger.error(f"send_permission_request error: {e}")
             return False
+
+    def notify(self, title: str, text: str) -> bool:
+        """Interrupt. On Telegram this is just a message — the transport IS a
+        push notification, and there is no second, louder door to knock on.
+
+        Sent as title then body, LITERALLY, with no persona and no quip
+        (invariant 6). The dashboard's implementation is the one that has real
+        work to do here; this one exists so the contract is not a special case
+        with a hole in it.
+        """
+        body = f"{title}\n{text}" if title and text else (title or text)
+        return self.send(body)
 
     # ── Inbound (async) ───────────────────────────────────────────────────────
 
