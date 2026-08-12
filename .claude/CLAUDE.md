@@ -24,6 +24,16 @@
 >
 > See **The LLM Layer**, **The Tool Layer** and **The Effects Layer** below.
 >
+> **Step 4 is complete.** A gated write round-trips end to end over Telegram:
+> card, tap, service-confirmed write, verified read-back, quip.
+>
+> **Next is step 5**, in this order: (a) a thin effects **entry point** owning
+> the runner call plus conversation-history logging, so the turn loop and the
+> card-confirm path stop being two independent executors — the confirm path was
+> missing history logging for exactly that reason; then (b) the **dashboard as
+> a channel adapter** (invariant 9), which is what makes the entry point pay
+> for itself rather than being a refactor for its own sake.
+>
 > **Not yet rebuilt:** urgency tagging and the connectors that produce inferred
 > facts (step 6 onward). Nothing is tagged URGENT and GroupMe produces no
 > approval cards. That is the current expected behavior, not a bug.
@@ -169,7 +179,7 @@ catch-up poll can never double-send.
 ## The LLM Layer
 
 Everything under `friday/llm/`. Built in step 1 of Phase III; the layers above
-it arrive in steps 2–4. The full design is `phaseiii.MD` — this is the working
+it landed in steps 2–4. The full design is `phaseiii.MD` — this is the working
 summary and the rules that must not be relaxed.
 
 ### Layer stack
@@ -186,9 +196,9 @@ Channels          Telegram · Dashboard · Voice              ← Telegram only 
         ↓
 Turn runner       Bounded tool loop, one deadline, effects       ← BUILT (agent/turn.py)
         ↓
-Effects           Intent → side effects, ordered, gate first      [step 4]
+Effects           Intent → side effects, ordered, card first    ← BUILT (effects/)
 Context           Deterministic pre-fetch → labeled blocks        [step 6; agent/briefings.py is the surviving half]
-Policy            Gating, suppression, visibility                 [step 6]
+Policy            Gating, suppression, visibility               ← BUILT (policy/gating.py)
 Tools             Registry, preconditions, structured returns   ← BUILT (friday/tools/)
 Persona           Section-addressable AGENTS.md                 ← BUILT (llm/persona.py)
         ↓
@@ -564,6 +574,11 @@ the core.
 
 **Ongoing — Phase 7 (Hardening):** connector error recovery and observability.
 
+**Done — Phase III step 4 (effects, cards, the first gated write).** Verified
+end to end on the live daemon: a card, a tap, a service-confirmed write, a
+read-back that says `verified: true`, and one confirmation with a quip.
+`add_calendar_event` is the only write tool; there is no update and no delete.
+
 **In progress — Phase III, the LLM layer rebuild (11 steps, `phaseiii.MD` §12).**
 `llm-layer-teardown` removed the tool layer, the old dispatcher, the call
 profiles, persona assembly and every prompt. **Steps 1–3 have landed** on
@@ -600,6 +615,11 @@ own step.
 14. **Friday does not edit its own Python source.** `self_edit.py` writes YAML only — learned quips and a whitelist of settings. The core is relaunched on exit by launchd/tray, so a syntax error would be a silent restart loop rather than a visible failure.
 15. **All secrets** live in `friday_config.yaml` or environment variables. Never hardcoded. That file is gitignored; `friday_config.yaml.example` is the documented template.
 16. **`compat.strftime()` for any format string with `%-`.** `%-d`/`%-I` are glibc-only and crash on Windows.
+17. **The assistant slot after a permission card must be empty.** Whatever text sits there, the model will repeat or act on. All three encodings were tried and all three failed: a `[permission card sent]` marker leaked to the user as prose two turns later; the card's own text caused the model to re-propose old events (one message, three cards); a past-tense "I put a confirmation card in front of you for X" was emitted verbatim as a reply. Nothing is written to that slot. **The outcome is the assistant's turn**, written by `effects/pending.py` when the user taps. History rows are examples, and there is no phrasing of a non-reply that is a good example of a reply.
+18. **EventKit cannot see JXA writes — verify a write through the door it went out of.** Measured: a JXA read-back sees its own write in 0.57 s; an EventKit read still could not see it minutes later. Read-back verification is therefore per-backend — `calendars/backend.py` calls the backend's `event_exists()`, never the ordinary reader (which also applies `agent.briefing_calendars`, a different question entirely). Two diagnoses were chased here and both were wrong: `refreshSourcesIfNecessary()` (refreshes remote sources only, does nothing for local caches) and `EKEventStore.reset()`. Both are removed and neither was load-bearing. **Do not try them again.**
+19. **A write outcome is a result type, never `None`.** `calendars/writes.py::WriteOutcome` has three statuses and the difference between two of them is the whole point. **`refused`** — calendar not found, structured service error — definitely did not happen, and records nothing. **`unknown`** — timeout, non-zero returncode, unparseable JSON — may have succeeded server-side, and records a `WriteAttempt` carrying its fingerprint so a retry has something local to check. A sentinel gets compared with `is None` downstream and the distinction evaporates at the one place it mattered.
+20. **A permission card structurally cannot carry a quip.** `SendPermissionCard` has no `quip_key` field; only `SendMessage` does, and `effects/runner.py` is the only place a quip is ever appended. This makes invariant 6 on cards **unviolatable rather than merely enforced** — there is nowhere to put one. Do not add the field "for symmetry".
+21. **A staged proposal is not editable.** An edit that drops a field changes what the user approved, which is the one thing the gate exists to protect. Refuse rather than half-implement — see `dashboard/server.py`, which returns 400 for `edit` on a `tool_call` row and tells the user to cancel and ask again.
 17. **A tool returns a `ToolResult` or a `ToolError`** — never a string, never `None`, never a raised exception for an expected failure.
 18. **Tools never write the ledger.** They declare coverage in their return value; `tools/executor.py` records it. There is no accessor in `tools/ledger.py` to reach, and it must stay that way.
 19. **Never pass turn state to a tool through a thread-local.** Tools run in a worker pool and will not see it. Pass it explicitly — this failed silently once already.
@@ -614,15 +634,54 @@ it rather than a copy here. Startup hard-fails only on `telegram.bot_token`,
 `telegram.chat_id`, and a Gemini key when `provider: gemini`. Every other block
 is optional; an unconfigured connector is skipped, not an error.
 
-**`profiles.CHAT.model` is `gemini-3.5-flash-lite`, and that is a
-development-time constraint rather than a design decision.** The free-tier
-quota on `gemini-3.6-flash` is 20 requests/day, which cannot verify a step
-whose turns each cost several model calls. **CHAT should return to
-`gemini-3.6-flash` when billing is enabled.** It matters more here than
-anywhere else in the table: CHAT is the profile that extracts tool arguments,
-and extraction quality at call #1 is final — there is no corrective pass over a
-tool's arguments before it runs. If argument accuracy looks poor, check the
-model before elaborating the prompt.
+### Which model CHAT runs, and why
+
+`profiles.CHAT.model` is **`gemma-4-31b-it`**. CHAT is the profile that extracts
+tool arguments, and extraction quality at call #1 is final — there is no
+corrective pass over a tool's arguments before it runs — so this choice matters
+more than any other in the table. All three candidates were measured on the
+same five naturally-phrased add requests.
+
+| model | function calling | argument extraction | turn discipline | median latency | quota |
+|---|---|---|---|---|---|
+| `gemma-4-31b-it` | **yes** — verified live, see below | 5/5 correct | 7/8 turns clean; 1 turn re-proposed an old event **and** emitted a stray token (`elderly`) | 6,986 ms | no daily ceiling |
+| `gemini-3.5-flash-lite` | yes | 5/5 correct | 3/5 turns claimed the event was added while only a card had been sent; re-proposed old events on an ordinary transcript | 589 ms | no daily ceiling |
+| `gemini-3.6-flash` | yes | not measured — quota exhausted | clean on the 2 turns observed | 1,975 ms | **20 requests/day** on the free tier |
+
+`gemma-4-31b-it` function calling was verified live rather than assumed, using
+the real `get_schedule` schema from the registry with
+`automatic_function_calling` disabled:
+
+- the API **accepts** `tools=[types.Tool(function_declarations=[…])]`
+- a `function_call` part **does** come back in `content.parts`
+- arguments are **well-formed** (`date_from`/`date_to` both `2026-08-12` for "tomorrow")
+- a replayed function call round-trips **with or without** `thought_signature`.
+  **Gemma has no signature requirement** — this is the one place it is laxer
+  than Gemini 3.x, which returns `400 INVALID_ARGUMENT` unless the signature is
+  replayed. `ToolCall.signature` is still load-bearing for Gemini and must not
+  be dropped.
+
+Gemma emits **thought parts** on nearly every call. `llm/providers/gemini.py`
+filters `part.thought` out of the user-facing text; without that the model's
+reasoning is prepended to every reply, and on a tool-calling turn the reasoning
+is all the text there is.
+
+**Costs, stated plainly.** Gemma is ~12× slower than flash-lite; a tool-calling
+turn is two dispatches, so a card takes ~14 s and worst-case ~45 s. That fits
+CHAT's 120 s deadline but is visibly sluggish. And it is better at turn
+discipline than flash-lite, not immune to it — under a long history it still
+re-proposed a previous event and emitted a stray token.
+
+**The `避` bug was architectural, and it is structurally fixed.** In Phase II
+tools sent Telegram messages themselves mid-turn, set flags on the agent object,
+and the model then had to be *talked into* staying quiet — which is where the
+stray token and the empty markdown fence came from. That is gone: tools return
+effects, `effects/runner.py` is the only code that sends, and ordering is a
+sort. **So stray model output is no longer a reason to avoid any particular
+model.** When a model emits a stray token now it is cosmetic noise in the reply,
+not a message sent out of order, not a write performed without a card, and not a
+turn whose bookkeeping is wrong. Choose the model on extraction accuracy,
+latency and quota — the architecture no longer depends on the model behaving.
 
 Blocks worth knowing about:
 - `dispatcher` — `enabled: false` restores pre-dispatcher behavior exactly (all tools, no extra call).
