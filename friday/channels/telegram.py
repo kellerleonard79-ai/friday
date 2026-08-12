@@ -47,25 +47,6 @@ _semaphore = asyncio.Semaphore(1)
 _EXECUTOR_TIMEOUT_S = 150
 
 
-def _card_history_line(card_text: str) -> str:
-    """A card, as a settled past-tense line for conversation_history.
-
-    Reduces the card to one sentence: what was proposed, not the proposal
-    itself. See the note at the call site for why neither the raw card nor a
-    marker works here.
-    """
-    fields = {}
-    for line in card_text.splitlines():
-        if ":" in line:
-            key, _, value = line.partition(":")
-            fields[key.strip().casefold()] = value.strip()
-    event = fields.get("event", "")
-    when = fields.get("when", "")
-    if event and when:
-        return f"I put a confirmation card in front of you for {event} ({when})."
-    return "I put a confirmation card in front of you."
-
-
 class TelegramHandler:
     def __init__(self, config: dict, agent, conn: sqlite3.Connection):
         tg = config.get("telegram", config)  # accept full config or telegram sub-dict
@@ -273,42 +254,47 @@ class TelegramHandler:
                 # A card went out and the model said nothing after it. That is
                 # the CORRECT shape for a gated write, not an empty response:
                 # the card IS the reply, and anything appended to it would be
-                # the preamble invariant 3 forbids. The old code answered this
-                # case with "the model returned no text", which is how the
-                # Phase II turn ended in an empty markdown fence.
+                # the preamble invariant 3 forbids.
                 #
-                # WHAT GOES IN HISTORY HERE IS DELICATE, AND BOTH OBVIOUS
-                # ANSWERS ARE WRONG. Recorded for whoever changes it next.
+                # NOTHING IS WRITTEN TO HISTORY HERE, and that is the third
+                # answer to this question. Recorded so nobody tries the first
+                # two again:
                 #
-                #   "[permission card sent]" — a marker. Two turns later the
-                #   model, having seen two assistant rows reading exactly that,
-                #   emitted the literal string to the user as prose. History
-                #   rows are EXAMPLES; a fake one is an example of writing fake
-                #   markers.
+                #   "[permission card sent]" — the model read two assistant
+                #   rows saying that and sent the literal string to the user.
                 #
-                #   The card's verbatim text — worse. The card is phrased as an
-                #   open question ("Add to calendar? Event: ..."), so the model
-                #   read two of them in history as two things still to do and
-                #   re-proposed both alongside the new request: one message,
-                #   three cards.
+                #   The card's verbatim text — the card is phrased as an open
+                #   question, so two of them in history read as two things
+                #   still to do. One message produced three cards.
                 #
-                # So: a past-tense sentence naming what was proposed. True,
-                # settled, and not a template for anything. The outcome is
-                # appended separately when the user taps — see
-                # effects/pending.py, which logs its own reply — so the model
-                # sees a closed loop rather than an open one.
-                assistant_log = " ".join(
-                    _card_history_line(t) for t in card_texts)
+                #   "I put a confirmation card in front of you for X (when)." —
+                #   the model read that and sent it, word for word, as its
+                #   reply to the next request.
+                #
+                # The pattern is not about the wording. WHATEVER SITS IN THE
+                # ASSISTANT SLOT AFTER A CARD, THE MODEL WILL EVENTUALLY SAY.
+                # History rows are examples, and there is no phrasing of a
+                # non-reply that is a good example of a reply.
+                #
+                # So the assistant's turn is the OUTCOME, written when the user
+                # taps — effects/pending.py logs its own reply. The transcript
+                # reads "add team dinner" / "Team Dinner added for Monday...",
+                # which is both true and a good example. Until the tap the user
+                # turn sits unanswered, which is exactly what has happened.
+                assistant_log = ""
             else:
                 msg = "Sorry, sir — the model returned no text. Try again?"
                 logger.warning(f"Empty LLM response — sending to user: {msg}")
                 await update.message.reply_text(msg)
                 assistant_log = msg
 
-            self.conn.execute(
-                "INSERT INTO conversation_history (role, content, created_at) VALUES (?, ?, ?)",
-                ("assistant", assistant_log, now_iso),
-            )
+            # An empty assistant_log means the turn's only output was a card;
+            # its real assistant turn is written when the card resolves.
+            if assistant_log:
+                self.conn.execute(
+                    "INSERT INTO conversation_history (role, content, created_at) VALUES (?, ?, ?)",
+                    ("assistant", assistant_log, now_iso),
+                )
             self.conn.commit()
 
     async def on_media(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
