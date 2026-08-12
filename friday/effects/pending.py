@@ -17,8 +17,11 @@ from an inline-button callback, not from a turn: there is no LLMRequest, no
 ledger with a turn's reads in it, no hop budget. Routing it back through
 agent/turn.py would mean inventing a fake turn around a decision that has
 already been made. So it builds a one-call ledger, runs the tool through the
-same tools/executor.py every turn uses, and hands the resulting effects to the
-same effects/runner.py. Same machinery, different door.
+same tools/executor.py every turn uses, and hands the resulting effects to
+effects/entry.py — the same door channels/telegram.py and the dashboard use.
+Same machinery, different entrance. It does NOT call effects/runner.py
+directly; nothing outside entry.py does, which is what makes the history
+logging that must accompany a batch impossible to forget.
 
 EXPIRY REFUSES, IT DOES NOT SILENTLY RUN. A tap on a stale card gets a clear
 message. The alternative — honouring it — is a button that still works days
@@ -34,7 +37,7 @@ import logging
 import uuid
 from datetime import datetime, timedelta
 
-from effects import runner as effects_runner
+from effects import entry as effects_entry
 from tools import executor, registry
 from tools.ledger import Ledger
 from tools.types import ToolError, ToolResult
@@ -110,60 +113,13 @@ def _expired(expires_at: str | None) -> bool:
         return False
 
 
-class _LoggingChannel:
-    """Wraps the channel so whatever the confirm path says reaches
-    conversation_history as well as the user.
-
-    IT DID NOT, AND THAT LEFT AN OPEN LOOP IN THE TRANSCRIPT. The proposing
-    turn recorded "I put a confirmation card in front of you for X"; the reply
-    that said X was added went only to Telegram. So the model's view of the
-    conversation was a proposal that never resolved — and a model looking at an
-    unresolved proposal proposes it again. One message produced three cards
-    before this was closed.
-
-    Wrapping rather than threading a flag through every branch: there are six
-    places in confirm() that talk to the user, and one of them being forgotten
-    is exactly how this gap appeared.
-    """
-
-    def __init__(self, inner, conn):
-        self._inner = inner
-        self._conn = conn
-
-    def send(self, text: str) -> bool:
-        ok = self._inner.send(text)
-        if ok:
-            _log_history(self._conn, text)
-        return ok
-
-    def send_permission_request(self, proposal: str, pending_key: str) -> bool:
-        # A card from the confirm path would be a card nobody asked for. Passed
-        # through rather than blocked — the runner owns what an effect means —
-        # but not logged as prose, because it is not prose.
-        return self._inner.send_permission_request(proposal, pending_key)
-
-
-def _log_history(conn, text: str) -> None:
-    """Append an assistant turn. Wrapped — a lost history row must never fail a
-    write the user has already approved."""
-    try:
-        conn.execute(
-            "INSERT INTO conversation_history (role, content, created_at) "
-            "VALUES (?, ?, ?)",
-            ("assistant", text, datetime.now().isoformat()),
-        )
-        conn.commit()
-    except Exception as e:
-        logger.debug(f"confirm-path history logging failed: {e}")
-
-
 def confirm(key: str, conn, channel) -> str:
     """Run the proposal. Returns a short status string for the log.
 
     Never raises. Every failure path tells the user something, because the
     user has just pressed a button and silence reads as a broken bot.
     """
-    channel = _LoggingChannel(channel, conn)
+    channel = effects_entry.as_history_channel(channel, conn)
     row = _load(conn, key)
     if row is None:
         channel.send("I can't find that request any more, sir. Ask me again?")
@@ -226,7 +182,7 @@ def confirm(key: str, conn, channel) -> str:
     _log(conn, tool_name, arguments, outcome, duration_ms, ledger, turn_id)
 
     if isinstance(outcome, ToolResult) and outcome.effects:
-        effects_runner.run(outcome.effects, channel)
+        effects_entry.deliver(outcome.effects, channel, conn)
     elif isinstance(outcome, ToolError):
         # The tool's message is written to the MODEL and must never be shown
         # verbatim (tools/types.py). The user gets a plain sentence.
@@ -240,7 +196,7 @@ def confirm(key: str, conn, channel) -> str:
 
 def cancel(key: str, conn, channel) -> str:
     """Mark a proposal cancelled. NOTHING RUNS."""
-    channel = _LoggingChannel(channel, conn)
+    channel = effects_entry.as_history_channel(channel, conn)
     row = _load(conn, key)
     if row is None:
         return "unknown"

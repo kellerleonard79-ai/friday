@@ -18,7 +18,7 @@ from telegram.ext import ContextTypes
 
 import memory.state as state
 from agent.turn import run_turn
-from effects import runner as effects_runner
+from effects import entry as effects_entry
 from llm import profiles
 from llm.types import LLMRequest
 
@@ -186,16 +186,8 @@ class TelegramHandler:
                 )
                 fail_msg = "Sorry, sir — that request timed out on my end. Try again?"
                 await update.message.reply_text(fail_msg)
-                now_iso = datetime.now().isoformat()
-                self.conn.execute(
-                    "INSERT INTO conversation_history (role, content, created_at) VALUES (?, ?, ?)",
-                    ("user", text, now_iso),
-                )
-                self.conn.execute(
-                    "INSERT INTO conversation_history (role, content, created_at) VALUES (?, ?, ?)",
-                    ("assistant", fail_msg, now_iso),
-                )
-                self.conn.commit()
+                effects_entry.log_history(self.conn, "user", text)
+                effects_entry.log_history(self.conn, "assistant", fail_msg)
                 return
             if result.tool_calls_made:
                 logger.info(
@@ -203,11 +195,7 @@ class TelegramHandler:
                     f"{result.hops} hop(s), ended on {result.stopped_on}."
                 )
 
-            now_iso = datetime.now().isoformat()
-            self.conn.execute(
-                "INSERT INTO conversation_history (role, content, created_at) VALUES (?, ?, ?)",
-                ("user", text, now_iso),
-            )
+            effects_entry.log_history(self.conn, "user", text)
 
             # EFFECTS RUN BEFORE THE MODEL'S OWN REPLY, and that ordering is
             # invariant 3 rather than a preference. A permission card has to
@@ -222,7 +210,7 @@ class TelegramHandler:
             card_texts: tuple[str, ...] = ()
             if result.effects:
                 report = await loop.run_in_executor(
-                    None, lambda: effects_runner.run(result.effects, self)
+                    None, lambda: effects_entry.deliver(result.effects, self, self.conn)
                 )
                 card_texts = report.card_texts
                 if not report.ok:
@@ -291,11 +279,7 @@ class TelegramHandler:
             # An empty assistant_log means the turn's only output was a card;
             # its real assistant turn is written when the card resolves.
             if assistant_log:
-                self.conn.execute(
-                    "INSERT INTO conversation_history (role, content, created_at) VALUES (?, ?, ?)",
-                    ("assistant", assistant_log, now_iso),
-                )
-            self.conn.commit()
+                effects_entry.log_history(self.conn, "assistant", assistant_log)
 
     async def on_media(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Entry point for photos and PDF documents → calendar event extraction.
