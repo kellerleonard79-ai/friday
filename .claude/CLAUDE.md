@@ -17,11 +17,20 @@
 >
 > See **The LLM Layer** and **The Tool Layer** below.
 >
-> **Not yet rebuilt:** the effects layer, permission cards and the first gated
-> write (step 4). Sections describing those are marked **[STEP 4]**. Friday
-> still cannot write to the calendar from chat, nothing is tagged URGENT, and
-> quips are chosen at random rather than by context. That is the current
-> expected behavior, not a bug.
+> - **Step 4** — the effects layer: `friday/effects/` (the runner and the card
+>   lifecycle), `friday/policy/gating.py`, `add_calendar_event`, `recent_writes`,
+>   and quips grouped by tool and outcome. Friday can write to the calendar from
+>   chat again, behind a permission card.
+>
+> See **The LLM Layer**, **The Tool Layer** and **The Effects Layer** below.
+>
+> **Not yet rebuilt:** urgency tagging and the connectors that produce inferred
+> facts (step 6 onward). Nothing is tagged URGENT and GroupMe produces no
+> approval cards. That is the current expected behavior, not a bug.
+>
+> **There are no update or delete tools.** `add_calendar_event` is the only
+> write. The precondition machinery and `policy/gating.py`'s AUTO cells exist
+> and are tested, but have no live producer until updates land.
 >
 > Do not rebuild a later step piecemeal while working on something else. Each
 > step is its own task, ends with a running system, and is independently
@@ -38,6 +47,20 @@
 >    only when there were no function-call parts either. Reverting to
 >    `resp.text` makes every tool call surface to the user as "the model
 >    returned no text".
+> 3. **Nothing may be written to `conversation_history` as the assistant's turn
+>    after a permission card.** Three encodings were tried and the model said
+>    all three back to the user verbatim: a `[permission card sent]` marker, the
+>    card's own text (which also caused it to re-propose old events), and a
+>    past-tense "I put a confirmation card in front of you for X". History rows
+>    are examples, and there is no phrasing of a non-reply that is a good
+>    example of a reply. The assistant's turn for a gated write is its
+>    **outcome**, written by `effects/pending.py` when the user taps.
+> 4. **A calendar write is verified through the door it went out of.**
+>    `calendars/backend.py` calls the backend's `event_exists()`, not the
+>    ordinary reader. The reader applies `agent.briefing_calendars` (a different
+>    question), and on macOS it reads through EventKit while writes go out
+>    through JXA — measured, a JXA read-back sees a write in 0.57s and an
+>    EventKit read still cannot see it minutes later.
 
 ## Codebase Navigation & Knowledge Graph
 - **Search Strategy:** Before running broad `grep` or file searches across the repository, check `graphify-out/GRAPH_REPORT.md` to map out dependencies and locate relevant files.
@@ -55,8 +78,8 @@ Friday is **not** a simple chatbot. It is a structured, event-driven agent with 
 ## Core Architecture Principles
 
 - **Every LLM call goes through the dispatcher.** `llm/dispatch.py::dispatch()` is the chokepoint; a direct provider call anywhere else is a bug however convenient. Below it, `llm/providers/` owns every SDK detail — one file per provider, selected by the `provider` config key.
-- **The tool layer is read-only.** `friday/tools/` holds a registry, two calendar read tools, an executor and a fact ledger. **[STEP 4]** no tool may write, and there is no effects layer — `Effect` is an empty base class on purpose.
-- **Tools declare coverage; the executor writes the ledger.** Tool code has no path to the ledger at all. See **The Tool Layer**.
+- **Tools never send messages; they return effects.** `effects/runner.py` is the only code that calls a channel on a tool's behalf, and it runs `SendPermissionCard` first, unconditionally. Invariant 3 is a stable sort inside one function rather than a rule anyone has to remember. `grep -rE "^\s*(from|import) channels" friday/tools/ friday/effects/` must stay empty.
+- **Reads declare their own ledger records; writes do not.** A read states what it covered and the executor believes it. A write's record is synthesised by the executor from the service's confirmation, and `committed` comes from the same object — so the two cannot disagree. A failed *write* still records an attempt, because it may have landed server-side. See **The Tool Layer**.
 - **Telegram is the primary UI.** Briefings, alerts, approvals, and conversational queries all happen there. Two secondary surfaces exist and are read/control planes, not conversation: the local web dashboard (`dashboard/`, 127.0.0.1:5174) and the voice satellite (`voice/`), which bridges speech back in as an ordinary Telegram message.
 - **PTB JobQueue is the only scheduler.** `python-telegram-bot` is fully async. Never introduce a second scheduling library (`apscheduler`, `schedule`, `while True: sleep()`). All scheduled jobs register directly on `application.job_queue`. The dashboard's web server runs inside that same loop — it is not a second process.
 - **The semaphore lives at the entry point.** `asyncio.Semaphore(1)` at the very top of `channels/telegram.py::on_message()` — before SQLite queries, before context assembly, before anything.
@@ -82,7 +105,10 @@ Non-obvious placements:
 - `tests/test_tools.py` — plain asserts, no test dependency. `python3 tests/test_tools.py` from the package dir.
 - `dashboard/` — a FastAPI package, not a Tkinter script.
 - `memory/activity.py` — best-effort instrumentation writes. Never raises into the hot path.
-- `self_edit.py` + `phrases.py` + `quips.yaml` + `friday_voice.yaml` — the narrow slice of itself Friday may rewrite at runtime. **[STEP 4]** quip selection is still `random.choice`; `phrases.random_quip()` and the dashboard's `/api/quips` read these. `self_edit.version()` and `update_setting()` have no caller and are kept for the rewrite.
+- `self_edit.py` + `phrases.py` + `quips.yaml` + `friday_voice.yaml` — the narrow slice of itself Friday may rewrite at runtime. `quips.yaml` is grouped **tool → outcome → quips**; `phrases.quip_for(tool, outcome)` selects, and an empty group means silence rather than a borrowed line. The effects runner appends the quip, never the tool. `self_edit.version()` and `update_setting()` have no caller and are kept for the rewrite.
+- `effects/` — `runner.py` (ordering: cards first, then messages, then the rest) and `pending.py` (the card lifecycle: stage, confirm with the STORED arguments, cancel, expire).
+- `policy/gating.py` — one function answering "does this action need a card?". Decides and acts on nothing.
+- `memory/writes.py` — `recent_writes`, the ten-minute fingerprint ledger that stops a timed-out write being retried into a duplicate.
 - `paths.py` and `compat.py` — the cross-platform seams.
 - Entry points differ per platform: `friday.py` (core), `mac_app.py` (packaged .app supervisor), `tray.py` (Windows), `menubar.py` (rumps, source checkout), `macos_setup.py` (renders LaunchAgent templates), `setup_wizard.py` (first run, both platforms).
 
@@ -375,7 +401,7 @@ tools while reading like it means something) and rejects a scope with
 `max_tool_hops=0` (schemas paid for on every request and never used). CHAT is
 `("read",)`; COMPOSE and CLASSIFY are `None`.
 
-## LLM Processing Flow — **[STEP 4 / connector work]**
+## LLM Processing Flow — **[NOT YET REBUILT — connector work]**
 
 *The call path and the CLASSIFY profile both exist; the callers do not. The LLM
 step here is still a logged no-op: `process_untagged_events` and
@@ -406,7 +432,88 @@ Deterministic code only handles: HTTP requests, iCal parsing, raw SQL writes, AP
 
 ---
 
-## Calendar Writes: which path gates — **[STEP 4]**
+## The Effects Layer
+
+Everything under `friday/effects/`, plus `friday/policy/gating.py`. Built in
+step 4. This is the layer the whole rebuild was designed around.
+
+**A tool declares what should happen; the runner makes it happen.** In Phase II
+tools sent Telegram messages themselves, mid-turn, then set flags on the agent
+object so the channel would know — and the model had to be talked into staying
+quiet afterward, in prose, which it did not reliably do. Every bug in that class
+dies with this change.
+
+### Ordering is the point
+
+`effects/runner.py` executes a turn's effects in a fixed order:
+
+1. `SendPermissionCard` — always first, unconditionally
+2. `SendMessage`
+3. everything else
+
+Invariant 3 ("cards are emitted first, and nothing may delay, editorialize on,
+or bury one") is a stable sort inside one function rather than a rule at every
+call site. `tests/test_effects.py` proves a card emitted LAST in a batch runs
+FIRST. `channels/telegram.py` runs the whole batch before the model's own reply,
+which puts the batch ahead of the prose.
+
+An unknown effect sorts last rather than raising, and a failing effect does not
+stop the ones behind it — a batch is not a transaction, because a message
+already sent cannot be recalled.
+
+### The card is a stored tool call
+
+`add_calendar_event` proposes; `commit_calendar_event` writes. Two registrations
+rather than one tool with a bypass parameter, because the registry derives every
+schema from the signature — a bypass parameter is one **the model can see and
+set**. `commit_calendar_event` has scope `("internal",)`, which no profile's
+`tool_scope` intersects, so it never appears in a prompt.
+
+`pending_actions` carries the tool, its arguments, the card text, the proposing
+turn and an expiry. **Confirm runs the stored arguments** — no model is
+consulted on that path. Re-extracting them means the user approves one event and
+receives another. Expiry (24h, `agent.pending_action_ttl_minutes`) refuses out
+loud; honouring a stale tap is a button that still writes days later, and
+ignoring it is worse because the user taps again.
+
+The confirm path is **its own entry point into the runner**. It arrives from a
+callback, has no turn, and builds a fresh empty ledger — honest, because the
+reads that justified the proposal belonged to a turn that ended.
+
+### Gating
+
+`policy/gating.py`:
+
+| | Reversible (create, update) | Irreversible (delete) |
+|---|---|---|
+| **User stated the fact** | AUTO | GATED |
+| **Friday inferred it** | GATED | GATED |
+
+`AUTO_UPDATE` additionally requires the target to have been proven by a read
+**in the same turn**; a target from the model's memory is an inference about
+which event was meant.
+
+**`add_calendar_event` overrides this to GATED, deliberately.** Everything
+reaching it today is user-stated, so the table says AUTO. The override is at the
+wiring site with its reason: the card carries the invariant this step exists to
+make structural. AUTO gets exercised when update and delete land.
+
+### Idempotency
+
+`memory/writes.py` / `recent_writes`: a fingerprint of title, day, start time and
+calendar, with a ten-minute TTL. Checked before every write, and therefore
+before every retry, since a retry reaches the same line. **The check is local**
+because the case it exists for is a write whose service call timed out — asking
+the service again is asking the thing that just failed to answer. `reserve()` is
+called *before* the write and starts the row as `unknown`; a `refused` outcome
+deletes it, since refused means it did not happen.
+
+### What the model must not be shown
+
+See trap 3 in the banner. Nothing goes in the assistant slot after a card.
+
+
+## Calendar Writes: which path gates
 
 *Both paths survive verbatim in `actions/calendar.py`. What changed is who
 calls them. `auto_write` now has exactly one live producer, Canvas due dates
@@ -568,7 +675,7 @@ when nobody counts it.
 **Learned voice is separate.** Bundled quips live in `quips.yaml` (read-only in
 a frozen build); anything Friday learns at runtime goes to `friday_voice.yaml`
 under `paths.data_dir()`. Never append to the bundled file. Quip *selection* is
-still `random.choice` — **[STEP 4]** — so a quip can contradict its event.
+grouped by tool and outcome, so a quip cannot contradict its event.
 
 ---
 
