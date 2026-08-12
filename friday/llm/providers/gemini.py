@@ -371,7 +371,27 @@ class GeminiProvider(Provider):
             )
             for p in parts if getattr(p, "function_call", None)
         )
-        text = "".join(p.text for p in parts if getattr(p, "text", None)).strip()
+        # A THOUGHT PART IS NOT THE ANSWER. Parts carrying `thought=True` hold
+        # the model's reasoning, and they arrive as ordinary `text` — nothing
+        # about the field distinguishes them, only the flag beside it.
+        #
+        # Skipping them is not cosmetic. Observed on gemma-4-31b-it, which
+        # emits one on essentially every call: a reply came back as two parts,
+        # the first reading "The user is asking about their calendar for
+        # tomorrow... I should now inform the user about this event." and the
+        # second being the actual sentence. Joined blindly, the user reads
+        # Friday narrating its own deliberation before answering — and on a
+        # tool-calling turn the reasoning is ALL there is, so a turn that
+        # correctly called a tool would surface as a paragraph of monologue.
+        #
+        # Gemini 3.x emits them too; it was invisible only because its thought
+        # parts have carried no text on the calls made so far. Filtering here
+        # rather than per-model: no provider's private reasoning is ever the
+        # user-facing answer, whoever is asked.
+        text = "".join(
+            p.text for p in parts
+            if getattr(p, "text", None) and not getattr(p, "thought", False)
+        ).strip()
 
         if tool_calls:
             # Gemini reports STOP alongside function calls; the meaningful
