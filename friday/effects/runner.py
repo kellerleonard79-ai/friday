@@ -100,6 +100,11 @@ class EffectReport:
     executed: int = 0
     failed: tuple[str, ...] = ()
     cards_sent: int = 0
+    # The text of each card that actually reached the user. Returned because
+    # the channel has to write it to conversation_history: a card IS the
+    # assistant's turn when the model says nothing after it, and history rows
+    # shape what the model writes next.
+    card_texts: tuple[str, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -110,7 +115,7 @@ class EffectReport:
 class _Tally:
     executed: int = 0
     failed: list[str] = field(default_factory=list)
-    cards: int = 0
+    cards: list[str] = field(default_factory=list)
 
 
 def _run_one(effect: Effect, channel, tally: _Tally) -> None:
@@ -121,7 +126,7 @@ def _run_one(effect: Effect, channel, tally: _Tally) -> None:
         # neither does a quip.
         if channel.send_permission_request(effect.proposal, effect.pending_key):
             tally.executed += 1
-            tally.cards += 1
+            tally.cards.append(effect.proposal)
         else:
             tally.failed.append(f"SendPermissionCard({effect.pending_key})")
         return
@@ -179,4 +184,5 @@ def run(effects, channel) -> EffectReport:
         logger.warning(f"Effects: {tally.executed} run, failed: {tally.failed}")
     return EffectReport(executed=tally.executed,
                         failed=tuple(tally.failed),
-                        cards_sent=tally.cards)
+                        cards_sent=len(tally.cards),
+                        card_texts=tuple(tally.cards))

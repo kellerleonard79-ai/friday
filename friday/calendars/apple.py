@@ -14,7 +14,8 @@ import subprocess
 from datetime import date, datetime
 
 from calendars import writes
-from connectors.apple_calendar import events_for_day, events_in_window  # noqa: F401
+from connectors.apple_calendar import (events_for_day,  # noqa: F401
+                                       events_in_window, refresh)
 
 logger = logging.getLogger("friday.applecal.write")
 _TIMEOUT_S = 15

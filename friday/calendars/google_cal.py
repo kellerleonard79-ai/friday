@@ -121,6 +121,13 @@ def calendar_exists(cfg: dict, name: str) -> bool:
     return name in _calendar_map()
 
 
+def refresh() -> bool:
+    """No-op. The API is not a cached local store — a read after a write sees
+    the write. Present so calendars/backend.py can call it unconditionally
+    rather than branching on the backend."""
+    return False
+
+
 def _ensure_calendar(cfg: dict, name: str) -> str | None:
     """Resolve a calendar name to its id, creating the calendar if allowed.
     Auto-create is on by default for the Google backend — secondary Google

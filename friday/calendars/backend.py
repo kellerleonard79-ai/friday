@@ -14,6 +14,7 @@ Reads take cfg explicitly, matching the old apple_calendar signatures.
 import dataclasses
 import logging
 import sys
+import time
 
 from calendars.writes import WriteOutcome
 
@@ -90,6 +91,19 @@ def write_event(calendar_name: str, title: str, start, end,
         outcome, verified=_readback_confirms(outcome.uid, start))
 
 
+# The read-back races the write it is checking. On the Apple backend the two
+# use different views of the same database — writes go out through JXA, reads
+# come back through a cached EKEventStore that only refreshes when it processes
+# a change notification — so a read twenty milliseconds after a write reliably
+# missed it and reported a real write as unconfirmed.
+#
+# refresh() plus a short bounded retry closes it. Bounded tightly because the
+# user is waiting on a confirmation: three tries is enough for the notification
+# to land, and a fourth would be waiting on something that is not coming.
+_READBACK_TRIES = 3
+_READBACK_PAUSE_S = 0.4
+
+
 def _readback_confirms(uid: str, start) -> bool:
     """Whether the service reports an event under `uid` on `start`'s day.
 
@@ -99,17 +113,28 @@ def _readback_confirms(uid: str, start) -> bool:
     """
     if not uid:
         return False
-    try:
-        day = start.date() if hasattr(start, "date") else start
-        for evt in _mod().events_for_day(_CONFIG, day):
-            if evt.get("uid") == uid:
-                return True
-        logger.warning(
-            f"Write reported uid {uid} but a read-back of {day} did not find "
-            f"it. Reporting the event as written but unconfirmed."
-        )
-    except Exception as e:
-        logger.warning(f"Write read-back failed (reporting unconfirmed): {e}")
+    day = start.date() if hasattr(start, "date") else start
+    mod = _mod()
+    for attempt in range(_READBACK_TRIES):
+        try:
+            if attempt:
+                time.sleep(_READBACK_PAUSE_S)
+            # Before every attempt including the first: the write happened
+            # microseconds ago and the store is stale by construction.
+            try:
+                mod.refresh()
+            except Exception as e:
+                logger.debug(f"read-back refresh failed: {e}")
+            for evt in mod.events_for_day(_CONFIG, day):
+                if evt.get("uid") == uid:
+                    return True
+        except Exception as e:
+            logger.warning(f"Write read-back failed (reporting unconfirmed): {e}")
+            return False
+    logger.warning(
+        f"Write reported uid {uid} but {_READBACK_TRIES} read-backs of {day} "
+        f"did not find it. Reporting the event as written but unconfirmed."
+    )
     return False
 
 

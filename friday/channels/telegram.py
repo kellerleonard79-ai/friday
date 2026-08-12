@@ -219,12 +219,12 @@ class TelegramHandler:
             # Blocking `requests` calls, so an executor. The turn's own
             # deadline has already been spent by this point, which is why this
             # is not inside it.
-            card_sent = False
+            card_texts: tuple[str, ...] = ()
             if result.effects:
                 report = await loop.run_in_executor(
                     None, lambda: effects_runner.run(result.effects, self)
                 )
-                card_sent = report.cards_sent > 0
+                card_texts = report.card_texts
                 if not report.ok:
                     logger.warning(f"Effects partially failed: {report.failed}")
 
@@ -250,14 +250,24 @@ class TelegramHandler:
             elif result.text:
                 await update.message.reply_text(result.text)
                 assistant_log = result.text
-            elif card_sent:
+            elif card_texts:
                 # A card went out and the model said nothing after it. That is
                 # the CORRECT shape for a gated write, not an empty response:
-                # the card is the reply, and anything appended to it would be
+                # the card IS the reply, and anything appended to it would be
                 # the preamble invariant 3 forbids. The old code answered this
                 # case with "the model returned no text", which is how the
                 # Phase II turn ended in an empty markdown fence.
-                assistant_log = "[permission card sent]"
+                #
+                # THE CARD'S OWN TEXT GOES INTO HISTORY, and it must be the
+                # real text rather than a marker like "[permission card sent]".
+                # That marker was tried and it taught the model to say it: two
+                # turns later, having seen two assistant rows reading exactly
+                # that, flash-lite produced the literal string "[permission
+                # card sent]" as its user-facing reply. History rows are
+                # examples, and a fake one is an example of writing fake
+                # markers — the same failure as the stray token, in a new
+                # costume. Store what the user actually saw.
+                assistant_log = "\n\n".join(card_texts)
             else:
                 msg = "Sorry, sir — the model returned no text. Try again?"
                 logger.warning(f"Empty LLM response — sending to user: {msg}")

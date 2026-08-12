@@ -189,6 +189,29 @@ check("a full rotation of a group produces no repeat",
       len(set(picks)) == _n)
 
 
+# ── The report carries the card's real text, for conversation history ───────
+#
+# A REGRESSION TEST WITH A STORY. The channel first logged a literal
+# "[permission card sent]" as the assistant's turn when a card went out and
+# the model said nothing. Two turns later the model, having seen two assistant
+# rows reading exactly that, produced the string "[permission card sent]" as
+# its user-facing reply. History rows are examples; a fake one is an example
+# of writing fake markers. The report therefore hands back what the user
+# actually saw, so the channel has something true to store.
+
+ch = FakeChannel()
+report = runner.run([card], ch)
+check("the report carries the card's text verbatim",
+      report.card_texts == ("Add to calendar?\nLunch",))
+check("no marker or placeholder appears in the report",
+      all("[" not in t for t in report.card_texts))
+
+ch = FakeChannel(fail_on="card")
+report = runner.run([card], ch)
+check("a card that FAILED to send is not reported as text to store",
+      report.card_texts == () and report.cards_sent == 0)
+
+
 print()
 if _failures:
     print(f"{len(_failures)} FAILED:")
