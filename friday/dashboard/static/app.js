@@ -1219,6 +1219,42 @@ function escapeAttr(s) { return escapeHtml(s); }
 let STREAM = null;
 const STREAM_HANDLERS = {};
 
+// ── Interrupts ─────────────────────────────────────────────────────────
+//
+// The server also raises a macOS notification for every interrupt (see
+// channels/dashboard.py), which is what reaches the user when this app is not
+// running at all. This one exists for the case that one cannot cover: a
+// notification that CLICKS THROUGH. `osascript display notification` is
+// attributed to osascript, so clicking it activates that; a Notification
+// raised here belongs to this window, and onclick can focus it.
+//
+// Permission is requested on a user gesture — sending a message — because
+// browsers refuse the request outside one, and a refusal is permanent for the
+// origin. Asking at page load would burn the one chance on a page the user has
+// not decided they care about yet.
+
+function notifyPermissionMaybe() {
+  if (!('Notification' in window)) return;
+  if (Notification.permission !== 'default') return;
+  try { Notification.requestPermission(); } catch { /* older API shape */ }
+}
+
+function raiseNotification(title, body) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  try {
+    const n = new Notification(title || 'Friday', {
+      body: body || '',
+      icon: '/static/icon-192.png',
+      // Collapses repeats rather than stacking. An interrupt the user has not
+      // acted on does not become more true by arriving twice.
+      tag: 'friday-interrupt',
+    });
+    n.onclick = () => { window.focus(); n.close(); };
+  } catch (e) { /* a blocked notification is not a broken page */ }
+}
+
+onStream('notify', (ev) => raiseNotification(ev.title, ev.text));
+
 function onStream(kind, fn) {
   (STREAM_HANDLERS[kind] = STREAM_HANDLERS[kind] || []).push(fn);
 }
@@ -1471,6 +1507,7 @@ async function renderChat() {
     const text = input.value.trim();
     if (!text) return;
     input.value = '';
+    notifyPermissionMaybe();
     const hint = log.querySelector('.hint');
     if (hint) hint.remove();
     chatSend(text);

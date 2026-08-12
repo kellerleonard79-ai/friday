@@ -38,8 +38,11 @@ records.
 from __future__ import annotations
 
 import logging
+import shutil
+import subprocess
 from datetime import datetime
 
+import compat
 from channels.base import Channel
 
 logger = logging.getLogger("friday.dashboard.channel")
@@ -49,6 +52,22 @@ logger = logging.getLogger("friday.dashboard.channel")
 MESSAGE = "message"
 CARD = "card"
 NOTIFY = "notify"
+
+
+def _applescript_string(value: str) -> str:
+    """A string literal for `osascript -e`.
+
+    ESCAPED, NOT SANITISED. The body is Friday's own text, but it is text the
+    model may have influenced, and an unescaped quote ends the literal and
+    turns the rest of the message into AppleScript. Dropping the character
+    instead would silently change what the user reads, which is the wrong
+    trade for a notification whose entire job is to be accurate at a glance.
+
+    Backslash first, then quote: doing it the other way round would escape the
+    backslashes this function just added.
+    """
+    escaped = (value or "").replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
 
 
 class DashboardChannel(Channel):
@@ -73,15 +92,54 @@ class DashboardChannel(Channel):
         return self._emit(CARD, text=proposal, key=pending_key)
 
     def notify(self, title: str, text: str) -> bool:
-        """Interrupt. Today this is an in-page event like any other, which
-        reaches the user only if they are looking at the tab — the real
-        out-of-browser interrupt lands with the notification commit. Written
-        as a plain send rather than left unimplemented so the contract has no
-        hole in it while that is true.
+        """Interrupt — reach the user when they are not looking at this
+        surface. LITERAL, never in persona (invariant 6): an interrupt is not
+        a reply, and a butler flourish on the one message that had to be
+        readable at a glance is noise.
 
-        LITERAL, never in persona (invariant 6).
+        TWO DOORS, BECAUSE NEITHER ONE IS ENOUGH ALONE.
+
+        The stream event reaches an open dashboard, where the page raises a
+        Web Notification whose onclick focuses the window. That is the only
+        path that gives click-through, and it needs the app to be running.
+
+        The macOS notification reaches the user when it is NOT running, which
+        is the case the dashboard exists for — Telegram is blocked for seven
+        hours a day and the tab is not always open. It does NOT click through:
+        `display notification` is attributed to osascript, so clicking it
+        activates that, not Friday. Accepted rather than worked around,
+        because the alternatives are a bundled helper binary or a launch agent
+        pretending to be an app, and the notification's job is to make the
+        user look at the dock icon.
+
+        True if EITHER door opened. The event is always recorded, so the
+        return value is about the interrupt, not the record.
         """
-        return self._emit(NOTIFY, title=title, text=text)
+        emitted = self._emit(NOTIFY, title=title, text=text)
+        return self._os_notify(title, text) or emitted
+
+    @staticmethod
+    def _os_notify(title: str, text: str) -> bool:
+        """A native notification, best-effort.
+
+        Runs in the executor thread effects already run in, so a subprocess is
+        fine — but it carries its own timeout regardless, because a hung
+        osascript would hold that thread and the thread is shared.
+        """
+        if compat.IS_WINDOWS:
+            return False
+        osascript = shutil.which("osascript")
+        if not osascript:
+            return False
+        try:
+            script = (f"display notification {_applescript_string(text)} "
+                      f"with title {_applescript_string(title or 'Friday')}")
+            subprocess.run([osascript, "-e", script], timeout=10,
+                           capture_output=True, check=True)
+            return True
+        except Exception as e:
+            logger.debug(f"native notification failed: {e}")
+            return False
 
     # ── Internals ────────────────────────────────────────────────────────────
 
