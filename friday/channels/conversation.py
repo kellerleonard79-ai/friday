@@ -68,7 +68,7 @@ from channels.base import failure_text_for
 from effects import entry as effects_entry
 from llm import profiles
 from llm.types import LLMRequest
-from router import classify, fastpath
+from router import clarify, classify, fastpath
 
 logger = logging.getLogger("friday.conversation")
 
@@ -253,10 +253,17 @@ async def handle(text: str, channel, conn, config: dict) -> Reply:
             lambda: classify.classify(text, deadline=time.monotonic() + _ROUTER_BUDGET_S),
         )
 
+        # The clarification round cap, and the one place the streak is cleared.
+        # Called on EVERY turn, not only a CLARIFY one — a counter incremented
+        # only by the branch it guards never resets, and the next unrelated
+        # message inherits a cap it did nothing to earn.
+        plan, directives = clarify.guard(conn, plan)
+
         request = LLMRequest(
             profile=profiles.get("CHAT"),
             prompt=text,
             history=_history(conn, config),
+            context_blocks=directives,
             triggered_by="user_message",
         )
 

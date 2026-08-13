@@ -103,9 +103,11 @@ check("ANSWER and CLARIFY are zero-hop by construction",
       plans.get("ANSWER").max_tool_hops == 0
       and plans.get("CLARIFY").max_tool_hops == 0)
 
-print("\n── the directive field is declared and inert ──")
-check("every plan's directive is empty in this commit",
-      all(plans.get(n).directive == "" for n in plans.names()))
+print("\n── directives ──")
+check("CLARIFY is the only plan carrying one",
+      [n for n in plans.names() if plans.get(n).directive] == ["CLARIFY"])
+check("CLARIFY's directive asks for ONE question",
+      "ONE short question" in plans.get("CLARIFY").directive)
 
 print()
 if failures:

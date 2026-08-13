@@ -120,10 +120,29 @@ _PLANS: dict[str, Plan] = {
         tool_scope=("write",),
         max_tool_hops=2,
     ),
+    # THE DIRECTIVE IS THE WHOLE OF THIS PLAN. Structurally CLARIFY and ANSWER
+    # are identical — no tools, no hops, one dispatch — and what separates them
+    # is what the model is told to do with the turn. Without the directive,
+    # "put something on my calendar" routed to CLARIFY is just ANSWER with a
+    # different name on the log line, and the model is as likely to invent a
+    # date as to ask for one.
+    #
+    # "ONE question" is load-bearing. Asked for everything missing at once, the
+    # model produces a form — title, date, start, end, calendar, location —
+    # which reads as an interrogation for something the user thought was one
+    # sentence, and gets abandoned.
     "CLARIFY": Plan(
         name="CLARIFY",
         tool_scope=None,
         max_tool_hops=0,
+        directive=(
+            "This request is missing something you cannot reasonably guess. "
+            "Ask for exactly that, in ONE short question, and nothing else. "
+            "Do not restate the request back, do not list everything you would "
+            "need, do not offer alternatives, and do not guess a value and ask "
+            "for confirmation of your guess. If several things are missing, ask "
+            "about the single most important one."
+        ),
     ),
 }
 
