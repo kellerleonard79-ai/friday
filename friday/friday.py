@@ -418,8 +418,14 @@ def main() -> None:
     # ── Check urgent alerts job ───────────────────────────────────────────────
 
     async def check_urgent_alerts_job(context) -> None:
+        # `notified = 0` is policy/suppression.py::already_alerted, inverted
+        # for SQL. It is a LATCH, not a window: this job runs every 60 seconds
+        # against the same table, so anything short of permanent is a loop.
+        # The windowed rule beside it in that module is a different question
+        # and deliberately does not replace this one.
         cur = conn.execute(
-            "SELECT id, source, title, body FROM events WHERE urgency='URGENT' AND notified=0"
+            "SELECT id, source, title, body FROM events "
+            "WHERE urgency='URGENT' AND notified = 0"
         )
         rows = cur.fetchall()
         for row in rows:

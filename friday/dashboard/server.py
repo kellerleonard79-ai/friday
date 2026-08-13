@@ -42,6 +42,7 @@ from dashboard import auth, stream
 import paths
 import self_edit
 from connectors.groupme import normalize_priority
+from policy import visibility
 from self_edit import sync_briefing_times as _sync_briefing_times
 
 logger = logging.getLogger("friday.dashboard")
@@ -404,10 +405,17 @@ def _whats_next(conn: sqlite3.Connection, config_path: Path) -> dict:
 
     canvas = []
     try:
+        # Same rule as the briefing bundle, from the same place — the urgency
+        # list is policy/visibility.py's. These two queries were byte-identical
+        # copies, which is how two surfaces come to disagree about what
+        # "pending" means the first time one of them is edited.
+        placeholders = ",".join("?" * len(visibility.BRIEFING_URGENCIES))
         for title, due_at, urgency in conn.execute(
-            "SELECT title, due_at, urgency FROM events "
-            "WHERE source='canvas' AND urgency IN ('URGENT','SOON') AND notified=0 "
-            "ORDER BY due_at"
+            f"SELECT title, due_at, urgency FROM events "
+            f"WHERE source='canvas' AND urgency IN ({placeholders}) "
+            f"AND notified = 0 "
+            f"ORDER BY due_at",
+            visibility.BRIEFING_URGENCIES,
         ).fetchall():
             canvas.append({"title": title, "due_at": due_at, "urgency": urgency})
     except Exception as e:

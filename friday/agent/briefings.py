@@ -43,6 +43,7 @@ from calendars import backend as calendar_backend
 from calendars import eventtime
 from connectors import weather as weather_connector
 from llm import context as llm_context
+from policy import visibility
 
 logger = logging.getLogger("friday.briefings")
 
@@ -147,11 +148,27 @@ def _fetch_calendar_day(config, day, label):
 
 
 def _fetch_canvas_pending(conn):
+    """Canvas items a briefing carries: the surfacing urgencies, not yet
+    alerted.
+
+    The urgency list comes from policy/visibility.py rather than being spelled
+    into this SQL string — it was spelled into TWO of them, here and in
+    dashboard/server.py, which is how two surfaces come to disagree about what
+    "pending" means.
+
+    `notified = 0` is policy/suppression.py::already_alerted, inverted for
+    SQL. It stays a literal clause because the check has to happen in the
+    query — pulling every Canvas row into Python to filter it is not a
+    consolidation, it is a table scan.
+    """
     try:
+        placeholders = ",".join("?" * len(visibility.BRIEFING_URGENCIES))
         return conn.execute(
-            "SELECT title, due_at, urgency FROM events "
-            "WHERE source='canvas' AND urgency IN ('URGENT','SOON') AND notified=0 "
-            "ORDER BY due_at"
+            f"SELECT title, due_at, urgency FROM events "
+            f"WHERE source='canvas' AND urgency IN ({placeholders}) "
+            f"AND notified = 0 "
+            f"ORDER BY due_at",
+            visibility.BRIEFING_URGENCIES,
         ).fetchall()
     except Exception as e:
         logger.warning(f"Briefing bundle: canvas_pending fetch failed — {e}")
@@ -168,18 +185,28 @@ def _fetch_weather(config, query, label):
 
 
 def _fetch_groupme_surfaced(conn):
-    """Briefing-visible GroupMe rows from the events buffer in the last 12h —
-    the 'high' and 'normal' tiers. 'muted' rows stay in the buffer for history
-    but never reach a briefing. Reads the table the connector already
-    populated — no live API call here."""
+    """Briefing-visible GroupMe rows from the events buffer in the last 12h.
+
+    WHICH TIERS SURFACE IS policy/visibility.py's ANSWER, not this query's.
+    The tags used to be written out here as two literal LIKE patterns with no
+    link to connectors/groupme.py::PRIORITIES at all, so renaming a tier would
+    have turned this filter into a silent pass-through — the 'muted' rows it
+    exists to hold back would simply have started appearing.
+
+    'muted' rows stay in the buffer for history and never reach a briefing;
+    that is the entire meaning of the tier. Reads the table the connector
+    already populated — no live API call here.
+    """
     try:
         cutoff = (datetime.now().astimezone() - timedelta(hours=_GROUPME_WINDOW_HOURS)).isoformat()
+        tags = visibility.briefing_tier_tags()
+        tier_clause = " OR ".join("body LIKE ?" for _ in tags)
         rows = conn.execute(
-            "SELECT body, created_at FROM events "
-            "WHERE source='groupme' AND created_at >= ? "
-            "AND (body LIKE '%[priority=high]%' OR body LIKE '%[priority=normal]%') "
-            "ORDER BY created_at",
-            (cutoff,),
+            f"SELECT body, created_at FROM events "
+            f"WHERE source='groupme' AND created_at >= ? "
+            f"AND ({tier_clause}) "
+            f"ORDER BY created_at",
+            (cutoff, *(f"%{tag}%" for tag in tags)),
         ).fetchall()
         return [_parse_groupme_row(body, created_at) for body, created_at in rows]
     except Exception as e:
