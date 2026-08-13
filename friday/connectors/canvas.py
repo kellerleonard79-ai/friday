@@ -341,6 +341,25 @@ def _store_ical(conn: sqlite3.Connection, items: list[dict], now_iso: str) -> No
     conn.commit()
 
 
+def _to_local_iso(raw: str | None) -> str | None:
+    """A Canvas UTC timestamp as a LOCAL ISO string, or None.
+
+    Everything downstream — the day read off the front, the relative
+    "tomorrow", the time rendered on the card — reads this one string, so it
+    has to already be in the timezone the user lives in. Parsing goes through
+    calendars/eventtime.py because a second implementation of this is how the
+    same code becomes correct on one machine and five hours wrong on another.
+    """
+    if not raw:
+        return None
+    from calendars.eventtime import to_local
+    dt = to_local(raw)
+    if dt is None:
+        logger.debug(f"canvas: unparseable due_at {raw!r}; storing nothing.")
+        return None
+    return dt.isoformat(timespec="seconds")
+
+
 def _rest_get(url: str, token: str, params: dict) -> list:
     """A paginated Canvas REST collection. Raises on HTTP error — the caller
     turns that into a status flag, because a dead token must not be an
@@ -387,7 +406,18 @@ def _store_rest(conn: sqlite3.Connection, courses: list[dict],
 
     for course_id, assignments_ in per_course.items():
         for a in assignments_:
-            due = a.get("due_at")          # Canvas returns UTC ISO with a Z
+            # CANVAS RETURNS UTC WITH A Z AND IT IS STORED AS LOCAL.
+            #
+            # A due date of "2026-08-20T04:59:59Z" is 11:59:59 PM on the 19th
+            # in Central — an 11:59pm deadline, which is what essentially
+            # every Canvas due date is. Stored verbatim, the DAY read off the
+            # front of that string is tomorrow while the TIME rendered from it
+            # is tonight: one label, two different days, wrong in the
+            # direction that makes you miss the deadline.
+            #
+            # to_local is the one parser (rule 30, calendars/eventtime.py) and
+            # it exists for exactly this class of bug on the calendar side.
+            due = _to_local_iso(a.get("due_at"))
             submission = a.get("submission") or {}
             submitted = submission.get("submitted_at")
             conn.execute(
@@ -411,6 +441,22 @@ def _store_rest(conn: sqlite3.Connection, courses: list[dict],
                  1 if submitted else (0 if submission else None),
                  a.get("html_url") or "", now_iso),
             )
+
+        # Prune this course's REST rows that the response no longer carries —
+        # a deleted assignment has to leave the card, the same rule the iCal
+        # pass follows.
+        #
+        # SCOPED PER COURSE, AND ONLY TO COURSES THAT ANSWERED. per_course
+        # holds only successful fetches (a failed one is logged and skipped
+        # above), so a course Canvas refused this cycle keeps every row it
+        # had. Pruning on a failed read is how a timeout empties the card.
+        seen = [f"assignment-{a.get('id')}" for a in assignments_]
+        marks = ",".join("?" * len(seen)) if seen else "''"
+        conn.execute(
+            f"DELETE FROM canvas_assignments "
+            f"WHERE source = 'rest' AND course_id = ? AND id NOT IN ({marks})",
+            [str(course_id), *seen],
+        )
     conn.commit()
 
 

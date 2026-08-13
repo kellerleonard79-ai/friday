@@ -1389,10 +1389,15 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
         commitments.sort(key=lambda c: c["start"])
 
         # ── Due tonight or tomorrow ───────────────────────────────────────────
-        tomorrow = today + timedelta(days=1)
+        # The upper bound is the START of the day after tomorrow, not
+        # tomorrow's 23:59:59. due_at now carries a local offset
+        # ("2026-08-13T23:59:59-05:00") and these are string comparisons: a
+        # longer string sharing a prefix sorts GREATER, so a <= against
+        # "2026-08-13T23:59:59" would exclude an assignment due at exactly
+        # 11:59pm — which is when essentially every Canvas assignment is due.
         due = [a for a in canvas_connector.assignments(
                    conn, due_after=today.isoformat(),
-                   due_before=tomorrow.isoformat() + "T23:59:59", limit=100)
+                   due_before=(today + timedelta(days=2)).isoformat(), limit=100)
                if not a.get("submitted")]
         courses = {c["id"]: c for c in canvas_connector.courses(conn)}
         for a in due:
