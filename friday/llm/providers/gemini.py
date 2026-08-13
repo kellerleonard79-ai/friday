@@ -44,6 +44,32 @@ logger = logging.getLogger("friday.llm.gemini")
 # does not kill an executor thread. Only the SDK client's own timeout does.
 _HTTP_TIMEOUT_CEILING_MS = 60_000
 
+# AND A FLOOR, WHICH THE API ENFORCES AND WE DID NOT.
+#
+# Gemini rejects an HTTP timeout under ten seconds outright:
+#
+#   400 INVALID_ARGUMENT — "Manually set deadline 8s is too short.
+#                           Minimum allowed deadline is 10s."
+#
+# That is a `fatal`, so it does not retry, and it is indistinguishable at the
+# call site from a malformed request. The clamp below was min(ceiling,
+# remaining) with no lower bound, so ANY call made with under ten seconds left
+# on the deadline failed this way rather than being attempted with what was
+# left — and it fails at 180ms, so it does not even look like a timeout in the
+# log.
+#
+# Found by the step-7 router, which set an 8s budget for the classifier and
+# therefore never made a single successful classification. The router was the
+# first caller to want a short deadline on purpose; every earlier one inherited
+# a profile timeout of 45s or more and only reached this floor deep inside a
+# turn that was already nearly out of time.
+#
+# Under the floor we do not call at all. Ten seconds is the API's own minimum,
+# so a request with less than that left cannot be sent — and pretending
+# otherwise by rounding UP to 10s would let a call outlive the deadline it was
+# given, which is the one thing the deadline exists to prevent.
+_HTTP_TIMEOUT_FLOOR_MS = 10_000
+
 # Transport faults that mean "this established connection died mid-request".
 # A socket the OS killed during sleep is the canonical case: it redials
 # instantly and succeeds. ONE redial, and only if the deadline still allows.
@@ -303,14 +329,24 @@ class GeminiProvider(Provider):
             )
 
         remaining = remaining_seconds(request)
-        if remaining <= 0:
-            return _error("network", "deadline exceeded before the call was made")
+        if remaining * 1000 < _HTTP_TIMEOUT_FLOOR_MS:
+            # Includes the old `remaining <= 0` case. Reported as `network`
+            # rather than `fatal` because nothing was wrong with the request:
+            # we ran out of budget, which is the same class of event as not
+            # reaching the API, and the caller's handling of the two is the
+            # same.
+            return _error(
+                "network",
+                f"only {remaining:.1f}s left on the deadline; the API's minimum "
+                f"is {_HTTP_TIMEOUT_FLOOR_MS // 1000}s",
+            )
 
         contents = self._contents(request, prompt)
         redialed = False
 
         while True:
-            timeout_ms = int(min(_HTTP_TIMEOUT_CEILING_MS, remaining * 1000))
+            timeout_ms = int(min(_HTTP_TIMEOUT_CEILING_MS,
+                                 max(_HTTP_TIMEOUT_FLOOR_MS, remaining * 1000)))
             try:
                 resp = self._client.models.generate_content(
                     model=profile.model,

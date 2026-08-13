@@ -89,7 +89,12 @@ EXECUTOR_TIMEOUT_S = 150   # public: channels/telegram.py's media path shares it
 # its HTTP timeout to. Eight seconds against a 577ms measured median — long
 # enough that a slow call still answers, short enough that a hung one costs
 # less than the turn it was trying to make cheaper.
-_ROUTER_BUDGET_S = 8.0
+#
+# TWELVE, NOT EIGHT. Gemini refuses an HTTP timeout under ten seconds with
+# a 400 — so an 8s budget produced a `fatal` in 180ms on every single
+# classification, the router fell back every time, and it looked exactly
+# like a working fallback. See llm/providers/gemini.py's floor.
+_ROUTER_BUDGET_S = 12.0
 
 # THE SENTENCES ARE NOT HERE ANY MORE — see channels/base.py.
 #
@@ -246,8 +251,8 @@ async def handle(text: str, channel, conn, config: dict) -> Reply:
         # EXECUTOR_TIMEOUT_S backstop below — that wraps run_turn, not this —
         # so without a bound of its own a hung classifier would widen the
         # worst-case gate hold by CLASSIFY's whole 45s profile timeout.
-        # Eight seconds is fourteen times the median and still short enough
-        # that falling back is cheaper than waiting.
+        # Twelve seconds is twenty times the median, and is the smallest
+        # value the API will accept a timeout for plus room to spare.
         plan = await loop.run_in_executor(
             None,
             lambda: classify.classify(text, deadline=time.monotonic() + _ROUTER_BUDGET_S),
