@@ -522,13 +522,17 @@ def main() -> None:
     # Deliberately does NOT call _record_briefing_sent: that sets the
     # last_<slot>_briefing_sent lock, which would make the real scheduled
     # briefing silently skip itself for the rest of the day.
-    on_demand_lock = asyncio.Lock()
-
     async def send_on_demand_briefing(bot) -> str:
         # The button is easy to double-click and a compose takes tens of
         # seconds; serialize so the second click waits rather than racing a
         # duplicate briefing into the chat.
-        async with on_demand_lock:
+        #
+        # THE LOCK MOVED to agent/briefings.py and is now shared with the fast
+        # path's "brief me", which is the second door onto the same work. A
+        # lock private to this closure serialized this button against itself
+        # and let a chat briefing assemble the same bundle alongside it. The
+        # lock order is documented at the definition.
+        async with briefings.ON_DEMAND_LOCK:
             loop = asyncio.get_running_loop()
             bundle = await loop.run_in_executor(
                 None, briefings.bundle_briefing_context, "on_demand", config, conn

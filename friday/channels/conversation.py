@@ -67,6 +67,7 @@ from channels.base import failure_text_for
 from effects import entry as effects_entry
 from llm import profiles
 from llm.types import LLMRequest
+from router import fastpath
 
 logger = logging.getLogger("friday.conversation")
 
@@ -179,6 +180,40 @@ async def handle(text: str, channel, conn, config: dict) -> Reply:
             "last_message_preview": text[:80],
         })
         logger.info(f"Message ({getattr(channel, 'name', '?')}): {text[:80]}")
+
+        # ══ TIER 1: THE FAST PATH. NO MODEL, NO NETWORK, NO TOOL LOOP. ══
+        #
+        # Here rather than higher up for two reasons, and both are load-bearing:
+        #
+        #   AFTER THE GATE, because a fast-path answer still reads and writes
+        #   conversation_history, and the whole reason there is one gate is
+        #   that two turns must not interleave against it. "hello" answered
+        #   outside the gate would append its lines underneath a turn that was
+        #   still composing.
+        #
+        #   AFTER THE PAUSE CHECK, because a paused Friday must be silent on
+        #   every surface and every path. Hoisting the router above it to make
+        #   a "resume" pattern reachable would let every tier-1 answer speak
+        #   while paused, which is precisely what pausing is for — so there is
+        #   no resume pattern. See router/fastpath.py::_pause().
+        #
+        # None means "the model handles this", and covers a message no pattern
+        # matched AND a pattern that matched but could not answer well (a
+        # weather fetch that failed, a calendar that would not read). The two
+        # are deliberately indistinguishable here: both are the instruction to
+        # fall through, and a caller that told them apart would eventually act
+        # on the difference.
+        fast = await fastpath.answer(text, conn, config)
+        if fast is not None:
+            said, pattern = fast
+            effects_entry.log_history(conn, "user", text, channel=channel)
+            channel.send(said)
+            effects_entry.log_history(conn, "assistant", said, channel=channel)
+            # Written to history like anything else the user read. A fast-path
+            # answer is a real turn — the model has to see it next time, or
+            # "and what about tomorrow?" is answered against a transcript in
+            # which Friday never spoke.
+            return Reply(text=said, stopped_on=f"fast_path:{pattern}")
 
         request = LLMRequest(
             profile=profiles.get("CHAT"),

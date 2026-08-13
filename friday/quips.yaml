@@ -34,6 +34,32 @@ tools:
       - "You've asked me that once already."
     failure: []
 
+# GREETINGS. Not a tool outcome, which is why this is a sibling key rather than
+# an entry under `tools:` — there is no tool, no success and no failure, and
+# filing it as one would have meant inventing a fake tool name to hang it on.
+#
+# These are the fast path's answer to "hello" (router/fastpath.py). A greeting
+# is 17% of everything ever said to Friday and used to cost a full 2,600-token
+# model call to answer; it is now a line from here plus the injected clock, so
+# "Still here, sir." arrives as "Still here, sir. It's 3:40 PM on a Wednesday."
+#
+# The clock half is what stops this feeling canned on the twentieth repeat: a
+# fixed string is a fixed string, but a fixed string carrying the time is an
+# answer. Keep these SHORT for that reason — the sentence continues.
+#
+# Selection is phrases.greeting(), the same random.choice and no-repeat deque
+# every other group uses. An empty list here means silence, and the fast path
+# reads that as "fall through to the model" rather than as "say nothing".
+greetings:
+  - "Still here, sir."
+  - "At your service, sir."
+  - "Present and correct, sir."
+  - "Standing by, sir."
+  - "Here, sir. Where else would I be."
+  - "Awake, sir. Regrettably."
+  - "Yes, sir. Still running."
+  - "Ready when you are, sir."
+
 # The flat list the learned-quip store and the dashboard still speak. Bundled
 # entries here are a fallback pool for success groups; keeping the key means
 # self_edit.py, /api/quips and friday_voice.yaml need no migration.

@@ -144,6 +144,40 @@ def quip_for(tool: str, outcome: str) -> str:
     return choice
 
 
+def greeting() -> str:
+    """One greeting line, or "" when the palette is empty.
+
+    A SIBLING OF quip_for(), NOT A CASE OF IT. Greetings live under their own
+    top-level key in quips.yaml because they are not a tool outcome: there is
+    no tool, nothing succeeded or failed, and filing them under `tools:` would
+    have meant inventing a fake tool name for the group to hang on. The
+    selection machinery is shared — the same random.choice over the same
+    no-repeat deque — which is the part that was worth reusing.
+
+    Retired lines are honoured through the same disabled_quips store, so a
+    greeting can be taken out of rotation the moment anything lists them. The
+    LEARNED pool is deliberately not folded in: a quip the user taught Friday
+    while approving a calendar event is a confirmation quip, and greeting them
+    with it is the same category error this module exists to prevent.
+
+    "" is a real answer. router/fastpath.py reads it as "fall through to the
+    model" rather than as "greet them with nothing" — an empty palette should
+    cost a model call, not produce a bare timestamp.
+    """
+    lines = [str(q) for q in (_load_file().get("greetings") or [])]
+    if not lines:
+        return ""
+    disabled = {q.casefold() for q in self_edit.load()["disabled_quips"]}
+    pool = [q for q in lines if q.casefold() not in disabled]
+    if not pool:
+        return ""
+    recent = _recent["greeting"]
+    fresh = [q for q in pool if q not in recent]
+    choice = random.choice(fresh or pool)
+    recent.append(choice)
+    return choice
+
+
 def quip_for_key(quip_key: str) -> str:
     """`"<tool>:<outcome>"`, as carried on a SendMessage effect. An unparseable
     or unknown key is silence, never a fallback quip — a key that does not

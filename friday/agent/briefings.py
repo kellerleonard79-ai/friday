@@ -33,6 +33,7 @@ Context bundling (bundle_briefing_context / format_briefing_context):
 Synchronous — wrap in run_in_executor when called from async.
 """
 
+import asyncio
 import logging
 import re
 from datetime import date, datetime, timedelta
@@ -526,6 +527,27 @@ def compose_morning(agent, bundle: dict) -> str:
 def compose_evening(agent, bundle: dict) -> str:
     """Evening briefing, rendered straight from the bundle."""
     return _compose(bundle, "EVENING BRIEFING")
+
+
+# ONE LOCK FOR ON-DEMAND BRIEFINGS, WHEREVER THEY ARE TRIGGERED FROM.
+#
+# There are two doors now: the dashboard's /api/friday/brief button (via
+# friday.py::send_on_demand_briefing) and "brief me" on the fast path (via
+# router/fastpath.py). Both assemble the same bundle, which takes tens of
+# seconds and is easy to trigger twice — the button is double-clickable and a
+# message can arrive while one is already running.
+#
+# LOCK ORDER, STATED SO A FUTURE CHANGE CANNOT QUIETLY REVERSE IT:
+#
+#     channels/conversation.py::TURN_GATE   →   briefings.ON_DEMAND_LOCK
+#
+# The fast path holds TURN_GATE and then takes this. The dashboard button
+# takes this and never touches TURN_GATE — it bypasses the message pipeline
+# entirely, the same as the scheduled briefing jobs do. Nothing anywhere
+# acquires TURN_GATE while holding this one, and nothing may start: that is
+# the edge that would deadlock, and it is the reason this comment is longer
+# than the lock.
+ON_DEMAND_LOCK = asyncio.Lock()
 
 
 def compose_on_demand(agent, bundle: dict) -> str:

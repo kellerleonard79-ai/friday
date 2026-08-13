@@ -188,7 +188,10 @@ print("\n-- a blocked network --")
 stub(TurnResult(error_kind="network", error_message="dns"))
 conn = db()
 ch = Fake("dashboard")
-reply = run("hello", ch, conn)
+# NOT "hello". Tier 1 answers greetings without a model since step 7, so a
+# stubbed run_turn is never reached and this test would pass by not running.
+# Every message in this file has to be one router/fastpath.py falls through on.
+reply = run("what am I doing next week", ch, conn)
 check("a network failure says it cannot reach the model",
       ch.sent == ["I can't reach the model from this network."])
 check("the reply carries the kind, not just the words",
@@ -236,12 +239,12 @@ print("\n-- the dashboard channel --")
 stub(TurnResult(model_text="Right away, sir."))
 conn = db()
 dash = DashboardChannel()
-reply = run("hello", dash, conn)
+reply = run("what am I doing next week", dash, conn)   # falls through tier 1
 check("DashboardChannel satisfies the contract", isinstance(dash, Channel))
 check("its events carry what was said",
       [e["text"] for e in dash.events] == ["Right away, sir."])
 check("it writes history as 'dashboard'",
-      history(conn) == [("user", "hello", "dashboard"),
+      history(conn) == [("user", "what am I doing next week", "dashboard"),
                         ("assistant", "Right away, sir.", "dashboard")])
 
 
