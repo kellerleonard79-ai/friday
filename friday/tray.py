@@ -172,7 +172,14 @@ class FridayTray:
             logger.error(f"Pause toggle failed: {e}")
 
     def _on_dashboard(self, icon, item) -> None:
-        webbrowser.open(API_BASE)
+        # Carries the token, so a browser that has never had the cookie set
+        # still opens straight into the dashboard instead of a 401.
+        try:
+            from dashboard import auth as _dash_auth
+            url = _dash_auth.local_url(API_BASE)
+        except Exception:
+            url = API_BASE
+        webbrowser.open(url)
 
     def _on_restart(self, icon, item) -> None:
         self._shutdown_core()

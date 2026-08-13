@@ -79,6 +79,20 @@ def _api(method: str, path: str, json_body=None, timeout: float = 10):
     return requests.post(url, json=json_body, headers=headers, timeout=timeout)
 
 
+def _dashboard_url() -> str:
+    """The dashboard URL with the token attached, for handing to a browser.
+
+    `_api` sends the token as a header; a browser cannot, so the first visit
+    has to carry it as a query parameter. The server redirects to the bare
+    path once the cookie is set — see dashboard/auth.py.
+    """
+    try:
+        from dashboard import auth as _dash_auth
+        return _dash_auth.local_url(API_BASE)
+    except Exception:
+        return API_BASE
+
+
 class CoreSupervisor:
     """Keeps friday.py alive. Identical policy to the Windows tray: a clean
     exit (what /api/friday/restart triggers) is a restart; rapid exits are a
@@ -198,7 +212,7 @@ def main() -> None:
     lock = _acquire_singleton()
     if lock is None:
         logger.info("Another Friday instance is running — bringing it forward.")
-        subprocess.run(["open", API_BASE], check=False)
+        subprocess.run(["open", _dashboard_url()], check=False)
         return
 
     if not paths.config_path().exists() and not _run_wizard(first_run=True):

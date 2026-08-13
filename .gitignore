@@ -15,6 +15,7 @@ friday/friday_config.yaml
 friday/friday_voice.yaml
 com.friday.agent.plist
 com.friday.voice.plist
+com.friday.menubar.plist
 
 voice/training_data/
 voice/models/training/
