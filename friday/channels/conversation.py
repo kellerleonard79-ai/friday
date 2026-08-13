@@ -101,6 +101,11 @@ class Reply:
     the card. The pattern is not about wording — WHATEVER SITS IN THE
     ASSISTANT SLOT AFTER A CARD, THE MODEL WILL EVENTUALLY SAY. The
     assistant's turn for a card is the OUTCOME, written when the user taps.
+
+    `Reply.text` IS NOT `TurnResult.model_text`. This is WHAT THE USER WAS
+    TOLD; that is WHAT THE MODEL PRODUCED, and on a card turn the two differ
+    by an entire paragraph. They were both called `.text` until step 6, on two
+    objects that travel together through handle().
     """
     text: str = ""
     cards: tuple[str, ...] = ()
@@ -250,10 +255,11 @@ async def handle(text: str, channel, conn, config: dict) -> Reply:
             # Suppressed, not sent-and-not-logged: a sentence the user reads is
             # a sentence that belongs in history, so the only correct handling
             # of prose that must not be read is to not send it.
-            if result.text:
+            if result.model_text:
                 logger.info(
-                    f"Suppressed prose after a card ({len(result.text)} chars): "
-                    f"{result.text[:120]!r}"
+                    f"Suppressed prose after a card "
+                    f"({len(result.model_text)} chars): "
+                    f"{result.model_text[:120]!r}"
                 )
             if result.error_kind != "none":
                 logger.warning(
@@ -266,8 +272,8 @@ async def handle(text: str, channel, conn, config: dict) -> Reply:
             said = _ERROR_MSG.get(result.error_kind,
                                   f"LLM error, sir: {result.error_message}")
             logger.warning(f"LLM {result.error_kind} — sending to user: {said}")
-        elif result.text:
-            said = result.text
+        elif result.model_text:
+            said = result.model_text
         elif effects_spoke:
             # The turn's effects already answered the user — a tool's own
             # SendMessage — and the model added nothing on top. That is an

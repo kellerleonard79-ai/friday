@@ -101,7 +101,7 @@ def run(text, channel, conn):
 # ── The same path, two channels ──────────────────────────────────────────────
 
 print("\n-- the same rows from either channel --")
-stub(TurnResult(text="Nothing until Thursday, sir."))
+stub(TurnResult(model_text="Nothing until Thursday, sir."))
 
 rows = {}
 for name in ("telegram", "dashboard"):
@@ -124,7 +124,7 @@ check("each row records the channel it came from",
 # ── The card case: nothing goes in the assistant slot ────────────────────────
 
 print("\n-- a turn whose only output is a card --")
-stub(TurnResult(text="", effects=(
+stub(TurnResult(model_text="", effects=(
     SendPermissionCard(proposal="Add to calendar?\nLunch", pending_key="k1",
                        tool="add_calendar_event", arguments={}),)))
 conn = db()
@@ -144,7 +144,7 @@ check("history holds the user turn and NOTHING in the assistant slot",
 # the branch used to run only when the model happened to say nothing.
 
 print("\n-- the model talks over its own card --")
-stub(TurnResult(text="I have called the tool; please confirm the card below.",
+stub(TurnResult(model_text="I have called the tool; please confirm the card below.",
                 effects=(SendPermissionCard(
                     proposal="Add to calendar?\nLunch", pending_key="k2",
                     tool="add_calendar_event", arguments={}),)))
@@ -159,7 +159,7 @@ check("and nothing reached history either",
 
 # An error on a turn that emitted a card: the card stands, the error line does
 # not. A card the user is looking at must not be followed by "LLM error, sir".
-stub(TurnResult(text="", error_kind="transient", error_message="503",
+stub(TurnResult(model_text="", error_kind="transient", error_message="503",
                 effects=(SendPermissionCard(
                     proposal="Add to calendar?\nLunch", pending_key="k3",
                     tool="add_calendar_event", arguments={}),)))
@@ -172,7 +172,7 @@ check("an error after a card is not read out over it", ch.sent == [])
 # ── A tool's own message is logged, on both channels ─────────────────────────
 
 print("\n-- a tool that speaks --")
-stub(TurnResult(text="", effects=(SendMessage(text="Tennis added."),)))
+stub(TurnResult(model_text="", effects=(SendMessage(text="Tennis added."),)))
 for name in ("telegram", "dashboard"):
     conn = db()
     ch = Fake(name)
@@ -211,7 +211,7 @@ async def _both():
         import time
         time.sleep(0.05)
         order.append(f"end:{request.prompt}")
-        return TurnResult(text="ok")
+        return TurnResult(model_text="ok")
 
     conversation.run_turn = slow
     await asyncio.gather(
@@ -233,7 +233,7 @@ check("the transcript records both surfaces",
 # ── The dashboard channel is a channel ───────────────────────────────────────
 
 print("\n-- the dashboard channel --")
-stub(TurnResult(text="Right away, sir."))
+stub(TurnResult(model_text="Right away, sir."))
 conn = db()
 dash = DashboardChannel()
 reply = run("hello", dash, conn)

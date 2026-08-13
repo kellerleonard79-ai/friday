@@ -79,8 +79,21 @@ class TurnResult:
     Mirrors LLMResponse's error fields deliberately: the channel already keys
     its replies off error_kind, and a turn that failed should not need a second
     vocabulary for the same conditions.
+
+    `model_text` IS NOT `Reply.text`, AND THE OLD NAME HID THAT.
+
+    This field is WHAT THE MODEL PRODUCED. channels/conversation.py's Reply
+    carries WHAT THE USER WAS TOLD. Card suppression is precisely the gap
+    between the two: on a turn that emitted a permission card, model_text may
+    be a paragraph and Reply.text is "". Both were spelled `.text`, on two
+    objects that travel together through the same function, and the next
+    consumer to reach for the obvious one would have got the wrong one with no
+    error anywhere.
+
+    Renamed before that consumer arrived rather than after. The step-7 router
+    is the consumer in question.
     """
-    text: str = ""
+    model_text: str = ""
     error_kind: str = "none"
     error_message: str = ""
     hops: int = 0
@@ -304,7 +317,7 @@ def _finish(response: LLMResponse | None, hops: int, calls: int,
             effects=collected,
         )
     return TurnResult(
-        text=response.text,
+        model_text=response.text,
         error_kind=response.error_kind,
         error_message=response.error_message,
         hops=hops,
