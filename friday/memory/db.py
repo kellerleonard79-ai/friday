@@ -82,7 +82,8 @@ CREATE TABLE IF NOT EXISTS llm_exchanges (
     full_response    TEXT,
     profile          TEXT,    -- llm/profiles.py name: CHAT | ...
     finish           TEXT,    -- stop | tool_calls | length | error
-    error_kind       TEXT     -- none | rate_limit | transient | network | fatal
+    error_kind       TEXT,    -- none | rate_limit | transient | network | fatal
+    plan             TEXT     -- router/plans.py name, or NULL: no plan (CHAT as before)
 );
 
 -- One row per tool invocation, written by agent/turn.py's loop.
@@ -193,8 +194,13 @@ class Database:
         # Additive on purpose — the pre-dispatcher rows are real cost history and both
         # dashboard readers name their columns explicitly, so they are unaffected.
         # Existing rows keep NULL: we cannot reconstruct a profile that did not exist.
+        # llm_exchanges.plan: which router plan shape a dispatch ran under
+        # (router/plans.py). NULL means no plan — either the row predates the
+        # router, or the classifier fell back, and those are the same thing on
+        # purpose: both ran CHAT with its own scope. A label for reading the
+        # table afterward, never read back to make a decision.
         le_cols = {r[1] for r in self._conn.execute("PRAGMA table_info(llm_exchanges)")}
-        for col in ("profile", "finish", "error_kind"):
+        for col in ("profile", "finish", "error_kind", "plan"):
             if col not in le_cols:
                 self._conn.execute(f"ALTER TABLE llm_exchanges ADD COLUMN {col} TEXT")
                 logger.info(f"Migration: added llm_exchanges.{col} column")

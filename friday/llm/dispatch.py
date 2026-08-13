@@ -202,6 +202,7 @@ def _log_exchange(request: LLMRequest, profile: Profile,
             profile=profile.name,
             finish=response.finish,
             error_kind=response.error_kind,
+            plan=request.plan_name or None,
         )
 
         # system_state counters — /api/status and the menubar read these.

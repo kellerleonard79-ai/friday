@@ -117,6 +117,11 @@ class LLMRequest:
     """
     profile: Profile
     prompt: str
+    # The router plan this call is running under, for llm_exchanges. A label,
+    # never read back to make a decision: the plan itself travels as
+    # tool_scope and as agent/turn.py's hop bound, and a second copy that
+    # could be acted on is a second copy that could disagree.
+    plan_name: str = ""
     context_blocks: tuple[ContextBlock, ...] = ()
     history: tuple[tuple[str, str], ...] = ()
     response_schema: Any | None = None
