@@ -61,6 +61,20 @@ class Ledger:
             for e in self.entries if isinstance(e, CalendarRead)
         )
 
+    def read_count(self) -> int:
+        """How many reads this turn has recorded. Coverage-blind on purpose.
+
+        This is NOT the question a precondition asks. tools/preconditions.py
+        wants "was the day this call targets read?", which is about coverage
+        and is the strong check. This one answers "has this turn looked at the
+        calendar at all before writing?", which is the router plan's much
+        weaker question — see router/plans.py::write_blocked. Two questions,
+        two methods, and neither is a cheaper version of the other: a model
+        that reads Tuesday and writes Thursday satisfies this and fails the
+        precondition.
+        """
+        return sum(1 for e in self.entries if isinstance(e, CalendarRead))
+
     def wrote(self, fingerprint: str) -> bool:
         """Whether this turn already wrote, or may have written, this exact
         thing. An ATTEMPT counts: the question a caller asks here is "could a

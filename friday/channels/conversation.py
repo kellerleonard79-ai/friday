@@ -58,6 +58,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -67,7 +68,7 @@ from channels.base import failure_text_for
 from effects import entry as effects_entry
 from llm import profiles
 from llm.types import LLMRequest
-from router import fastpath
+from router import classify, fastpath
 
 logger = logging.getLogger("friday.conversation")
 
@@ -81,6 +82,14 @@ TURN_GATE = asyncio.Semaphore(1)
 # if a blocking call ever hangs past its deadline anyway, this is what releases
 # the pipeline (July 9 outage).
 EXECUTOR_TIMEOUT_S = 150   # public: channels/telegram.py's media path shares it
+
+# The router's own budget, and it is NOT covered by the backstop above: the
+# classifier runs before run_turn and outside the wait_for that wraps it. Its
+# only bound is the deadline handed to dispatch(), which the provider clamps
+# its HTTP timeout to. Eight seconds against a 577ms measured median — long
+# enough that a slow call still answers, short enough that a hung one costs
+# less than the turn it was trying to make cheaper.
+_ROUTER_BUDGET_S = 8.0
 
 # THE SENTENCES ARE NOT HERE ANY MORE — see channels/base.py.
 #
@@ -215,6 +224,35 @@ async def handle(text: str, channel, conn, config: dict) -> Reply:
             # which Friday never spoke.
             return Reply(text=said, stopped_on=f"fast_path:{pattern}")
 
+        loop = asyncio.get_running_loop()
+
+        # ══ TIER 2: ONE CHEAP CALL THAT PICKS THE TURN'S SHAPE. ══
+        #
+        # ~255 input tokens and a measured 577ms median against CHAT's ~2,600
+        # and 6-13s. On a message that was always going to need CHAT this is
+        # pure added latency; what it buys is that an ANSWER turn is handed no
+        # tool schemas at all and a READ_THEN_WRITE turn cannot write before it
+        # reads.
+        #
+        # None IS THE FALLBACK AND IT IS NOT AN ERROR. A malformed answer, a
+        # renamed plan, a rate limit, a dead network — all of them land here as
+        # None, and run_turn(plan=None) is byte-for-byte the path that ran
+        # before the router existed. The user is never told the router was
+        # unavailable: they asked about their calendar, and CHAT is about to
+        # hit the same network and produce the same sentence if it is really
+        # down.
+        #
+        # THE TIGHT DEADLINE IS DELIBERATE. This call sits OUTSIDE the
+        # EXECUTOR_TIMEOUT_S backstop below — that wraps run_turn, not this —
+        # so without a bound of its own a hung classifier would widen the
+        # worst-case gate hold by CLASSIFY's whole 45s profile timeout.
+        # Eight seconds is fourteen times the median and still short enough
+        # that falling back is cheaper than waiting.
+        plan = await loop.run_in_executor(
+            None,
+            lambda: classify.classify(text, deadline=time.monotonic() + _ROUTER_BUDGET_S),
+        )
+
         request = LLMRequest(
             profile=profiles.get("CHAT"),
             prompt=text,
@@ -222,7 +260,6 @@ async def handle(text: str, channel, conn, config: dict) -> Reply:
             triggered_by="user_message",
         )
 
-        loop = asyncio.get_running_loop()
         try:
             # run_turn() is blocking by design — the model call and the calendar
             # reads must not run on the event loop. The WHOLE turn goes into one
@@ -231,7 +268,7 @@ async def handle(text: str, channel, conn, config: dict) -> Reply:
             # with it. (They were thread-locals once; tools run in a worker pool
             # and could not see them, so every precondition failed closed.)
             result = await asyncio.wait_for(
-                loop.run_in_executor(None, lambda: run_turn(request, conn)),
+                loop.run_in_executor(None, lambda: run_turn(request, conn, plan)),
                 timeout=EXECUTOR_TIMEOUT_S,
             )
         except TimeoutError:

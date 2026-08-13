@@ -90,8 +90,14 @@ _CONFIG = {
 _profiles.install(_CONFIG)
 
 
+# The plan argument is accepted and ignored: these tests are about what
+# handle() does with a turn's RESULT, and the router's own behaviour is
+# tests/test_plans.py and tests/test_fastpath.py. What matters here is that
+# the classifier is never configured in this process, so classify() returns
+# None on every message — which is itself the assertion that a dead router
+# falls back to CHAT rather than breaking a turn.
 def stub(result: TurnResult):
-    conversation.run_turn = lambda request, conn=None: result
+    conversation.run_turn = lambda request, conn=None, plan=None: result
 
 
 def run(text, channel, conn):
@@ -207,7 +213,7 @@ order: list[str] = []
 async def _both():
     conn = db()
 
-    def slow(request, conn=None):
+    def slow(request, conn=None, plan=None):
         # Runs in an executor thread; the point is that the SECOND turn must
         # not start until the first has finished.
         order.append(f"start:{request.prompt}")

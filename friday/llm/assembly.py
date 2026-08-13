@@ -25,7 +25,7 @@ AssembledPrompt goes to the provider and to the exchange log.
 from __future__ import annotations
 
 from llm import context, persona
-from llm.types import AnyTurn, AssembledPrompt, LLMRequest, Profile, Turn
+from llm.types import _ProfileScope, AnyTurn, AssembledPrompt, LLMRequest, Profile, Turn
 from tools import registry
 
 
@@ -175,20 +175,40 @@ def build_turns(request: LLMRequest) -> tuple[AnyTurn, ...]:
     return tuple(turns)
 
 
-def build_tools(profile: Profile) -> tuple[dict, ...]:
-    """The tool declarations this profile may be offered, from the registry.
+def build_tools(request: LLMRequest, profile: Profile) -> tuple[dict, ...]:
+    """The tool declarations this call may be offered, from the registry.
 
-    Resolved from profile.tool_scope and nothing else. A caller cannot pass
-    tools in: there is no field on LLMRequest for them, which is what makes
-    "COMPOSE never gets tools" a property of the profile table rather than a
-    thing every call site has to remember.
+    THE PROFILE IS THE CEILING AND THE REQUEST MAY ONLY NARROW IT. The scope
+    is the INTERSECTION of profile.tool_scope with request.tool_scope, and
+    request.tool_scope defaults to PROFILE_SCOPE, which means "no opinion" and
+    leaves every pre-router caller exactly as it was.
+
+    This used to read "resolved from profile.tool_scope and nothing else — a
+    caller cannot pass tools in", and the guarantee that sentence was
+    protecting is intact: a caller still cannot pass TOOLS, and cannot name a
+    scope the profile does not carry. What it can do is ask for less, which is
+    what a router plan is. Widening was never on the table — see
+    llm/types.py::LLMRequest.tool_scope for why the asymmetry is the whole
+    design rather than an implementation detail.
 
     None scope returns an empty tuple, and the provider turns an empty tuple
     into no `tools` argument at all — not an empty list. Some SDKs treat an
     empty tool list as "tools enabled, none available" and still change how
     they decode; absent is the only unambiguous way to say no.
     """
-    return registry.schemas_for_scope(profile.tool_scope)
+    scope = profile.tool_scope
+    asked = request.tool_scope
+    if not isinstance(asked, _ProfileScope):
+        if asked is None or scope is None:
+            scope = None
+        else:
+            allowed = set(scope)
+            narrowed = tuple(s for s in asked if s in allowed)
+            # None, never (): an empty tuple reads like "some tools" while
+            # meaning none, which llm/types.py::Profile rejects for the same
+            # reason.
+            scope = narrowed or None
+    return registry.schemas_for_scope(scope)
 
 
 def assemble(request: LLMRequest, profile: Profile,
@@ -198,5 +218,5 @@ def assemble(request: LLMRequest, profile: Profile,
     return AssembledPrompt(
         system=build_system(request, profile, config),
         turns=build_turns(request),
-        tools=build_tools(profile),
+        tools=build_tools(request, profile),
     )

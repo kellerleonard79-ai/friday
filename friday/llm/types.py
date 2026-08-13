@@ -92,6 +92,23 @@ class ContextBlock:
     content: str
 
 
+class _ProfileScope:
+    """Sentinel for LLMRequest.tool_scope: "whatever the profile allows".
+
+    A SENTINEL RATHER THAN None, because None is already taken and means
+    something incompatible: no tools at all. A router plan that narrows to
+    nothing and a caller that expresses no opinion must not be the same value,
+    or every caller that never heard of plans would silently disable tools.
+    """
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "PROFILE_SCOPE"
+
+
+PROFILE_SCOPE = _ProfileScope()
+
+
 @dataclass(frozen=True, slots=True)
 class LLMRequest:
     """One call's worth of intent. Assembled by the caller, resolved by the
@@ -117,6 +134,21 @@ class LLMRequest:
     """
     profile: Profile
     prompt: str
+    # THE CALLER MAY NARROW THE PROFILE'S TOOL SCOPE. IT MAY NOT WIDEN IT.
+    #
+    # PROFILE_SCOPE (the default) means "no opinion" and every pre-router
+    # caller keeps exactly the behavior it had. A tuple or None is a router
+    # plan's scope, and llm/assembly.py INTERSECTS it with the profile's
+    # rather than substituting it — see router/plans.py::effective_scope.
+    #
+    # The asymmetry is deliberate and is the reason this is not simply a
+    # "tools" field. "COMPOSE never gets tools" and "CHAT never sees
+    # commit_calendar_event" are properties of the profile table, which
+    # llm/profiles.py says in as many words that config may not touch. A scope
+    # that arrived on a request — ultimately from a classifier's one-word
+    # answer — is a much weaker thing, and if it could widen then the
+    # strongest guarantee in this layer would be one enum value away from void.
+    tool_scope: tuple[str, ...] | None | _ProfileScope = PROFILE_SCOPE
     # The router plan this call is running under, for llm_exchanges. A label,
     # never read back to make a decision: the plan itself travels as
     # tool_scope and as agent/turn.py's hop bound, and a second copy that

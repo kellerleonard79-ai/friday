@@ -47,6 +47,8 @@ from dataclasses import dataclass
 import memory.activity as activity
 from llm.dispatch import dispatch
 from llm.types import LLMRequest, LLMResponse, ToolCall, ToolCallTurn, ToolResultTurn
+from router import plans
+from router.plans import Plan
 from tools import executor, registry
 from tools.ledger import Ledger
 from tools.types import ToolError, ToolResult
@@ -98,7 +100,14 @@ class TurnResult:
     error_message: str = ""
     hops: int = 0
     tool_calls_made: int = 0
-    stopped_on: str = "answer"   # answer | hop_limit | preconditions | error
+    # answer | hop_limit | preconditions | plan_refused | error
+    #
+    # `plan_refused` arrived with the router: the model asked for a write on a
+    # plan whose read had not happened, twice. Distinct from `preconditions`
+    # because they catch different things and the first question after a bad
+    # turn is which one stopped it — a coverage failure means the model looked
+    # at the wrong day, a plan refusal means it did not look at all.
+    stopped_on: str = "answer"
     # What the tools asked to have happen. The loop COLLECTS these and does not
     # run them — running one here would put the turn loop in the business of
     # talking to channels, which is the layering this rebuild exists to undo.
@@ -173,10 +182,37 @@ def _execute(call: ToolCall, deadline: float, ledger: Ledger,
     return outcome, duration_ms, _outcome_label(outcome)
 
 
-def run_turn(request: LLMRequest, conn=None) -> TurnResult:
-    """One full turn. Never raises for an LLM- or tool-level failure."""
+def run_turn(request: LLMRequest, conn=None, plan: Plan | None = None) -> TurnResult:
+    """One full turn. Never raises for an LLM- or tool-level failure.
+
+    `plan` is the router's decision about what shape this turn is
+    (router/plans.py). It governs three things and nothing else:
+
+      the tool scope     narrowed against the profile's, never widened
+      the hop budget     the lower of the plan's and the profile's
+      the write gate     a plan carrying write_requires_read refuses a write
+                         until this turn has recorded a read
+
+    plan=None IS THE OLD PATH, EXACTLY. No scope override, the profile's own
+    hop budget, no gate. Every fallback in router/classify.py lands here, which
+    is what makes "the router can never make Friday less capable than it was"
+    a property of the code rather than a promise.
+    """
     profile = request.profile
     deadline = time.monotonic() + profile.timeout_s
+
+    # Resolved once, at the top, so the loop below reads one number and cannot
+    # disagree with itself about the bound halfway down.
+    max_hops = plans.effective_hops(plan, profile.max_tool_hops)
+    if plan is not None:
+        request = dataclasses.replace(
+            request,
+            tool_scope=plans.effective_scope(plan, profile.tool_scope),
+            plan_name=plan.name,
+        )
+        logger.info(
+            f"Turn plan {plan.name}: scope={request.tool_scope} hops={max_hops}"
+        )
 
     # Per-turn state, owned here and passed down. The scratch holds tool
     # payload (the calendar read cache); the ledger holds records and is
@@ -191,6 +227,7 @@ def run_turn(request: LLMRequest, conn=None) -> TurnResult:
     tool_turns: list = []
     effects: list = []
     precondition_failures = 0
+    plan_refusals = 0
     calls_made = 0
     hop = 0
 
@@ -201,7 +238,7 @@ def run_turn(request: LLMRequest, conn=None) -> TurnResult:
         # belt-and-braces stop — every real exit below is a return — because an
         # unbounded while-loop around a paid API call is not a thing to leave
         # lying around.
-        for _ in range(profile.max_tool_hops + 2):
+        for _ in range(max_hops + 2):
             if time.monotonic() >= deadline:
                 logger.warning(f"Turn deadline exhausted after {hop} hop(s).")
                 # Effects still travel up. A turn that ran out of time may
@@ -229,9 +266,9 @@ def run_turn(request: LLMRequest, conn=None) -> TurnResult:
             # rejects, so every path from here must append a result for each.
             tool_turns.append(ToolCallTurn(calls=response.tool_calls))
 
-            if hop > profile.max_tool_hops:
+            if hop > max_hops:
                 logger.warning(
-                    f"Hop limit ({profile.max_tool_hops}) reached with tool calls "
+                    f"Hop limit ({max_hops}) reached with tool calls "
                     f"outstanding: {[c.name for c in response.tool_calls]}"
                 )
                 for call in response.tool_calls:
@@ -250,13 +287,55 @@ def run_turn(request: LLMRequest, conn=None) -> TurnResult:
                 return _finish(final, hop, calls_made, "hop_limit", effects)
 
             for call in response.tool_calls:
-                calls_made += 1
                 # Snapshotted BEFORE the call, so the row records the state the
                 # write was DECIDED AGAINST rather than the state it produced.
                 # After the fact, the write's own record is in there and the
                 # question "what had Friday read when it chose to do this"
                 # becomes one subtraction harder to answer.
                 before = _ledger_snapshot(call, ledger)
+
+                # ══ THE PLAN'S READ GATE, BEFORE THE TOOL RUNS. ══
+                #
+                # A READ_THEN_WRITE turn cannot reach its write until it has
+                # read. Checked here, against the tool's REGISTERED scope and
+                # the ledger's read count — two things the model does not get
+                # a vote on — rather than being described to the model in the
+                # prompt and hoped for. That is the difference between the
+                # read being step one of the plan and the read being something
+                # the model elects to do.
+                #
+                # tools/preconditions.py still runs, inside the executor, and
+                # is not made redundant by this: it asks whether the specific
+                # DAY was read, which is the strong check. This asks whether
+                # anything was. A model that reads Tuesday and writes Thursday
+                # passes here and fails there.
+                refusal = plans.write_blocked(
+                    plan,
+                    registry.get(call.name).scope if registry.has(call.name) else (),
+                    ledger.read_count(),
+                )
+                if refusal is not None:
+                    plan_refusals += 1
+                    logger.warning(
+                        f"Plan {plan.name if plan else '-'} refused {call.name}: "
+                        f"no read recorded this turn."
+                    )
+                    tool_turns.append(ToolResultTurn(
+                        name=call.name,
+                        content={"error": "plan_requires_read", "detail": refusal},
+                        is_error=True,
+                    ))
+                    _log_call(conn, request, call,
+                              ToolError(kind="plan_refused", message=refusal),
+                              0, hop, "plan_refused", before)
+                    continue
+
+                # Counted here rather than at the top of the loop: a call the
+                # plan refused never reached the executor, and a number that
+                # includes it means two different things depending on which
+                # branch produced it. A precondition failure DOES count — that
+                # one ran, and failed inside.
+                calls_made += 1
                 outcome, duration_ms, label = _execute(call, deadline, ledger, store)
 
                 # Collected in the order the tools produced them. The runner
@@ -276,6 +355,20 @@ def run_turn(request: LLMRequest, conn=None) -> TurnResult:
                 ))
                 _log_call(conn, request, call, outcome, duration_ms, hop,
                           label, before)
+
+            if plan_refusals >= _MAX_PRECONDITION_FAILURES:
+                # Same bound and the same reasoning as a precondition: a model
+                # that will not do its read after being told twice is spinning,
+                # and every spin is a paid call. Its own counter, though — the
+                # two failures mean different things and collapsing them would
+                # cost the one fact worth having afterward.
+                logger.warning(
+                    f"{plan_refusals} plan refusals in one turn — stopping."
+                )
+                final = dispatch(dataclasses.replace(
+                    request, deadline=deadline, tool_turns=tuple(tool_turns)
+                ))
+                return _finish(final, hop, calls_made, "plan_refused", effects)
 
             if precondition_failures >= _MAX_PRECONDITION_FAILURES:
                 logger.warning(
