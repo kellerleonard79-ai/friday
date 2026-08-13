@@ -1587,3 +1587,14 @@ select.input {
   color: var(--muted-2);
   font-size: 12px;
 }
+
+.quick-add {
+  display: grid;
+  grid-template-columns: 1fr 140px 110px 110px auto;
+  gap: 8px;
+  align-items: center;
+}
+
+@media (max-width: 720px) {
+  .quick-add { grid-template-columns: 1fr 1fr; }
+}

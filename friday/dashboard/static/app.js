@@ -1313,6 +1313,17 @@ function renderAfterSchool(card) {
       <div class="pc-section-h">Due tonight or tomorrow</div>
       ${due}
     </div>
+    <div class="pc-section">
+      <div class="pc-section-h">Add a commitment</div>
+      <div class="quick-add">
+        <input class="input" id="qa-title" placeholder="What is it?">
+        <input class="input" id="qa-date" type="date" value="${escapeAttr((a.now || '').slice(0, 10))}">
+        <input class="input" id="qa-start" type="time">
+        <input class="input" id="qa-end" type="time">
+        <button class="btn btn-primary" id="qa-add">Add</button>
+      </div>
+      <div class="hint" id="qa-result">Goes through the same confirmation card as everything else.</div>
+    </div>
     <div class="pc-nav">
       <button class="icon-btn" data-pc="reload" title="Refresh">⟳</button>
       <span class="pc-dots"></span>
@@ -1325,6 +1336,40 @@ function renderAfterSchool(card) {
     VIEW_INDEX = 0; VIEW_AT = Date.now(); renderPeriodCard();
   };
   card.querySelector('[data-pc="reload"]').onclick = () => loadAfterSchool();
+  wireQuickAdd(card);
+}
+
+// The quick-add field. It POSTs and then STOPS — the confirmation card is
+// what happens next, and it arrives on the stream like every other card. This
+// deliberately does not write anything, report success, or refresh the
+// commitments list: nothing has been written yet at that point, and a card
+// that said "added" before the tap would be the one lie this whole gate
+// exists to prevent.
+function wireQuickAdd(card) {
+  const btn = card.querySelector('#qa-add');
+  const out = card.querySelector('#qa-result');
+  if (!btn) return;
+  btn.onclick = async () => {
+    const title = card.querySelector('#qa-title').value.trim();
+    if (!title) { out.textContent = 'Give it a name first.'; return; }
+    btn.disabled = true;
+    out.textContent = 'Proposing…';
+    try {
+      await api.post('/api/commitment', {
+        title,
+        date: card.querySelector('#qa-date').value,
+        start_time: card.querySelector('#qa-start').value,
+        end_time: card.querySelector('#qa-end').value,
+      });
+      card.querySelector('#qa-title').value = '';
+      out.textContent = 'Confirmation card sent — approve it in Chat or Telegram.';
+      flash('CARD SENT');
+    } catch (e) {
+      out.textContent = e.detail || e.message;
+    } finally {
+      btn.disabled = false;
+    }
+  };
 }
 
 // The after-school payload carries its own `today`, so dueLabel's SCHED-based

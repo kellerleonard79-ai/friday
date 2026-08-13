@@ -1279,6 +1279,55 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
             "cache": canvas_connector.cache_status(conn),
         }
 
+    @app.post("/api/commitment")
+    def api_commitment(payload: dict = Body(...)) -> dict:
+        """Quick-add a commitment from the after-school card.
+
+        NO NEW WRITE PATH. This calls the SAME add_calendar_event tool the
+        model calls, and ships its effects through the SAME effects/entry.py
+        door, so it produces the same permission card, staged in the same
+        pending_actions row, resolvable from either surface by the same
+        button. The endpoint's entire job is to turn four form fields into the
+        tool's arguments.
+
+        It exists because extracurriculars are unpredictable one-offs entered
+        constantly, and switching to chat to add the thing you are looking at
+        is friction — not because the write needed to be different. If this
+        ever needs its own write, that is the signal to stop, not to add one.
+
+        The tool is what forces the card: it overrides policy/gating.py's AUTO
+        for a user-stated create. Nothing here can skip it, and nothing here
+        should be able to.
+        """
+        from channels.dashboard import DashboardChannel
+        from effects import entry as effects_entry
+        from tools.calendar_write import add_calendar_event
+        from tools.types import ToolError as _ToolError
+
+        title = str(payload.get("title") or "").strip()
+        day = str(payload.get("date") or "").strip()
+        if not title:
+            raise HTTPException(400, "A commitment needs a title.")
+        if not day:
+            day = date.today().isoformat()
+
+        out = add_calendar_event(
+            title=title,
+            date=day,
+            start_time=str(payload.get("start_time") or "").strip(),
+            end_time=str(payload.get("end_time") or "").strip(),
+            calendar=str(payload.get("calendar") or "").strip(),
+        )
+        # The tool validates its own arguments — a bad time never reaches the
+        # calendar, and the message it produces is the one the model would
+        # have been given.
+        if isinstance(out, _ToolError):
+            raise HTTPException(400, out.message)
+
+        channel = DashboardChannel(sink=broadcaster.publish)
+        effects_entry.deliver(out.effects, channel, conn)
+        return {"ok": True, "events": channel.events}
+
     @app.get("/api/after-school")
     def api_after_school() -> dict:
         """The card the period card becomes after the last bell.
