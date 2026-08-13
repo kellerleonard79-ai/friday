@@ -108,11 +108,26 @@ def dispatch(request: LLMRequest) -> LLMResponse:
     # front of whatever the caller assembled, so a caller cannot forget the
     # date and cannot shadow it either.
     #
-    # INJECTED, NOT FETCHED, AND NOT A TOOL. See llm/context.py: these are
-    # memory reads on a path that holds the Telegram semaphore, and a model
-    # that has to *ask* what day it is, is a model that can decline to and
-    # then write a calendar event into the wrong week. Do not turn these into
-    # tool calls in step 3.
+    # ══ THE INJECTION SITE. INJECTED, NOT FETCHED, AND NOT A TOOL. ══
+    #
+    # This comment is here because this is the line a future change would undo.
+    #
+    # NOT FETCHED: these are memory reads, on a path that holds the process's
+    # one turn gate. connectors/location.py::fetch() can block ~25s on a cold
+    # lookup; doing that here stalls every queued message on both surfaces
+    # behind it. Anything needing I/O is warmed by the 15-minute poll job and
+    # read from its cache — see location.warm().
+    #
+    # NOT A TOOL, EVER: "what day is it" and "where am I" answered by a tool
+    # call means a model that can DECLINE TO ASK, and a model that does not
+    # know the date is a model that writes a calendar event into the wrong
+    # week. It once resolved "this Friday" against a date out of its training
+    # set. Injection makes that unreachable rather than unlikely, and it costs
+    # a few dozen tokens against a whole extra round trip.
+    #
+    # This applied to the tool layer in step 3 and applies unchanged to the
+    # router in step 7: a plan shape that has to look up the date before it
+    # can be chosen is a plan shape being chosen without one.
     blocks = context.standing_blocks(_config) + request.context_blocks
     request = dataclasses.replace(
         request, deadline=deadline, profile=profile, context_blocks=blocks

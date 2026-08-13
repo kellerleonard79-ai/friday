@@ -24,7 +24,7 @@ AssembledPrompt goes to the provider and to the exchange log.
 
 from __future__ import annotations
 
-from llm import persona
+from llm import context, persona
 from llm.types import AnyTurn, AssembledPrompt, LLMRequest, Profile, Turn
 from tools import registry
 
@@ -104,8 +104,12 @@ def build_system(request: LLMRequest, profile: Profile,
         if overlay:
             parts.append(overlay)
 
-    for block in request.context_blocks:
-        parts.append(f"{block.label}:\n{block.content}")
+    # THE SHARED FORMATTER, not an inline f-string. agent/briefings.py renders
+    # the same shape for the briefing bundle, and the two used to be separate
+    # one-liners that happened to agree. See llm/context.py.
+    rendered = context.render_blocks(request.context_blocks)
+    if rendered:
+        parts.append(rendered)
 
     return "\n\n".join(parts)
 

@@ -6,6 +6,18 @@ TORN DOWN: the composers no longer make an LLM call. They render the bundle
 as plain labeled text. Context bundling below is untouched and is the layer
 this teardown is preserving.
 
+ONE PRODUCER, ONE FORMATTER (step 6). The clock header and every labeled
+section below are rendered by llm/context.py::format_context_block, the same
+function llm/assembly.py uses for a chat turn, and the clock itself comes from
+llm/context.py::time_block_at rather than a second strftime here. This file
+used to spell "Current date and time: ..." its own way; two renderings of the
+same idea drift toward whichever one was edited last, and the router in step 7
+would have been the third.
+
+WHAT STAYS HERE: the BUNDLE. Deciding what a briefing needs to pre-fetch, and
+guarding each source so one dead connector cannot sink the whole thing, is
+this file's job and does not belong in a module every chat turn imports.
+
 Context bundling (bundle_briefing_context / format_briefing_context):
     A briefing needs a known-complete dataset. Rather than leave the model to
     decide whether to call tools, we pre-fetch everything a briefing needs
@@ -30,6 +42,7 @@ import compat
 from calendars import backend as calendar_backend
 from calendars import eventtime
 from connectors import weather as weather_connector
+from llm import context as llm_context
 
 logger = logging.getLogger("friday.briefings")
 
@@ -186,7 +199,12 @@ def bundle_briefing_context(slot: str, config: dict, conn) -> dict:
     now = _local_now(config)
     today = now.date()
     tomorrow = today + timedelta(days=1)
-    bundle: dict = {"slot": slot, "now": now}
+    # The timezone travels with the instant. The header is rendered from the
+    # `now` captured HERE rather than from a second, slightly later clock read
+    # at format time — a bundle whose calendar was fetched at 06:59:59 and
+    # whose header says 07:00:01 is two different calls pretending to be one.
+    bundle: dict = {"slot": slot, "now": now,
+                    "timezone": clock.timezone_name(config)}
 
     if slot == "on_demand":
         # Asked for at an arbitrary hour, so it covers both ends: what is left
@@ -333,76 +351,99 @@ def _block_groupme(value) -> str:
     return "\n".join(lines)
 
 
-def format_briefing_context(bundle: dict) -> str:
-    """Render the bundle as a delimited, scannable block for the prompt top."""
-    slot = bundle.get("slot", "?")
-    now = bundle.get("now")
-    now_str = (
-        compat.strftime(now, "%A, %B %-d, %Y, %-I:%M %p %Z")
-        if isinstance(now, datetime) else "?"
-    )
+def _bundle_sections(bundle: dict) -> list[tuple[str, str]]:
+    """(label, rendered) for every data section this slot carries, in order.
 
-    parts = [
-        "===== BRIEFING CONTEXT (deterministic, do not re-fetch) =====",
-        f"Current date and time: {now_str}",
-        "This date, time, and weekday are authoritative. Use them verbatim. Never "
-        "infer, calculate, or guess the day of the week — it is given to you above.",
-        "",
-    ]
-    if slot == "on_demand":
-        parts += [
-            "Today's calendar:",
-            _block_day_events(bundle.get("today_calendar")),
-            "",
-            "Tomorrow's calendar:",
-            _block_day_events(bundle.get("tomorrow_calendar")),
-            "",
-            "Rest of the week:",
-            _block_week(bundle.get("week_preview")),
-            "",
-            "Canvas pending:",
-            _block_canvas(bundle.get("canvas_pending")),
-            "",
-            "Weather today:",
-            _block_weather(bundle.get("weather_today")),
-            "",
-        ]
-    elif slot == "morning":
-        parts += [
-            "Today's calendar:",
-            _block_day_events(bundle.get("today_calendar")),
-            "",
-            "Week ahead (next 3 days):",
-            _block_week(bundle.get("week_preview")),
-            "",
-            "Canvas pending:",
-            _block_canvas(bundle.get("canvas_pending")),
-            "",
-            "Weather today:",
-            _block_weather(bundle.get("weather_today")),
-            "",
-        ]
-    else:
-        parts += [
-            "Tomorrow's calendar:",
-            _block_day_events(bundle.get("tomorrow_calendar")),
-            "",
-            "Week ahead (next 5 days):",
-            _block_week(bundle.get("week_ahead")),
-            "",
-            "Canvas pending:",
-            _block_canvas(bundle.get("canvas_pending")),
-            "",
-            "Weather tomorrow:",
-            _block_weather(bundle.get("weather_tomorrow")),
-            "",
-        ]
-    parts += [
-        f"GroupMe (high + normal priority, last {_GROUPME_WINDOW_HOURS}h):",
+    ONE LIST, TWO CONSUMERS. format_briefing_context injects these into a
+    prompt and the compose_* renderers show them to the user, and until step 6
+    each built its own copy of the same sequence — so a section added to one
+    was missing from the other, silently, with no test that could see it.
+    """
+    slot = bundle.get("slot", "?")
+    groupme = (
+        f"GroupMe (high + normal priority, last {_GROUPME_WINDOW_HOURS}h)",
         _block_groupme(bundle.get("groupme_surfaced")),
-        "===== END CONTEXT =====",
+    )
+    if slot == "on_demand":
+        return [
+            ("Today's calendar", _block_day_events(bundle.get("today_calendar"))),
+            ("Tomorrow's calendar", _block_day_events(bundle.get("tomorrow_calendar"))),
+            ("Rest of the week", _block_week(bundle.get("week_preview"))),
+            ("Canvas pending", _block_canvas(bundle.get("canvas_pending"))),
+            ("Weather today", _block_weather(bundle.get("weather_today"))),
+            groupme,
+        ]
+    if slot == "morning":
+        return [
+            ("Today's calendar", _block_day_events(bundle.get("today_calendar"))),
+            ("Week ahead (next 3 days)", _block_week(bundle.get("week_preview"))),
+            ("Canvas pending", _block_canvas(bundle.get("canvas_pending"))),
+            ("Weather today", _block_weather(bundle.get("weather_today"))),
+            groupme,
+        ]
+    return [
+        ("Tomorrow's calendar", _block_day_events(bundle.get("tomorrow_calendar"))),
+        ("Week ahead (next 5 days)", _block_week(bundle.get("week_ahead"))),
+        ("Canvas pending", _block_canvas(bundle.get("canvas_pending"))),
+        ("Weather tomorrow", _block_weather(bundle.get("weather_tomorrow"))),
+        groupme,
     ]
-    return "\n".join(parts)
+
+
+def standing_blocks(bundle: dict) -> tuple:
+    """The clock (and location, if warmed) for this bundle's instant.
+
+    THE SAME PRODUCER CHAT USES. llm/context.py::time_block_at, from the
+    instant captured in bundle_briefing_context — not a second clock read at
+    format time, and not a strftime spelled out here.
+
+    The location block comes along because a briefing's weather is a
+    location-dependent claim and the composer had no way to see where the
+    machine thought it was. It is OMITTED when the cache is cold, exactly as
+    it is for chat: an absent block is the honest rendering of an unknown.
+
+    INJECT, NEVER FETCH — location.cached(), not location.fetch(). This runs
+    on the briefing job's executor thread, and a cold CoreLocation lookup
+    blocks for seconds. See llm/context.py.
+    """
+    now = bundle.get("now")
+    blocks = []
+    if isinstance(now, datetime):
+        blocks.append(llm_context.time_block_at(
+            now, bundle.get("timezone") or clock.DEFAULT_TIMEZONE))
+    loc = llm_context.location_block()
+    if loc is not None:
+        blocks.append(loc)
+    return tuple(blocks)
+
+
+def format_briefing_context(bundle: dict) -> str:
+    """Render the bundle as a delimited, scannable block for the prompt top.
+
+    THE MARKERS WRAP THE WHOLE BUNDLE, NOT EACH BLOCK. Individual sections are
+    rendered by the shared formatter (llm/context.py) exactly as a chat turn's
+    are. The one pair of markers around all of them makes a claim no
+    per-section label can: everything between these lines was pre-fetched, and
+    there is no more of it to go looking for.
+
+    The "use this date verbatim, never infer the weekday" instruction that
+    used to sit under the clock here is GONE, and is not lost — it is the
+    persona's TIME section, which COMPOSE takes (see the persona table in
+    CLAUDE.md). It was duplicated in prose here because at the time briefings
+    assembled their own prompt and there was no persona layer to hold it.
+    """
+    body = llm_context.render_blocks(standing_blocks(bundle))
+    sections = "\n\n".join(
+        llm_context.format_context_block(label, block)
+        for label, block in _bundle_sections(bundle)
+    )
+    return "\n".join([
+        "===== BRIEFING CONTEXT (deterministic, do not re-fetch) =====",
+        body,
+        "",
+        sections,
+        "===== END CONTEXT =====",
+    ])
 
 
 # ── Renderers (deterministic) ─────────────────────────────────────────────────
@@ -421,73 +462,68 @@ def format_briefing_context(bundle: dict) -> str:
 def _render_sections(sections: list[tuple[str, str]]) -> str:
     """[(label, block)] → the labeled body. Blocks come from the _block_*
     helpers above, so a failed fetch renders as "unavailable" rather than
-    silently reading as an empty day."""
-    out = []
-    for label, block in sections:
-        out.append(f"{label}:")
-        out.append(block)
-        out.append("")
-    return "\n".join(out).rstrip()
+    silently reading as an empty day.
+
+    THE SHARED FORMATTER, same as the injected version. These two renderings
+    had drifted apart by a trailing newline and nothing else, which is what
+    "two copies of a trivial thing" always looks like right up until it isn't.
+    """
+    return "\n\n".join(
+        llm_context.format_context_block(label, block)
+        for label, block in sections
+    )
 
 
 def _header(bundle: dict, title: str) -> str:
+    """The user-facing headline. NOT the injected clock block.
+
+    clock.human(), not a fourth copy of the same strftime — this file had one
+    here and another in format_briefing_context, both spelling out
+    "%A, %B %-d, %Y, %-I:%M %p %Z" by hand, both a %-d away from crashing the
+    Windows build if edited without compat.strftime.
+
+    It stays a separate function from the injected time block on purpose: a
+    person reading a briefing wants one line, and a model resolving "this
+    Friday" needs the ISO date and the timezone name. Those are different
+    renderings for different readers, not a duplication to collapse.
+    """
     now = bundle.get("now")
-    when = (
-        compat.strftime(now, "%A, %B %-d, %Y, %-I:%M %p %Z")
-        if isinstance(now, datetime) else "?"
-    )
-    return f"{title} — {when}"
-
-
-def _groupme_section(bundle: dict) -> tuple[str, str]:
-    return (
-        f"GroupMe (high + normal priority, last {_GROUPME_WINDOW_HOURS}h)",
-        _block_groupme(bundle.get("groupme_surfaced")),
-    )
+    return f"{title} — {clock.human(now) if isinstance(now, datetime) else '?'}"
 
 
 def compose_morning(agent, bundle: dict) -> str:
     """Morning briefing, rendered straight from the bundle."""
-    return "\n\n".join([
-        _header(bundle, "MORNING BRIEFING"),
-        _render_sections([
-            ("Today's calendar", _block_day_events(bundle.get("today_calendar"))),
-            ("Week ahead (next 3 days)", _block_week(bundle.get("week_preview"))),
-            ("Canvas pending", _block_canvas(bundle.get("canvas_pending"))),
-            ("Weather today", _block_weather(bundle.get("weather_today"))),
-            _groupme_section(bundle),
-        ]),
-    ])
+    return _compose(bundle, "MORNING BRIEFING")
 
 
 def compose_evening(agent, bundle: dict) -> str:
     """Evening briefing, rendered straight from the bundle."""
-    return "\n\n".join([
-        _header(bundle, "EVENING BRIEFING"),
-        _render_sections([
-            ("Tomorrow's calendar", _block_day_events(bundle.get("tomorrow_calendar"))),
-            ("Week ahead (next 5 days)", _block_week(bundle.get("week_ahead"))),
-            ("Canvas pending", _block_canvas(bundle.get("canvas_pending"))),
-            ("Weather tomorrow", _block_weather(bundle.get("weather_tomorrow"))),
-            _groupme_section(bundle),
-        ]),
-    ])
+    return _compose(bundle, "EVENING BRIEFING")
 
 
 def compose_on_demand(agent, bundle: dict) -> str:
     """On-demand briefing (dashboard button, menubar), rendered straight from
     the bundle. The caller must still not record it as a briefing_sent, or the
     real scheduled one is skipped."""
+    return _compose(bundle, "BRIEFING")
+
+
+def _compose(bundle: dict, title: str) -> str:
+    """Header, then the slot's sections. The three composers differ ONLY in
+    their title now.
+
+    The section list comes from _bundle_sections — the same list the injected
+    context uses — rather than being restated per composer. It was restated
+    three times and the injected version restated it a fourth, which is four
+    places to add a section to and four chances to add it to three.
+
+    The SLOT selects the sections, not the function name. A morning bundle
+    handed to compose_on_demand renders the morning sections rather than
+    silently rendering "unavailable" for fields that slot never fetched.
+    """
     return "\n\n".join([
-        _header(bundle, "BRIEFING"),
-        _render_sections([
-            ("Today's calendar", _block_day_events(bundle.get("today_calendar"))),
-            ("Tomorrow's calendar", _block_day_events(bundle.get("tomorrow_calendar"))),
-            ("Rest of the week", _block_week(bundle.get("week_preview"))),
-            ("Canvas pending", _block_canvas(bundle.get("canvas_pending"))),
-            ("Weather today", _block_weather(bundle.get("weather_today"))),
-            _groupme_section(bundle),
-        ]),
+        _header(bundle, title),
+        _render_sections(_bundle_sections(bundle)),
     ])
 
 
