@@ -40,6 +40,13 @@ history exactly once; the channel decides HOW it arrives. Telegram used
 update.message.reply_text() for this, which is why the split was invisible —
 it looked like transport but it was the only path prose took to the user.
 
+THE FAILURE SENTENCES BELONG TO THE CHANNEL. This module decides whether a
+failure is reported and which KIND it is; channels/base.py holds the words,
+and a channel may override failure_text() to say them differently. The
+taxonomy is shared and may not be collapsed — "over quota", "the service is
+down" and "this network is blocked" are three things the user acts on
+differently, and a blocked network is seven hours of most days here.
+
 PAUSE IS REPORTED, NOT ACTED ON. Telegram drops a paused message silently, so
 the user can resume and replay; the dashboard says so, because the user is
 looking at a text box they just typed into and silence there is a bug report.
@@ -56,6 +63,7 @@ from datetime import datetime
 
 import memory.state as state
 from agent.turn import run_turn
+from channels.base import failure_text_for
 from effects import entry as effects_entry
 from llm import profiles
 from llm.types import LLMRequest
@@ -73,20 +81,17 @@ TURN_GATE = asyncio.Semaphore(1)
 # the pipeline (July 9 outage).
 EXECUTOR_TIMEOUT_S = 150   # public: channels/telegram.py's media path shares it
 
-_TIMEOUT_MSG = "Sorry, sir — that request timed out on my end. Try again?"
-_EMPTY_MSG = "Sorry, sir — the model returned no text. Try again?"
-
-# Keyed off LLMResponse.error_kind, never off an attribute reached out of the
-# agent. The network wording is load-bearing: a blocked network has to be
-# distinguishable from a generic failure, on both surfaces.
-_ERROR_MSG = {
-    "rate_limit": "I'm being rate limited, sir. Try again in a moment.",
-    # Distinct from rate_limit on purpose: nothing the user did caused this and
-    # nothing they can do fixes it. The dispatcher already retried.
-    "transient": "The model service is having trouble on its end, sir. "
-                 "Try again shortly.",
-    "network": "I can't reach the model from this network.",
-}
+# THE SENTENCES ARE NOT HERE ANY MORE — see channels/base.py.
+#
+# This module decides WHETHER a failure is reported and WHICH KIND it is. The
+# words are the channel's, because they are presentation, and a table sitting
+# above the channels meant a surface that should phrase something differently
+# had no say. Reply already carried error_kind next to the text; nothing was
+# on the other side of that seam.
+#
+# What stays here is the classification: `timeout` and `empty` are named as
+# kinds so a channel can answer them the same way it answers `network`,
+# instead of receiving a hardcoded string this file chose.
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,12 +204,15 @@ async def handle(text: str, channel, conn, config: dict) -> Reply:
                 f"handle: the turn was still running after {EXECUTOR_TIMEOUT_S}s "
                 f"— releasing the pipeline. text={text[:80]!r}"
             )
+            said = failure_text_for(channel, "timeout")
             effects_entry.log_history(conn, "user", text, channel=channel)
-            channel.send(_TIMEOUT_MSG)
-            effects_entry.log_history(conn, "assistant", _TIMEOUT_MSG,
-                                      channel=channel)
-            return Reply(text=_TIMEOUT_MSG, error_kind="fatal",
-                         stopped_on="error")
+            channel.send(said)
+            effects_entry.log_history(conn, "assistant", said, channel=channel)
+            # error_kind stays "fatal" on the Reply: it is the LLM taxonomy
+            # value, and nothing below the dispatcher classified this — the
+            # model never answered either way. "timeout" is the PHRASING key,
+            # which is a different question and belongs to the channel.
+            return Reply(text=said, error_kind="fatal", stopped_on="error")
 
         if result.tool_calls_made:
             logger.info(
@@ -269,8 +277,8 @@ async def handle(text: str, channel, conn, config: dict) -> Reply:
                 )
             said = ""
         elif result.error_kind != "none":
-            said = _ERROR_MSG.get(result.error_kind,
-                                  f"LLM error, sir: {result.error_message}")
+            said = failure_text_for(channel, result.error_kind,
+                                    result.error_message)
             logger.warning(f"LLM {result.error_kind} — sending to user: {said}")
         elif result.model_text:
             said = result.model_text
@@ -281,7 +289,7 @@ async def handle(text: str, channel, conn, config: dict) -> Reply:
             #
             said = ""
         else:
-            said = _EMPTY_MSG
+            said = failure_text_for(channel, "empty")
             logger.warning("Empty LLM response — sending the fallback.")
 
         if said:

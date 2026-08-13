@@ -106,6 +106,86 @@ except ImportError as e:
 
 
 print()
+
+
+# ── Failure phrasing belongs to the channel ──────────────────────────────────
+#
+# The taxonomy is shared; the words are the channel's. Before step 6 the words
+# were a dict in channels/conversation.py, above the channels, so a surface
+# that should phrase something differently had no say in it.
+
+from channels.base import (DEFAULT_FAILURE_TEXT, default_failure_text,  # noqa: E402
+                           failure_text_for)
+
+print("\n-- failure phrasing --")
+
+check("every shared kind has a default sentence",
+      all(DEFAULT_FAILURE_TEXT.get(k) for k in
+          ("rate_limit", "transient", "network", "timeout", "empty")))
+
+# The distinction is the point of the taxonomy. A channel may change the
+# words; it may not make two kinds read the same, because "you are over quota"
+# and "this network cannot reach the API" are acted on differently — the
+# second one means switch to the dashboard.
+check("the sentences for the kinds are all distinct",
+      len(set(DEFAULT_FAILURE_TEXT.values())) == len(DEFAULT_FAILURE_TEXT))
+
+check("network is distinguishable from transient",
+      DEFAULT_FAILURE_TEXT["network"] != DEFAULT_FAILURE_TEXT["transient"])
+
+check("an unrecognised kind falls through to the raw detail",
+      default_failure_text("fatal", "400 INVALID_ARGUMENT")
+      == "LLM error, sir: 400 INVALID_ARGUMENT")
+
+check("an unrecognised kind with no detail still says something",
+      bool(default_failure_text("fatal")))
+
+# Both real channels take the default today. That is the honest state: the
+# seam exists, nothing has needed to use it yet, and a dashboard retry banner
+# is a step-7 conversation.
+# NOT a protocol member — see channels/base.py. A fourth member on a
+# runtime_checkable Protocol un-Channels every duck-typed implementation,
+# which is exactly what happened when this was tried the other way round.
+check("failure_text is not part of the transport contract",
+      not hasattr(Complete(), "failure_text"))
+
+check("a channel with no opinion gets the default",
+      failure_text_for(Complete(), "network")
+      == DEFAULT_FAILURE_TEXT["network"])
+
+
+class Loud(Complete):
+    """A channel that phrases failures its own way."""
+    def failure_text(self, kind, detail=""):
+        return f"[{kind}]"
+
+
+check("a channel that overrides failure_text is asked",
+      failure_text_for(Loud(), "network") == "[network]")
+
+# Duck-typed channels are supported on purpose (see above), and one that never
+# heard of failure_text still has to get a sentence rather than an
+# AttributeError on the path that is already reporting a failure.
+check("a duck-typed channel still gets a sentence",
+      failure_text_for(Duck(), "network") == DEFAULT_FAILURE_TEXT["network"])
+
+
+class Broken(Complete):
+    def failure_text(self, kind, detail=""):
+        raise RuntimeError("boom")
+
+
+# A channel's phrasing must not fail the reply it was phrasing. This is the
+# same contract as send(): a channel that raises takes the turn down with it.
+check("a channel whose phrasing raises falls back instead of propagating",
+      failure_text_for(Broken(), "network") == DEFAULT_FAILURE_TEXT["network"])
+
+# The wrapper delegates by __getattr__, so a wrapped channel keeps its own
+# phrasing rather than silently reverting to the default.
+check("a HistoryChannel-wrapped channel keeps the inner channel's phrasing",
+      failure_text_for(entry.as_history_channel(Loud(), None), "network") == "[network]")
+
+
 if _failures:
     print(f"{len(_failures)} FAILED: {_failures}")
     sys.exit(1)

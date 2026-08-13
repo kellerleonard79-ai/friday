@@ -51,12 +51,117 @@ rather than at 2am when the first card needs sending.
 data member and typing refuses issubclass on protocols that have one. That is
 a limitation of the check, not of the contract — use isinstance, or check the
 MRO for an explicit implementation.
+
+THE TAXONOMY IS SHARED; THE PHRASING IS THE CHANNEL'S.
+
+failure_text() lives here because the sentence Friday says when something goes
+wrong is presentation, and presentation is a channel's. It used to be a dict
+in channels/conversation.py — ABOVE the channels — which meant a surface that
+should phrase a failure differently had no say in it. Reply already carried
+error_kind alongside the text, so the seam existed; nothing was on the other
+side of it.
+
+The KINDS stay shared and must: "rate limited", "the service is down" and
+"this network cannot reach the API" are three different problems, and a
+channel that collapsed two of them would be lying about which. What a channel
+may change is the words, not the distinction.
+
+This is small today — both channels take the default. It is here now for the
+same reason effects/entry.py was: the version of this that is correct because
+there is only one consumer is the version that is wrong the moment there are
+two, and by then the fix is a refactor instead of a file move.
+
+failure_text IS OPTIONAL AND IS NOT A MEMBER OF THE PROTOCOL. That is not
+squeamishness — it was tried the other way round first and it broke the
+contract. A runtime_checkable Protocol's isinstance() check tests EVERY
+member, abstract or not, so putting a fourth method on Channel immediately
+un-Channelled both duck-typed implementations: tests/test_channels.py's plain
+object with the three methods, and effects/entry.py's HistoryChannel, whose
+whole interface arrives through __getattr__. The protocol is the transport
+contract and it is still three methods.
+
+So a channel that wants its own words simply defines failure_text(kind,
+detail); everything else inherits the default by not defining it. Callers ask
+through failure_text_for() rather than calling the method directly, which is
+what makes "optional" true rather than aspirational.
+
+    def failure_text(self, kind: str, detail: str = "") -> str:
+
+`kind` is the shared taxonomy below. A channel may change the WORDS for a
+kind; it may not collapse two kinds into one sentence. `detail` is the raw
+error line, for kinds with no useful generic sentence — diagnostic text that
+may name internals.
+
+Neither real channel overrides it today, and the dashboard specifically does
+NOT: a retry banner is a step-7 conversation. What exists now is the seam, in
+the place a channel can reach.
 """
 
 from __future__ import annotations
 
 from abc import abstractmethod
 from typing import Protocol, runtime_checkable
+
+# The default sentence for each failure, keyed off the SHARED taxonomy — the
+# llm/types.py ErrorKind values, plus the two conditions that arise in
+# channels/conversation.py rather than under the dispatcher:
+#
+#   timeout — the executor call was abandoned at EXECUTOR_TIMEOUT_S. Not an
+#             ErrorKind: the model never answered either way, so nothing below
+#             classified it.
+#   empty   — the turn finished cleanly, said nothing, and no effect said
+#             anything either.
+#
+# Both are here rather than left behind in conversation.py because they are
+# the same kind of thing as the other four — a sentence Friday says when
+# something went wrong — and splitting them would leave a channel able to
+# override four of six.
+#
+# THE `network` WORDING IS LOAD-BEARING. Telegram is blocked on school Wi-Fi
+# for roughly seven hours a day; "I can't reach the model from this network"
+# is the difference between the user knowing to switch surfaces and the user
+# thinking Friday is broken. It must stay distinguishable from `transient`,
+# which is Google having a bad day, and from `rate_limit`, which is quota.
+DEFAULT_FAILURE_TEXT: dict[str, str] = {
+    "rate_limit": "I'm being rate limited, sir. Try again in a moment.",
+    # Distinct from rate_limit on purpose: nothing the user did caused this
+    # and nothing they can do fixes it. The dispatcher already retried.
+    "transient": "The model service is having trouble on its end, sir. "
+                 "Try again shortly.",
+    "network": "I can't reach the model from this network.",
+    "timeout": "Sorry, sir — that request timed out on my end. Try again?",
+    "empty": "Sorry, sir — the model returned no text. Try again?",
+}
+
+
+def default_failure_text(kind: str, detail: str = "") -> str:
+    """The sentence for a failure kind, for a channel with no opinion.
+
+    `fatal` and anything unrecognised fall through to the detail, because
+    those are the cases where there is nothing useful to say generically and
+    the raw line is more help than a soothing sentence that hides it.
+    """
+    sentence = DEFAULT_FAILURE_TEXT.get(kind)
+    if sentence:
+        return sentence
+    return f"LLM error, sir: {detail}" if detail else "Something went wrong, sir."
+
+
+def failure_text_for(channel, kind: str, detail: str = "") -> str:
+    """Ask a channel how it phrases a failure, falling back to the default.
+
+    getattr rather than a direct call because Channel is runtime_checkable and
+    duck-typed implementations are supported on purpose — tests/test_channels.py
+    asserts that a plain object with the three methods is a Channel. A
+    duck-typed channel that never heard of failure_text still gets a sentence.
+    """
+    fn = getattr(channel, "failure_text", None)
+    if callable(fn):
+        try:
+            return fn(kind, detail)
+        except Exception:  # a channel's phrasing must not fail the reply
+            pass
+    return default_failure_text(kind, detail)
 
 
 @runtime_checkable
