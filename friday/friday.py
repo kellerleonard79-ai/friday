@@ -373,6 +373,21 @@ def main() -> None:
                 )
                 if synced:
                     logger.info(f"Canvas: {synced} due date(s) written to calendar.")
+                # The period card's cache. Separate from the two calls above on
+                # purpose: those write due dates into the calendar, this fills
+                # the tables the dashboard reads. refresh() never raises, so a
+                # dead Canvas degrades the card and leaves the rest of the poll
+                # alone.
+                cache = await loop.run_in_executor(
+                    None, canvas_connector.refresh, config, conn,
+                )
+                logger.info(
+                    f"Canvas cache: {cache['courses']} course(s), "
+                    f"{cache['assignments']} item(s); "
+                    f"ical={'ok' if cache['ical_ok'] else 'FAILED'} "
+                    f"rest={'ok' if cache['rest_ok'] else 'unavailable'}"
+                    + (f" — {cache['error']}" if cache["error"] else "")
+                )
             except Exception as e:
                 logger.error(f"Canvas poll failed: {e}")
 

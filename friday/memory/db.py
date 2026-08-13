@@ -157,6 +157,50 @@ CREATE TABLE IF NOT EXISTS urgent_alerts_sent (
     source_ref   TEXT,    -- events.id that triggered it
     body_preview TEXT
 );
+
+-- ── Canvas cache (powers the period card's course picker and due list) ───────
+-- Canvas is slow and its token expires; neither may ever be on the request
+-- path. connectors/canvas.py::refresh() fills these on the 15-minute poll and
+-- the dashboard reads ONLY from here. A dead Canvas leaves the last good rows
+-- in place with their fetched_at, which is what lets a card say "as of 09:15"
+-- instead of going blank.
+
+-- One row per course the user is enrolled in. `source` records which layer
+-- last wrote the row: the iCal feed always works (its URL carries its own
+-- secret) but yields only a display name scraped from the summary bracket;
+-- REST needs a live token and adds the real course_code.
+CREATE TABLE IF NOT EXISTS canvas_courses (
+    id          TEXT PRIMARY KEY,   -- Canvas course id, as text
+    name        TEXT,
+    course_code TEXT,               -- REST only; NULL when iCal is all we have
+    source      TEXT,               -- 'ical' | 'rest'
+    fetched_at  TEXT
+);
+
+-- One row per assignment or course calendar entry.
+--
+-- has_due_time IS THE LOAD-BEARING COLUMN. The iCal feed publishes every due
+-- date as an all-day VALUE=DATE with no time in it, so a due_at from that
+-- layer is a DAY and nothing more. REST carries the real timestamp. A card
+-- that says "due at midnight" because it read a date as a datetime is wrong
+-- in the one direction that matters, so the flag is stored rather than
+-- inferred from the string's shape.
+CREATE TABLE IF NOT EXISTS canvas_assignments (
+    id           TEXT PRIMARY KEY,  -- 'assignment-3186449' | 'event-134510'
+    course_id    TEXT,
+    title        TEXT,
+    due_at       TEXT,              -- ISO date (iCal) or datetime (REST)
+    has_due_time INTEGER DEFAULT 0, -- 1 only when due_at carries a real time
+    points       REAL,              -- REST only
+    submitted    INTEGER,           -- REST only. NULL = unknown, not "no"
+    html_url     TEXT,
+    kind         TEXT,              -- 'assignment' | 'event'
+    source       TEXT,              -- 'ical' | 'rest'
+    fetched_at   TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_canvas_asg_course ON canvas_assignments (course_id);
+CREATE INDEX IF NOT EXISTS idx_canvas_asg_due    ON canvas_assignments (due_at);
 """
 
 

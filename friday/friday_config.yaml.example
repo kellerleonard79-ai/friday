@@ -111,6 +111,16 @@ canvas:
                       # with it, a rejected fetch reports 401/403 instead of
                       # looking like an empty week. Full account access — treat
                       # it like a password.
+                      #
+                      # THIS TOKEN EXPIRES — Canvas sets an expiry and school
+                      # accounts are often capped at a term. When it lapses the
+                      # iCal feed keeps working (its URL carries its own
+                      # secret), so Friday keeps the course list and due DAYS
+                      # and loses only the due TIME, points and submission
+                      # status. The dashboard shows which layer is live.
+  base_url: ''        # optional. e.g. https://yourschool.instructure.com
+                      # Only needed if the REST host differs from the iCal
+                      # URL's origin, which is derived automatically.
 
 weather:
   api_key: ''         # OpenWeatherMap. Env fallback: WEATHER_API_KEY
