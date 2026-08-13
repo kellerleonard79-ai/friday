@@ -1366,6 +1366,30 @@ select.input {
 
 .period-courses .period-course { flex: 1; min-width: 0; }
 
+/* The alternating slot stacks its two identities so the letter, the period
+   number and the course read as one line each rather than a row of six
+   controls with nothing saying which belongs to which. */
+.period-row.alternating .period-courses {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.period-alt {
+  display: grid;
+  grid-template-columns: 46px 60px 1fr;
+  gap: 8px;
+  align-items: center;
+}
+
+.period-alt .period-alt-n { text-align: center; }
+
+.period-warn {
+  grid-column: 1 / -1;
+  color: var(--orange-bright);
+  font-size: 11px;
+  margin-top: 4px;
+}
+
 .alt-label {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
@@ -1498,6 +1522,13 @@ select.input {
 }
 
 .pc-alt-body { min-width: 0; }
+
+.pc-alt-n {
+  color: var(--muted-2);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
 
 .pc-nav {
   display: flex;

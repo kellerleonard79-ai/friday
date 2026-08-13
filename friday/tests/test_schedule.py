@@ -123,9 +123,12 @@ check("an override with no date is honoured for today only",
 # ── course resolution ────────────────────────────────────────────────────────
 
 daily = {"n": 1, "start": "08:00", "end": "08:50", "canvas_course": "208300"}
-alt = {"n": 4, "start": "10:45", "end": "11:35",
-       "alternates": ["209288", "208473"]}
+slot = {"start": "10:45", "end": "11:35", "alternates": [
+    {"letter": "A", "n": 4, "canvas_course": "209288"},
+    {"letter": "B", "n": 5, "canvas_course": "208473"}]}
 empty = {"n": 2, "start": "08:55", "end": "09:45", "canvas_course": None}
+legacy = {"n": 4, "start": "10:45", "end": "11:35",
+          "alternates": ["209288", "208473"]}
 
 check("a daily period resolves to its course",
       schedule.course_for_period(daily, "A")["course_id"] == "208300")
@@ -134,26 +137,49 @@ check("a daily period ignores the letter",
 check("an unassigned period is a valid state",
       schedule.course_for_period(empty, "A")["course_id"] is None)
 
-check("an alternating period on an A day takes the first course",
-      schedule.course_for_period(alt, "A")["course_id"] == "209288")
-check("an alternating period on a B day takes the second",
-      schedule.course_for_period(alt, "B")["course_id"] == "208473")
+# The point of the slot: ONE identity per day, and it is a period NUMBER as
+# much as a course. An A day has a 4th period and no 5th.
+a_day = schedule.course_for_period(slot, "A")
+b_day = schedule.course_for_period(slot, "B")
+check("the slot is 4th period on an A day",
+      a_day["n"] == 4 and a_day["course_id"] == "209288")
+check("the SAME slot is 5th period on a B day",
+      b_day["n"] == 5 and b_day["course_id"] == "208473")
+check("a resolved slot names one period, never both",
+      a_day["label"] == "4" and b_day["label"] == "5")
 
-unres = schedule.course_for_period(alt, None)
-check("an unresolved alternating period picks NEITHER",
-      unres["course_id"] is None and unres["resolved"] is False)
-check("...and returns both, labeled A and B",
+unres = schedule.course_for_period(slot, None)
+check("an unresolved slot picks NEITHER",
+      unres["n"] is None and unres["course_id"] is None
+      and unres["resolved"] is False)
+check("...and returns both identities, labeled A and B",
       [x["letter"] for x in unres["alternates"]] == ["A", "B"]
+      and [x["n"] for x in unres["alternates"]] == [4, 5]
       and [x["course_id"] for x in unres["alternates"]] == ["209288", "208473"])
+check("...and labels itself with both numbers", unres["label"] == "4/5")
+
+# A letter the slot has no identity for is the same answer as no letter at
+# all. Guessing here would be wrong on the one day of the rotation it counts.
+check("a letter outside the slot resolves to nothing, not to the first",
+      schedule.course_for_period(slot, "C")["resolved"] is False)
+
+# The legacy shape still reads correctly, so an unmigrated config is thin,
+# never wrong.
+check("a legacy alternates list still resolves by position",
+      schedule.course_for_period(legacy, "A")["course_id"] == "209288"
+      and schedule.course_for_period(legacy, "B")["course_id"] == "208473")
+check("...keeping its single period number on both letters",
+      schedule.course_for_period(legacy, "A")["n"] == 4
+      and schedule.course_for_period(legacy, "B")["n"] == 4)
 
 
-# ── current_period ───────────────────────────────────────────────────────────
+# ── current_period ────────────────────────────────────────────────────────────
 
 sched = {"periods": schedule.DEFAULT_SCHEDULE["periods"]}
 
 
-def at(h, m):
-    return schedule.current_period(sched, datetime(2026, 8, 12, h, m))
+def at(h, m, letter=None):
+    return schedule.current_period(sched, datetime(2026, 8, 12, h, m), letter)
 
 
 check("before first bell", at(7, 30)["state"] == "before")
@@ -162,10 +188,25 @@ check("inside 1st period", at(8, 20)["state"] == "in_period"
 check("the boundary belongs to the NEXT period, not the ending one",
       at(8, 50)["state"] == "passing")
 check("passing time knows what is next", at(8, 52)["next"]["n"] == 2)
-check("the long gap before 5th is passing time", at(11, 50)["state"] == "passing")
+check("the long gap after the rotating slot is passing time",
+      at(12, 30)["state"] == "passing")
 check("inside 7th period", at(14, 30)["period"]["n"] == 7)
 check("after the last bell", at(15, 30)["state"] == "after")
 check("last period has no next", at(14, 30)["next"] is None)
+
+# The rotating slot is one entry in the day and reports the letter's identity
+# rather than the config's shape.
+check("the rotating slot is 4th period on an A day",
+      at(11, 0, "A")["period"]["n"] == 4)
+check("the same clock minute is 5th period on a B day",
+      at(11, 0, "B")["period"]["n"] == 5)
+check("...and admits it does not know without a letter",
+      at(11, 0)["period"]["resolved"] is False
+      and at(11, 0)["period"]["label"] == "4/5")
+check("the day has ONE slot at that hour, not two",
+      len([p for p in schedule.periods_with_courses(sched, "A")
+           if p["start"] == "10:45"]) == 1)
+
 check("an empty schedule does not crash",
       schedule.current_period({"periods": []}, datetime(2026, 8, 12, 9, 0))
       ["state"] == "no_periods")
@@ -175,15 +216,18 @@ check("periods with unparseable times are skipped, not fatal",
           datetime(2026, 8, 12, 9, 0))["state"] == "no_periods")
 
 
-# ── ensure() ─────────────────────────────────────────────────────────────────
+# ── ensure() ──────────────────────────────────────────────────────────────────
 
 fresh: dict = {}
 schedule.ensure(fresh)
 check("ensure adds the block", isinstance(fresh.get("schedule"), dict))
-check("ensure ships 7 periods", len(fresh["schedule"]["periods"]) == 7)
-check("ensure leaves 4 and 5 alternating",
-      all("alternates" in p for p in fresh["schedule"]["periods"]
-          if p["n"] in (4, 5)))
+check("ensure ships 6 SLOTS, not 7 periods",
+      len(fresh["schedule"]["periods"]) == 6)
+check("ensure ships exactly one alternating slot",
+      len([p for p in fresh["schedule"]["periods"] if "alternates" in p]) == 1)
+check("...and it is 4th on A and 5th on B",
+      [(a["letter"], a["n"]) for p in fresh["schedule"]["periods"]
+       for a in p.get("alternates", [])] == [("A", 4), ("B", 5)])
 check("ensure ships start_date null — the pattern is not yet known",
       fresh["schedule"]["ab_cycle"]["start_date"] is None)
 
@@ -194,6 +238,54 @@ check("ensure never overwrites a set value",
       and len(kept["schedule"]["periods"]) == 1)
 check("ensure backfills a missing ab_cycle",
       kept["schedule"]["ab_cycle"]["pattern"] == ["A", "B"])
+
+
+# ── Migrating the two-period rotation into one slot ────────────────────
+#
+# The old config said 4th at 10:45 and 5th at 12:20, each teaching a course
+# per letter. There is no such day. The migration has to lose something, and
+# what it loses is stated in schedule.py rather than chosen here.
+
+old_cfg = {"schedule": {"periods": [
+    {"n": 3, "start": "09:50", "end": "10:40", "canvas_course": "208304"},
+    {"n": 4, "start": "10:45", "end": "11:35", "alternates": ["A4", "B4"]},
+    {"n": 5, "start": "12:20", "end": "13:10", "alternates": ["A5", "B5"]},
+    {"n": 6, "start": "13:15", "end": "14:05", "canvas_course": "208670"},
+]}}
+schedule.ensure(old_cfg)
+migrated = old_cfg["schedule"]["periods"]
+check("the two rotating periods become ONE slot",
+      len(migrated) == 3)
+check("the slot keeps the FIRST period's times",
+      migrated[1]["start"] == "10:45" and migrated[1]["end"] == "11:35")
+check("A is 4th period with 4th's A course",
+      migrated[1]["alternates"][0] == {"letter": "A", "n": 4,
+                                       "canvas_course": "A4"})
+check("B is 5th period with 5th's B course",
+      migrated[1]["alternates"][1] == {"letter": "B", "n": 5,
+                                       "canvas_course": "B5"})
+check("the daily periods around it are untouched",
+      migrated[0]["n"] == 3 and migrated[2]["n"] == 6)
+
+again = {"schedule": {"periods": [dict(p) for p in migrated]}}
+schedule.ensure(again)
+check("migrating an already-migrated config changes nothing",
+      again["schedule"]["periods"] == migrated)
+
+lone = {"schedule": {"periods": [
+    {"n": 4, "start": "10:45", "end": "11:35", "alternates": ["X", "Y"]}]}}
+schedule.ensure(lone)
+check("a single legacy rotating period stays one period teaching two courses",
+      lone["schedule"]["periods"][0]["alternates"]
+      == [{"letter": "A", "n": 4, "canvas_course": "X"},
+          {"letter": "B", "n": 4, "canvas_course": "Y"}])
+
+# A migrated slot must be renderable the same day it is migrated — the whole
+# reason the migration exists is that the card was showing two.
+check("a migrated slot resolves to one period per letter",
+      schedule.course_for_period(migrated[1], "A")["label"] == "4"
+      and schedule.course_for_period(migrated[1], "B")["label"] == "5")
+
 
 # ── What the counter is actually worth ───────────────────────────────────────
 #

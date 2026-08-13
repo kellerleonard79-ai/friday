@@ -46,6 +46,34 @@ their own rotation constantly for assemblies, late starts and exam weeks; a
 system that cannot be told it is wrong is one that gets ignored, and an
 override that outlives the day it was set for is a system that is wrong
 tomorrow in a way nobody remembers turning on.
+
+WHAT 4TH AND 5TH PERIOD ACTUALLY ARE — A CORRECTION.
+
+This module first modeled them as two separate periods at two separate times,
+each teaching a different course depending on the letter. That is wrong, and
+it is wrong in a way that shows: it puts two classes on the card every day
+when the day only has one of them, and it asks for four course assignments
+where there are two.
+
+They are ONE TIME SLOT with TWO IDENTITIES. On an A day that slot is 4th
+period; on a B day the same clock hour is 5th. There is no day with both.
+
+So an alternating entry is a slot, not a period, and its `alternates` carry
+the period NUMBER as well as the course:
+
+    {"start": "10:45", "end": "11:35",
+     "alternates": [{"letter": "A", "n": 4, "canvas_course": "…"},
+                    {"letter": "B", "n": 5, "canvas_course": "…"}]}
+
+One time on one entry is the load-bearing part. Two rows with equal times
+would drift the first time somebody edited one of them, and nothing would
+catch it — `current_period` would just start reporting whichever sorted
+first. A slot cannot disagree with itself about when it is.
+
+This shape is a strict superset of what it replaced: an entry whose two
+alternates share one `n` is exactly the old "period 4 teaches X on A days and
+Y on B days", so `ensure()` can migrate without deciding anything it does not
+know, and a school that really does work the old way stays expressible.
 """
 
 from __future__ import annotations
@@ -55,7 +83,8 @@ from datetime import date as date_cls, datetime, time as time_cls, timedelta
 
 logger = logging.getLogger("friday.schedule")
 
-# Seven periods. 4th and 5th alternate A/B; the rest run daily.
+# Six slots, not seven periods. The fourth is the alternating one: 4th period
+# on an A day, 5th on a B day, at the same time either way.
 #
 # SHIPPED AS PLACEHOLDERS. The real bell times and the real first-A-day are
 # Keller's to fill in, and the card is written to work before they are: an
@@ -67,8 +96,10 @@ DEFAULT_SCHEDULE: dict = {
         {"n": 1, "start": "08:00", "end": "08:50", "canvas_course": None},
         {"n": 2, "start": "08:55", "end": "09:45", "canvas_course": None},
         {"n": 3, "start": "09:50", "end": "10:40", "canvas_course": None},
-        {"n": 4, "start": "10:45", "end": "11:35", "alternates": [None, None]},
-        {"n": 5, "start": "12:20", "end": "13:10", "alternates": [None, None]},
+        {"start": "10:45", "end": "11:35", "alternates": [
+            {"letter": "A", "n": 4, "canvas_course": None},
+            {"letter": "B", "n": 5, "canvas_course": None},
+        ]},
         {"n": 6, "start": "13:15", "end": "14:05", "canvas_course": None},
         {"n": 7, "start": "14:10", "end": "15:00", "canvas_course": None},
     ],
@@ -81,11 +112,78 @@ DEFAULT_SCHEDULE: dict = {
 }
 
 
+def _is_legacy_alternating(period: dict) -> bool:
+    """A period carrying the pre-slot `alternates: [course_id, course_id]`."""
+    alts = period.get("alternates")
+    return (isinstance(alts, list) and bool(alts)
+            and not all(isinstance(a, dict) for a in alts))
+
+
+def _migrate_alternating(periods: list) -> list:
+    """Collapse the legacy two-period rotation into one slot. Idempotent.
+
+    The old shape was two periods at two times, each with a course per
+    letter. The new one is a single slot with a period number per letter, so
+    a migration has to decide which identity goes with which letter and which
+    of the four configured courses survive.
+
+    IT DECIDES NOTHING IT DOES NOT KNOW. Positional order is the only signal
+    in the old data, so it is the only one used: the first alternating period
+    is the A identity and keeps its own A course, the second is the B
+    identity and keeps its own B course. The slot takes the FIRST period's
+    times, because two times where there is one slot means one of them was
+    always wrong and the earlier is the one the card was already showing.
+
+    A config with a single alternating period is not a rotation of this kind
+    at all — it is one period teaching two courses — so it converts in place
+    with both identities keeping its number, which is what the old code meant
+    by it.
+    """
+    legacy = [i for i, p in enumerate(periods)
+              if isinstance(p, dict) and _is_legacy_alternating(p)]
+    if not legacy:
+        return periods
+
+    def alt_at(period: dict, idx: int):
+        alts = period.get("alternates") or []
+        return alts[idx] if idx < len(alts) else None
+
+    if len(legacy) >= 2:
+        a_i, b_i = legacy[0], legacy[1]
+        a_p, b_p = periods[a_i], periods[b_i]
+        slot = {
+            "start": a_p.get("start") or "",
+            "end": a_p.get("end") or "",
+            "alternates": [
+                {"letter": "A", "n": a_p.get("n"),
+                 "canvas_course": alt_at(a_p, 0)},
+                {"letter": "B", "n": b_p.get("n"),
+                 "canvas_course": alt_at(b_p, 1)},
+            ],
+        }
+        logger.info(f"schedule: merged periods {a_p.get('n')} and "
+                    f"{b_p.get('n')} into one alternating slot at "
+                    f"{slot['start']}–{slot['end']}.")
+        periods = [slot if i == a_i else p
+                   for i, p in enumerate(periods) if i != b_i]
+        legacy = [i for i, p in enumerate(periods)
+                  if isinstance(p, dict) and _is_legacy_alternating(p)]
+
+    for i in legacy:
+        p = periods[i]
+        p["alternates"] = [
+            {"letter": "A", "n": p.get("n"), "canvas_course": alt_at(p, 0)},
+            {"letter": "B", "n": p.get("n"), "canvas_course": alt_at(p, 1)},
+        ]
+    return periods
+
+
 def ensure(cfg: dict) -> dict:
     """Lazy migration, matching dashboard/server.py::_migrate_config.
 
-    Adds the block if absent and backfills any period key a hand-edited config
-    is missing. Never overwrites a value the user has set.
+    Adds the block if absent, migrates the legacy alternating shape, and
+    backfills any period key a hand-edited config is missing. Never
+    overwrites a value the user has set.
     """
     sched = cfg.get("schedule")
     if not isinstance(sched, dict):
@@ -97,6 +195,8 @@ def ensure(cfg: dict) -> dict:
     if not isinstance(sched.get("periods"), list) or not sched["periods"]:
         import copy
         sched["periods"] = copy.deepcopy(DEFAULT_SCHEDULE["periods"])
+    else:
+        sched["periods"] = _migrate_alternating(sched["periods"])
     cycle = sched.setdefault("ab_cycle", {})
     if not isinstance(cycle, dict):
         cycle = sched["ab_cycle"] = {}
@@ -192,40 +292,80 @@ def letter_for(schedule_cfg: dict, today: date_cls) -> str | None:
     return pattern[school_days_since(start, today) % len(pattern)]
 
 
-def course_for_period(period: dict, letter: str | None) -> dict:
-    """Which course a period is teaching, given the letter.
+def _alternates_of(period: dict) -> list[dict] | None:
+    """This slot's identities as [{letter, n, course_id}], or None if it has one.
 
-    Returns a shape the card renders directly rather than a bare id, because
-    the three states are genuinely different and collapsing them loses the one
-    that matters:
-
-        resolved    one course; `course` is it
-        unresolved  an alternating period on an unknown letter — BOTH courses
-                    come back in `alternates`, labeled, and `course` is None
-        unassigned  no course configured; both fields empty
+    Tolerates the legacy bare-id list so a caller handed raw, unmigrated
+    config still gets the right answer rather than a crash — `ensure()`
+    normally reshapes it long before this runs, but this function is also the
+    one a test or a script reaches for directly.
     """
-    alternates = period.get("alternates")
-    if isinstance(alternates, list) and len(alternates) >= 2:
-        labels = ["A", "B"]
-        pairs = [{"letter": labels[i] if i < len(labels) else str(i),
-                  "course_id": alternates[i]}
-                 for i in range(2)]
-        if letter is None:
-            return {"course_id": None, "alternating": True, "resolved": False,
-                    "alternates": pairs}
-        idx = 0 if letter.upper() == "A" else 1
-        return {"course_id": alternates[idx], "alternating": True,
-                "resolved": True, "alternates": pairs}
-    return {"course_id": period.get("canvas_course"), "alternating": False,
-            "resolved": True, "alternates": []}
+    alts = period.get("alternates")
+    if not isinstance(alts, list) or not alts:
+        return None
+    out = []
+    for i, a in enumerate(alts):
+        letter = ("A", "B")[i] if i < 2 else str(i)
+        if isinstance(a, dict):
+            out.append({
+                "letter": str(a.get("letter") or letter).upper(),
+                "n": a.get("n", period.get("n")),
+                "course_id": a.get("canvas_course"),
+            })
+        else:
+            out.append({"letter": letter, "n": period.get("n"),
+                        "course_id": a})
+    return out
+
+
+def _label(n) -> str:
+    return "" if n is None else str(n)
+
+
+def course_for_period(period: dict, letter: str | None) -> dict:
+    """What this slot is, given the letter.
+
+    A slot is one time and — when it alternates — two identities, so the
+    answer is a period NUMBER as well as a course. Returns a shape the card
+    renders directly rather than a bare id, because the three states are
+    genuinely different and collapsing them loses the one that matters:
+
+        resolved    one identity; `n` and `course_id` are it
+        unresolved  an alternating slot on an unknown letter — BOTH identities
+                    come back in `alternates`, labeled, `n` is None and
+                    `label` is "4/5"
+        unassigned  no course configured; `course_id` is empty and `n` is not
+
+    An unknown letter and a letter with no identity in this slot resolve the
+    same way — both mean "nothing here is known to be today", and a slot that
+    guessed would be wrong on the one day of the rotation it matters.
+    """
+    alternates = _alternates_of(period)
+    if alternates is None:
+        n = period.get("n")
+        return {"n": n, "label": _label(n),
+                "course_id": period.get("canvas_course"),
+                "alternating": False, "resolved": True, "alternates": []}
+
+    match = None
+    if letter:
+        match = next((a for a in alternates
+                      if a["letter"] == letter.upper()), None)
+    if match is None:
+        return {"n": None,
+                "label": "/".join(_label(a["n"]) for a in alternates),
+                "course_id": None, "alternating": True, "resolved": False,
+                "alternates": alternates}
+    return {"n": match["n"], "label": _label(match["n"]),
+            "course_id": match["course_id"], "alternating": True,
+            "resolved": True, "alternates": alternates}
 
 
 def periods_with_courses(schedule_cfg: dict, letter: str | None) -> list[dict]:
-    """Every period, in order, with its course resolved against the letter."""
+    """Every slot, in order, with its identity resolved against the letter."""
     out = []
     for p in (schedule_cfg or {}).get("periods") or []:
         entry = {
-            "n": p.get("n"),
             "start": p.get("start") or "",
             "end": p.get("end") or "",
         }
@@ -234,7 +374,8 @@ def periods_with_courses(schedule_cfg: dict, letter: str | None) -> list[dict]:
     return out
 
 
-def current_period(schedule_cfg: dict, now: datetime) -> dict:
+def current_period(schedule_cfg: dict, now: datetime,
+                   letter: str | None = None) -> dict:
     """Where the clock is in the day.
 
     ALSO IMPLEMENTED CLIENT-SIDE (dashboard/static/app.js). That is deliberate
@@ -244,14 +385,18 @@ def current_period(schedule_cfg: dict, now: datetime) -> dict:
     copy exists so the same answer is available to anything server-side that
     needs it without a round trip through a browser.
 
+    `period` and `next` are RESOLVED slots — the same shape
+    `periods_with_courses` returns — so a caller asking "what period is it"
+    on a B day is told 5, not handed a slot to work it out from. The letter
+    is passed in for the same reason nothing else here reads a clock.
+
     Returns state one of: before | in_period | passing | after | no_periods.
     """
-    periods = (schedule_cfg or {}).get("periods") or []
     parsed = []
-    for p in periods:
-        start, end = _parse_hhmm(p.get("start")), _parse_hhmm(p.get("end"))
+    for entry in periods_with_courses(schedule_cfg, letter):
+        start, end = _parse_hhmm(entry.get("start")), _parse_hhmm(entry.get("end"))
         if start and end:
-            parsed.append((start, end, p))
+            parsed.append((start, end, entry))
     if not parsed:
         return {"state": "no_periods", "period": None, "next": None}
 

@@ -1099,7 +1099,20 @@ function workList(id) {
     </li>`).join('')}</ul>`;
 }
 
-// One period's body: the course (or both, or none) plus its work.
+// How a slot names itself. An alternating slot on an unknown letter is TWO
+// periods at one time and says so — "Period 4/5" reads as a period called
+// four-slash-five, which is not a thing.
+function periodLabel(p) {
+  if (!p || !p.label) return 'Period';
+  return `${p.alternating && !p.resolved ? 'Periods' : 'Period'} ${p.label}`;
+}
+
+// One slot's body: the course (or both, or none) plus its work.
+//
+// The unresolved branch shows both IDENTITIES, not both courses of one
+// period — on an A day this hour is 4th, on a B day it is 5th, and there is
+// no day with both. Without the number the two halves are indistinguishable
+// once the letter badge is off screen.
 function periodBody(p) {
   if (p.alternating && !p.resolved) {
     const both = (p.alternates || []).map((a) => {
@@ -1108,6 +1121,7 @@ function periodBody(p) {
         <div class="pc-alt">
           <span class="pc-alt-letter mono">${escapeHtml(a.letter)}</span>
           <div class="pc-alt-body">
+            <div class="pc-alt-n">Period ${escapeHtml(String(a.n == null ? '?' : a.n))}</div>
             <div class="pc-course-sm">${n ? escapeHtml(n) : '<span class="pc-none">unassigned</span>'}</div>
             ${n ? workList(a.course_id) : ''}
           </div>
@@ -1152,20 +1166,20 @@ function renderPeriodCard() {
 
   if (VIEW_INDEX != null) {
     shown = periods[VIEW_INDEX];
-    eyebrow = `Period ${shown.n}`;
+    eyebrow = periodLabel(shown);
     timing = `${minToLabel(hhmmToMin(shown.start))} – ${minToLabel(hhmmToMin(shown.end))}`;
   } else if (loc.state === 'in_period') {
     shown = loc.cur.p;
-    eyebrow = `Period ${shown.n}`;
+    eyebrow = periodLabel(shown);
     timing = `${fmtLeft(loc.cur.e - nowMin)} · ends ${minToLabel(loc.cur.e)}`;
   } else if (loc.state === 'passing') {
     shown = loc.next.p;
     eyebrow = 'Passing time';
-    timing = `Period ${shown.n} starts in ${loc.next.s - nowMin} min`;
+    timing = `${periodLabel(shown)} starts in ${loc.next.s - nowMin} min`;
   } else if (loc.state === 'before') {
     shown = loc.next.p;
     eyebrow = 'Before first bell';
-    timing = `Period ${shown.n} starts at ${minToLabel(loc.next.s)}`;
+    timing = `${periodLabel(shown)} starts at ${minToLabel(loc.next.s)}`;
   }
 
   if (!shown) { card.hidden = true; return; }
@@ -1187,7 +1201,7 @@ function renderPeriodCard() {
     <div class="pc-nav">
       <button class="icon-btn" data-pc="prev" ${idx <= 0 ? 'disabled' : ''}>‹</button>
       <span class="pc-dots">${periods.map((p, i) =>
-        `<span class="pc-dot${i === idx ? ' on' : ''}">${escapeHtml(String(p.n))}</span>`).join('')}</span>
+        `<span class="pc-dot${i === idx ? ' on' : ''}">${escapeHtml(p.label || '')}</span>`).join('')}</span>
       <button class="icon-btn" data-pc="next" ${idx >= periods.length - 1 ? 'disabled' : ''}>›</button>
       ${VIEW_INDEX != null ? '<button class="btn btn-outline pc-now" data-pc="now">Back to now</button>' : ''}
     </div>
@@ -1499,41 +1513,78 @@ function renderCourseList(cache) {
   }
 }
 
+// Bell times that overlap are not a config the card can render sensibly —
+// two slots claiming 10:50 makes "what period is it" depend on sort order.
+// Said out loud in the setup page rather than silently resolved, because the
+// migration from the old two-period rotation produces exactly this and the
+// real time is the user's to supply.
+function overlapWarnings(periods) {
+  const timed = periods
+    .map((p, i) => ({ i, s: hhmmToMin(p.start), e: hhmmToMin(p.end) }))
+    .filter((x) => x.s != null && x.e != null)
+    .sort((a, b) => a.s - b.s);
+  const bad = new Set();
+  for (let k = 1; k < timed.length; k++) {
+    if (timed[k].s < timed[k - 1].e) { bad.add(timed[k].i); bad.add(timed[k - 1].i); }
+  }
+  return bad;
+}
+
+// One row per SLOT. The alternating slot is one time and two identities —
+// a period number and a course for each letter — so it renders as one row
+// with two sub-rows, never as two rows. Two rows would let the times drift
+// apart, which is the state the model exists to make unrepresentable.
 function renderPeriodRows() {
   const box = document.getElementById('period-rows');
   if (!box) return;
   box.innerHTML = '';
   const periods = CONFIG.schedule.periods || [];
+  const overlapping = overlapWarnings(periods);
 
-  periods.forEach((p) => {
-    const alternating = Array.isArray(p.alternates);
+  periods.forEach((p, pi) => {
+    const alts = Array.isArray(p.alternates) ? p.alternates : null;
     const row = document.createElement('div');
-    row.className = 'period-row' + (alternating ? ' alternating' : '');
+    row.className = 'period-row' + (alts ? ' alternating' : '');
+    const label = alts
+      ? alts.map((a) => (a.n == null ? '?' : a.n)).join('/')
+      : String(p.n == null ? '?' : p.n);
     row.innerHTML = `
-      <span class="period-n mono">${escapeHtml(String(p.n))}</span>
+      <span class="period-n mono">${escapeHtml(label)}</span>
       <input type="time" class="input period-start" value="${escapeAttr(p.start || '')}">
       <span class="period-dash">–</span>
       <input type="time" class="input period-end" value="${escapeAttr(p.end || '')}">
       <div class="period-courses">
-        ${alternating
-          ? `<label class="alt-label">A</label>
-             <select class="input period-course" data-alt="0">${courseOption(p.alternates[0])}</select>
-             <label class="alt-label">B</label>
-             <select class="input period-course" data-alt="1">${courseOption(p.alternates[1])}</select>`
+        ${alts
+          ? alts.map((a, ai) => `
+             <div class="period-alt">
+               <label class="alt-label">${escapeHtml(String(a.letter || ''))} DAY</label>
+               <input type="number" class="input period-alt-n" data-alt="${ai}"
+                      min="1" max="12" value="${escapeAttr(a.n == null ? '' : String(a.n))}">
+               <select class="input period-course" data-alt="${ai}">${courseOption(a.canvas_course)}</select>
+             </div>`).join('')
           : `<select class="input period-course">${courseOption(p.canvas_course)}</select>`}
       </div>
+      ${overlapping.has(pi) ? '<div class="period-warn">Overlaps another slot — two periods cannot share the clock.</div>' : ''}
     `;
 
     row.querySelector('.period-start').onblur = async (e) => {
-      p.start = e.target.value; await saveConfig();
+      p.start = e.target.value; await saveConfig(); renderPeriodRows();
     };
     row.querySelector('.period-end').onblur = async (e) => {
-      p.end = e.target.value; await saveConfig();
+      p.end = e.target.value; await saveConfig(); renderPeriodRows();
     };
+    row.querySelectorAll('.period-alt-n').forEach((inp) => {
+      inp.onblur = async () => {
+        const v = inp.value.trim();
+        alts[Number(inp.dataset.alt)].n = v === '' ? null : Number(v);
+        await saveConfig();
+        renderPeriodRows();
+      };
+    });
     row.querySelectorAll('.period-course').forEach((sel) => {
       sel.onchange = async () => {
         const v = sel.value || null;
-        if (alternating) p.alternates[Number(sel.dataset.alt)] = v;
+        if (alts) alts[Number(sel.dataset.alt)].canvas_course = v;
         else p.canvas_course = v;
         await saveConfig();
       };
@@ -1541,6 +1592,7 @@ function renderPeriodRows() {
     box.appendChild(row);
   });
 }
+
 
 function renderAbCycle() {
   const cycle = CONFIG.schedule.ab_cycle;
