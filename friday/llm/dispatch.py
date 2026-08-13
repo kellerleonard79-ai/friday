@@ -62,6 +62,30 @@ _provider: Provider | None = None
 _conn = None
 _config: dict = {}
 
+# THE LAST DISPATCH'S OUTCOME. One string, updated on every return.
+#
+# NOT A REACHABILITY PROBE — that is step 9 and it is a module with its own
+# state, its own timestamps and its own staleness rules. This is an
+# OBSERVATION of a call that already happened, kept because the alternative is
+# rediscovering the same dead network on every layer of every turn.
+#
+# It exists for one caller: router/classify.py skips its call entirely when
+# the last thing to touch the API could not reach it, so a blocked network
+# costs one failed request per turn instead of two. It self-heals with no
+# timer, because the very next successful dispatch overwrites it — which is
+# also why it carries no timestamp. A value that is only ever as old as the
+# last call does not have a staleness question.
+#
+# Deliberately NOT exposed as "is the model up". It answers "how did the last
+# call end", which is a smaller and truer claim, and the difference matters:
+# a caller that believed the first would eventually stop trying.
+_last_error_kind: str = "none"
+
+
+def last_error_kind() -> str:
+    """How the most recent dispatch ended. "none" before the first one."""
+    return _last_error_kind
+
 
 def configure(config: dict, conn=None) -> None:
     """Build the provider and install the profile registry. Called once at
@@ -138,11 +162,17 @@ def dispatch(request: LLMRequest) -> LLMResponse:
     # the prompt between attempt 1 and attempt 2.
     prompt = assemble(request, profile, _config)
 
+    global _last_error_kind
+
     attempt = 0
     while True:
         response = _provider.complete(request, profile, prompt)
 
         kind = response.error_kind
+        # Every return below goes through here first. Set before the retry
+        # decision rather than at each `return`, so a path added later cannot
+        # forget it.
+        _last_error_kind = kind
         if kind not in _RETRYABLE:
             _log_exchange(request, profile, prompt, response)
             return response

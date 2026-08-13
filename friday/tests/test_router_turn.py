@@ -16,12 +16,16 @@ came to be holding up an invariant on its own for a step and a half in step 4.
 
 import os
 import sys
+from datetime import date, timedelta
+from typing import Annotated
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import agent.turn as turn  # noqa: E402
 from llm.types import LLMRequest, LLMResponse, Profile, ToolCall, Usage  # noqa: E402
 from router import plans  # noqa: E402
+from tools import registry  # noqa: E402
+from tools.types import CalendarRead, ToolResult  # noqa: E402
 
 failures = []
 
@@ -66,6 +70,23 @@ def resp(text="", calls=()):
 
 WRITE = dict(title="Team dinner", date="2026-08-24", start_time="18:30")
 
+
+# A read tool that always succeeds, registered for this test only.
+#
+# The real get_schedule was used here first and made the test FLAKY: it does a
+# live EventKit/JXA read, and a read that fails returns a ToolError — which
+# contributes no coverage, correctly — so the gate stayed shut and the
+# assertion failed for a reason that had nothing to do with the gate. The
+# thing under test is whether ONE RECORDED READ opens it, so the read is
+# stubbed and the machine's calendar is not part of the question.
+@registry.tool(name="stub_read", description="Test read.",
+               scope=("read",), effect="read", timeout_s=5.0)
+def stub_read(date_from: Annotated[str, "ISO day."]) -> ToolResult:
+    """Call to read the calendar."""
+    day = date.fromisoformat(date_from)
+    return ToolResult(data={"events": []},
+                      records=(CalendarRead(start=day, end=day + timedelta(days=1)),))
+
 print("\n-- READ_THEN_WRITE: the model asks to write, twice, with no read --")
 
 seen = stub_dispatch([
@@ -93,7 +114,7 @@ print("\n-- READ_THEN_WRITE: read first, and the write is allowed through --")
 # that the GATE OPENED, and nothing on this path writes to a calendar — the
 # card is a proposal and the write happens on a tap.
 seen = stub_dispatch([
-    resp(calls=[call("get_schedule", date_from="2026-08-24", date_to="2026-08-24")]),
+    resp(calls=[call("stub_read", date_from="2026-08-24")]),
     resp(calls=[call("add_calendar_event", **WRITE)]),
     resp(text="Done, sir."),
 ])

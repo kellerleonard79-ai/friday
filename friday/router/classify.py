@@ -50,6 +50,7 @@ import json
 import logging
 
 from llm import profiles
+from llm import dispatch as dispatch_module
 from llm.dispatch import dispatch
 from llm.types import LLMRequest
 from router import plans
@@ -148,6 +149,34 @@ def classify(text: str, deadline: float | None = None) -> Plan | None:
     CLASSIFY profile — are startup bugs that must not take a chat turn with
     them.
     """
+    # ══ OFFLINE: DO NOT PAY TWICE TO LEARN THE SAME THING. ══
+    #
+    # If the last call to reach the API could not, this one will not either,
+    # and the turn behind it is about to make the same discovery and produce
+    # the user's sentence. Skipping here means a blocked network costs ONE
+    # failed request per turn instead of two, and the reply arrives sooner —
+    # which matters, because Telegram is blocked on school Wi-Fi for roughly
+    # seven hours of most days and the dashboard exists for exactly those.
+    #
+    # `network` ONLY. Not rate_limit, not transient, not fatal. A 429 means the
+    # API answered and refused us — the classifier is a different model on a
+    # different quota and may well be fine. A 500 means the far side had a bad
+    # minute, which is per-request. Only `network` means "we did not reach
+    # anything", and only that generalises from one call to the next.
+    #
+    # NO PROBE, NO TIMER, NO STATE OF ITS OWN. This reads how the last dispatch
+    # ended, which is a fact the dispatcher already had. It self-heals because
+    # the next dispatch that succeeds overwrites it — the CHAT turn this
+    # function just declined to route WILL run, and will set it either way. So
+    # a network that comes back is noticed on the following message with no
+    # component watching for it. Reachability proper is step 9.
+    if dispatch_module.last_error_kind() == "network":
+        logger.info(
+            "Skipping the classifier: the last call could not reach the API. "
+            "The turn will run as CHAT and report the network itself."
+        )
+        return None
+
     try:
         response = dispatch(LLMRequest(
             profile=profiles.get("CLASSIFY"),
