@@ -114,9 +114,15 @@ class Precondition(Protocol):
 class CalendarReadFor:
     """Requires that the day a call targets has already been read this turn.
 
-    Step 4's use: a write to 2026-08-12 requires that 2026-08-12 was read, so
-    the model has actually looked before asserting. Unused in step 3 — every
-    tool here is the read that would satisfy it.
+    A write to 2026-08-12 requires that 2026-08-12 was read, so the model has
+    actually looked before asserting.
+
+    STILL NO LIVE CONSUMER. add_calendar_event correctly carries none — the
+    user knows what they are asking for, and forcing a read before every add
+    costs a hop to establish something nobody needed. The tools that will use
+    this are update and delete, and tools/preconditions.py holds the exact
+    tuples they will be registered with, with tests, so the step that adds
+    them is not also discovering what a precondition means.
 
     `date_field` names which of the call's own arguments carries the date,
     because "the day this call is about" is per-tool and hardcoding a parameter
