@@ -35,9 +35,18 @@
 > **Step 5 is complete.** Both surfaces run the identical turn path, share one
 > transcript, and resolve the same permission cards.
 >
-> **Next is step 6** — context and policy: the deterministic pre-fetch layer,
-> suppression and visibility rules, and the connectors that produce inferred
-> facts.
+> - **Step 6** — cleanup and consolidation, with no user-visible payoff and no
+>   new capability. `TurnResult.text` is now `model_text` (it was never the
+>   same thing as `Reply.text`); the failure-sentence table moved down to
+>   `channels/base.py` where a channel can own its own phrasing; injected
+>   context has one producer and one formatter (`llm/context.py`), used by
+>   chat and briefings alike; `policy/visibility.py` and
+>   `policy/suppression.py` sit beside the gate; and `tools/preconditions.py`
+>   holds the definitions update and delete will be registered with.
+>
+> **Step 6 is complete.** See **Context and Policy** below.
+>
+> **Next is step 7** — the router: plan shapes and a pattern-matched fast path.
 >
 > **One deferred item carries forward from step 5.** Resolving a card in the
 > dashboard does not edit the Telegram message it was sent as — that needs a
@@ -141,7 +150,8 @@ Non-obvious placements:
 - `memory/activity.py` — best-effort instrumentation writes. Never raises into the hot path.
 - `self_edit.py` + `phrases.py` + `quips.yaml` + `friday_voice.yaml` — the narrow slice of itself Friday may rewrite at runtime. `quips.yaml` is grouped **tool → outcome → quips**; `phrases.quip_for(tool, outcome)` selects, and an empty group means silence rather than a borrowed line. The effects runner appends the quip, never the tool. `self_edit.version()` and `update_setting()` have no caller and are kept for the rewrite.
 - `effects/` — `entry.py` (**the only caller of the runner**; welds history logging to the runner call), `runner.py` (ordering: cards first, then messages, then the rest) and `pending.py` (the card lifecycle: stage, confirm with the STORED arguments, cancel, expire, re-propose when stale).
-- `policy/gating.py` — one function answering "does this action need a card?". Decides and acts on nothing.
+- `policy/` — three modules, three questions, none of which act. `gating.py` ("does this need a card?"), `visibility.py` ("may this be shown here at all?"), `suppression.py` ("was this already said recently enough?"). Visibility does not depend on when you ask; suppression does — that is why they are not one predicate.
+- `tools/preconditions.py` — the precondition tuples update and delete will be registered with, written a step early because the machinery has never had a live consumer. **Neither tool exists.**
 - `memory/writes.py` — `recent_writes`, the ten-minute fingerprint ledger that stops a timed-out write being retried into a duplicate.
 - `paths.py` and `compat.py` — the cross-platform seams.
 - Entry points differ per platform: `friday.py` (core), `mac_app.py` (packaged .app supervisor), `tray.py` (Windows), `menubar.py` (rumps, source checkout), `macos_setup.py` (renders LaunchAgent templates), `setup_wizard.py` (first run, both platforms).
@@ -624,7 +634,11 @@ Built in step 5. **Two channels, one path.**
   typing still works (the tests and `entry.HistoryChannel` rely on it) while a
   real channel that forgets a method fails at *construction*. It lived in
   `effects/runner.py`'s docstring until now, which is where a contract goes to
-  be almost true.
+  be almost true. It also holds `DEFAULT_FAILURE_TEXT` and `failure_text_for()`
+  — **the taxonomy is shared, the words are the channel's**. `failure_text` is
+  deliberately **not** a Protocol member: a fourth member breaks `isinstance`
+  for every duck-typed channel, which is exactly what happened when it was
+  tried the other way round. Neither channel overrides it yet.
 - **`conversation.py`** — `handle(text, channel, conn, config)`. The gate, the
   pause check, the history window, the request, the executor hop, the effects,
   the reply selection, the history writes. **This is the whole of a user
@@ -755,6 +769,127 @@ browsers refuse the request outside one and the refusal is permanent.
 arrives with the tagger.
 
 
+## Context and Policy
+
+Built in step 6. No new capability — this is the consolidation steps 7 through
+11 all depend on, and every one of them would otherwise have grown its own
+copy.
+
+### One producer, one formatter
+
+`llm/context.py` owns both.
+
+- **`format_context_block(label, content)`** and **`render_blocks(blocks)`** —
+  the ONE rendering of an injected context block. Used by `llm/assembly.py`
+  for chat and by `agent/briefings.py` for the briefing bundle and all three
+  composers.
+- **`time_block(config)`** / **`time_block_at(now, tz)`** — the ONE clock.
+  `time_block_at` exists so a briefing renders the instant its bundle was
+  captured at rather than a second read at format time; on the JXA path those
+  can be eighty seconds apart.
+
+There were **four** renderings of the same idea before this: assembly.py's
+inline f-string, briefings' `format_briefing_context`, its `_render_sections`,
+and its `_header`. All agreed by coincidence and were editable independently.
+The router would have been the fifth.
+
+The per-slot section list collapsed the same way — `_bundle_sections()` is now
+the single list, shared by the injected context and all three composers, which
+differ only in their title.
+
+**Briefings gained the location block** (weather is a location-dependent claim
+and the composer could not see where the machine thought it was) and **lost
+the "use this date verbatim" instruction line** — which is not lost: it is the
+persona's TIME section, which COMPOSE takes. It was duplicated in prose there
+because at the time briefings assembled their own prompt and there was no
+persona layer to hold it.
+
+**What stays in `agent/briefings.py`: the bundle.** Deciding what a briefing
+needs to pre-fetch, and guarding each source so one dead connector cannot sink
+the whole thing, does not belong in a module every chat turn imports.
+
+**INJECT, NEVER FETCH.** The injection site is `llm/dispatch.py`, commented at
+length because that is the line a future change would undo. These are memory
+reads on a path holding the one turn gate — `location.fetch()` can block ~25s —
+and they must never become tool calls, because a model that has to *ask* what
+day it is can decline to, and then writes an event into the wrong week. This
+applied to the tool layer in step 3 and applies unchanged to the router.
+
+### Policy: three questions, three modules
+
+| module | question | depends on when you ask? |
+|---|---|:--:|
+| `gating.py` | does this need a card? | no |
+| `visibility.py` | may this be shown here at all? | no |
+| `suppression.py` | was this already said recently enough? | **yes** |
+
+Kept apart deliberately. Folded together they become one predicate that is
+false for two unrelated reasons, and the first bug report is "why did it stop
+telling me about X" with no way to tell which rule caught it. **All three
+decide and act on nothing** — no queries, no writes, no clock read of their
+own.
+
+**What was moved (real, wired):**
+
+- Which GroupMe tiers a briefing surfaces. This was two literal `LIKE
+  '%[priority=high]%'` patterns in a SQL string with **no link at all** to
+  `connectors/groupme.py::PRIORITIES` — renaming a tier would have turned the
+  filter into a pass-through and started surfacing muted groups. `policy/` may
+  not import `connectors/`, so the tier names are restated and
+  `tests/test_policy.py` asserts they are a subset of the connector's list.
+- Which Canvas urgencies a briefing carries. Byte-identical copies in
+  `agent/briefings.py` and `dashboard/server.py`.
+- The already-alerted latch, named in `friday.py`'s alert job.
+
+**What was built with no consumer** (to-dos, step 8 — and this is stated
+rather than hidden, because inventing rules now means step 8 inherits
+decisions it never made):
+
+- The **windowed** briefing-echo rule: an item surfaced in a briefing within N
+  hours has its **standalone reminder** suppressed and **stays on the list**.
+  Suppression hides a reminder, never an item.
+- The **completed-item** rule: invisible on every surface except dashboard
+  history, which is the record rather than a surface competing for attention.
+
+**The already-alerted latch is NOT reshaped into the window.** It is permanent
+because `check_urgent_alerts_job` runs every 60 seconds against the same
+table, and anything short of permanent is a loop. Two different questions;
+reshaping one to satisfy a symmetry nothing asked for would change live
+behavior.
+
+**No channel selection.** That needs presence, which is step 9.
+
+### Preconditions for update and delete
+
+`tools/preconditions.py`. **Neither tool exists** — these are the tuples they
+will be registered with, written and tested one step early because the
+precondition machinery has been built since step 3 and has never had a live
+consumer (`add_calendar_event` correctly requires no prior read).
+
+Both require a read covering the target's **day**, in the same turn.
+Day-level rather than event-level because **the identifier is the thing in
+doubt**: checking an invented id against a ledger that never saw it fails
+closed and tells the model nothing useful, while the day is a claim the model
+cannot fake and the read that satisfies it returns the real identifiers anyway.
+
+**THE CONSTRAINT ON THE FUTURE SIGNATURES — read this before writing
+`update_calendar_event`.** `CalendarReadFor` resolves the target day out of
+the call's **own arguments**, so an update or delete tool MUST take the day as
+a parameter even when it also takes an event id. A
+`delete_calendar_event(event_id)` has no date field to check, fails closed
+forever, and gives no obvious reason why.
+
+`target_proven()` feeds the same ledger answer into `policy/gating.py` as a
+bool. Two functions rather than one: a precondition returning `None` means
+"run" and a gate input of `False` means "ask first", and conflating inverted
+senses behind one return value is a real hazard.
+
+The precondition and the gate are different questions and a delete needs both:
+*has Friday looked?* (refuses to run) and *should the user decide?* (asks
+first). Having looked is not permission, and permission granted against an
+event nobody verified is permission to delete the wrong thing.
+
+
 ## Calendar Writes: which path gates
 
 *Both paths survive verbatim in `actions/calendar.py`. What changed is who
@@ -831,9 +966,16 @@ permission card, and do both from either surface. It still does NOT: tag
 urgency, extract events from GroupMe or images/PDFs, fire urgent alerts, or
 select a quip by context.
 
-**Next is step 6** — context and policy: the deterministic pre-fetch layer,
-suppression and visibility rules, and the connectors that produce inferred
-facts. That is where `Channel.notify` gets its first producer.
+**Done — Phase III step 6 (cleanup, context and policy).** No new capability,
+and that is the point: `llm/context.py` is the one producer and the one
+formatter for injected context, `policy/` answers three separated questions,
+`tools/preconditions.py` holds what update and delete will need, the failure
+sentences sit where a channel can own them, and `TurnResult.model_text` no
+longer shares a name with `Reply.text`.
+
+**Next is step 7** — the router: plan shapes and a pattern-matched fast path.
+`Channel.notify` still has no producer; the alert that will call it arrives
+with the tagger.
 
 ---
 
@@ -869,6 +1011,12 @@ facts. That is where `Channel.notify` gets its first producer.
 28. **Tools never write the ledger.** They declare coverage in their return value; `tools/executor.py` records it. There is no accessor in `tools/ledger.py` to reach, and it must stay that way.
 29. **Never pass turn state to a tool through a thread-local.** Tools run in a worker pool and will not see it. Pass it explicitly — this failed silently once already.
 30. **Parse event timestamps only through `calendars/eventtime.py`.** The two Apple readers disagree about timezone spelling and a second parser is wrong on one of them.
+31. **`TurnResult.model_text` is not `Reply.text`.** The first is what the model produced; the second is what the user was told, and card suppression is the gap between them. They were both `.text` until step 6, on two objects that travel together through `handle()`.
+32. **Injected context has one producer and one formatter** — `llm/context.py`. Chat, briefings and the router render the same shape. Never build a fifth.
+33. **Deterministic context is injected, never fetched, and never a tool.** A model that has to ask what day it is can decline to. See the injection site in `llm/dispatch.py`.
+34. **Policy decides and acts on nothing.** `gating.py`, `visibility.py` and `suppression.py` perform no queries, no writes, and no clock read of their own — `now` is passed in so a decision can be tested without waiting for one.
+35. **Suppression hides a reminder, never an item.** A suppressed item stays on the list, stays in the briefing, and stays answerable. What is withheld is the standalone interrupt.
+36. **An update or delete tool must take the target day as a parameter**, even when it also takes an event id — otherwise its precondition has nothing to check and fails closed forever. See `tools/preconditions.py`.
 
 ---
 
