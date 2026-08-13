@@ -46,7 +46,19 @@
 >
 > **Step 6 is complete.** See **Context and Policy** below.
 >
-> **Next is step 7** — the router: plan shapes and a pattern-matched fast path.
+> - **Step 7** — the router: `friday/router/`. Three tiers between a message
+>   and a model. Tier 1 is pattern matching with no model and no network and
+>   catches **31.1% of all real traffic**; tier 2 is one constrained CLASSIFY
+>   call returning a plan shape; tier 3 is no plan at all, which is the old
+>   path byte for byte. A plan narrows the profile's tool scope and hop budget
+>   and can never widen either, and `READ_THEN_WRITE` structurally cannot reach
+>   its write before its read.
+>
+> **Step 7 is complete.** See **The Router** below.
+>
+> **Next is step 8** — the to-do layer, which is what
+> `policy/suppression.py`'s windowed briefing-echo and completed-item rules
+> were built for.
 >
 > **One deferred item carries forward from step 5.** Resolving a card in the
 > dashboard does not edit the Telegram message it was sent as — that needs a
@@ -150,6 +162,12 @@ Non-obvious placements:
 - `memory/activity.py` — best-effort instrumentation writes. Never raises into the hot path.
 - `self_edit.py` + `phrases.py` + `quips.yaml` + `friday_voice.yaml` — the narrow slice of itself Friday may rewrite at runtime. `quips.yaml` is grouped **tool → outcome → quips**; `phrases.quip_for(tool, outcome)` selects, and an empty group means silence rather than a borrowed line. The effects runner appends the quip, never the tool. `self_edit.version()` and `update_setting()` have no caller and are kept for the rewrite.
 - `effects/` — `entry.py` (**the only caller of the runner**; welds history logging to the runner call), `runner.py` (ordering: cards first, then messages, then the rest) and `pending.py` (the card lifecycle: stage, confirm with the STORED arguments, cancel, expire, re-propose when stale).
+- `router/` — what to do with a message before spending a model call on it.
+  `plans.py` (the five plan shapes, and the narrowing rules), `fastpath.py`
+  (tier 1: patterns, no model, works offline), `classify.py` (tier 2: one
+  CLASSIFY call, constrained enum), `clarify.py` (the two-round cap). Nothing
+  here sends anything; `channels/conversation.py` calls it and
+  `agent/turn.py` executes the plan.
 - `policy/` — three modules, three questions, none of which act. `gating.py` ("does this need a card?"), `visibility.py` ("may this be shown here at all?"), `suppression.py` ("was this already said recently enough?"). Visibility does not depend on when you ask; suppression does — that is why they are not one predicate.
 - `tools/preconditions.py` — the precondition tuples update and delete will be registered with, written a step early because the machinery has never had a live consumer. **Neither tool exists.**
 - `memory/writes.py` — `recent_writes`, the ten-minute fingerprint ledger that stops a timed-out write being retried into a duplicate.
@@ -192,9 +210,14 @@ friday.py
     │     └── channels/conversation.py::handle()
     │           └── async with TURN_GATE   ← THE gate, before everything
     │                 ├── pause check
+    │                 ├── router/fastpath.py::answer()   ← TIER 1: no model at all
+    │                 │       └── hit? send, log, return. 31% of traffic ends here.
+    │                 ├── run_in_executor → router/classify.py::classify()  ← TIER 2
+    │                 │       └── one CLASSIFY call → a Plan, or None (= TIER 3, as before)
+    │                 ├── router/clarify.py::guard()   ← two rounds, then answer
     │                 ├── query SQLite for conversation history (unfiltered)
     │                 ├── build LLMRequest(profile=CHAT)
-    │                 ├── run_in_executor → agent/turn.py::run_turn()  ← whole turn, one call
+    │                 ├── run_in_executor → agent/turn.py::run_turn(request, conn, plan)
     │                 │       ├── llm/dispatch.py::dispatch()
     │                 │       │       └── llm/providers/gemini.py::complete()
     │                 │       └── _TOOL_POOL → tools/executor.py::run()
@@ -463,7 +486,18 @@ the whole turn in one executor call so the per-turn state belongs to it.
 all — not an empty list. `__post_init__` rejects an empty tuple (it means no
 tools while reading like it means something) and rejects a scope with
 `max_tool_hops=0` (schemas paid for on every request and never used). CHAT is
-`("read",)`; COMPOSE and CLASSIFY are `None`.
+`("read", "write")`; COMPOSE and CLASSIFY are `None`.
+
+**This said `("read",)` until step 7 and the code was right.** CHAT gained
+`"write"` when `add_calendar_event` landed in step 4 and this line was not
+updated — a documentation error rather than a behavior one, and worth
+recording because it is the exact field the router now narrows. `"internal"`
+is still absent, deliberately: `commit_calendar_event` carries that scope and
+must never appear in a prompt.
+
+**A router plan narrows this; it can never widen it.** `LLMRequest.tool_scope`
+is INTERSECTED with the profile's in `llm/assembly.py::build_tools`. See
+**The Router** below for which one wins and why.
 
 ## LLM Processing Flow — **[NOT YET REBUILT — connector work]**
 
@@ -890,6 +924,253 @@ first). Having looked is not permission, and permission granted against an
 event nobody verified is permission to delete the wrong thing.
 
 
+## The Router
+
+Everything under `friday/router/`, plus the plan argument on
+`agent/turn.py::run_turn`. Built in step 7. **Three tiers, and the third one
+is the absence of a decision.**
+
+```
+Tier 1   router/fastpath.py   pattern match, no model, no network    31.1% of traffic
+Tier 2   router/classify.py   one CLASSIFY call -> a plan shape      97.6% accurate
+Tier 3   no plan at all       CHAT exactly as before the router      the fallback
+```
+
+### Why this bought three separate things
+
+**Cost.** A greeting answered by CHAT is ~2,600 input tokens and 6–13s,
+measured off `llm_exchanges`. Answered by tier 1 it is a dict lookup.
+
+**Offline.** Tier 1 works with the Wi-Fi off, and Telegram is blocked on
+school Wi-Fi ~7h a day. Before this a dead network meant Friday did nothing;
+now it means Friday does less.
+
+**Failure surface.** Gemma re-proposes a card for an earlier turn's event
+about one turn in eight. A request that never reaches CHAT cannot produce
+one. This does not fix that behavior — it shrinks how often it can happen.
+
+### The plan table
+
+| Plan | tool_scope | write needs a read | hops |
+|---|---|:--:|:--:|
+| `ANSWER` | `None` | — | 0 |
+| `READ_THEN_ANSWER` | `("read",)` | — | 2 |
+| `READ_THEN_WRITE` | `("read","write")` | **yes** | 3 |
+| `WRITE_DIRECT` | `("write",)` | no | 2 |
+| `CLARIFY` | `None` | — | 0 |
+
+**`WRITE_DIRECT` does not require a read and that is the distinction from
+`READ_THEN_WRITE`, not a safety hole.** "Add dentist on the 26th at 3pm" names
+its own target; a prior read establishes nothing. Anything referring to an
+event that already exists — moved, cancelled, relocated — is
+`READ_THEN_WRITE`, because there the identifier is what is in doubt. The
+permission gate is downstream of every plan and unaffected: **no plan can make
+a write skip its card.**
+
+### Rules that must not be relaxed
+
+1. **The plan narrows; the profile is the ceiling.** `LLMRequest.tool_scope`
+   is INTERSECTED with `profile.tool_scope` in `llm/assembly.py::build_tools`,
+   and the hop budget is `min()`'d in `agent/turn.py`. **Neither direction is
+   symmetric, and the profile wins every disagreement.** "COMPOSE never gets
+   tools" and "CHAT never sees `commit_calendar_event`" are properties of the
+   profile table, which `llm/profiles.py` says config may not touch. A scope
+   arriving on a request came, ultimately, from a classifier's one-word
+   answer. If it could widen, the strongest guarantee in the LLM layer would
+   be one enum value away from void. An empty intersection is `None`, never
+   `()`.
+
+2. **`PROFILE_SCOPE` is a sentinel and is not `None`.** `None` already means
+   *no tools at all*. A plan that narrows to nothing and a caller with no
+   opinion must not be the same value, or every pre-router caller silently
+   loses its tools.
+
+3. **`READ_THEN_WRITE` cannot reach its write without a read**, and it is
+   enforced in the loop against the tool's REGISTERED scope and the ledger's
+   read count — not described in the prompt and hoped for.
+   `tests/test_router_turn.py` stubs a model that skips straight to the write
+   and repeats after being refused.
+
+4. **The plan gate does not replace `tools/preconditions.py`.** Both run and
+   neither subsumes the other. The precondition asks *was the day this call
+   targets read?* (coverage, the strong check); the gate asks *did this turn
+   read anything at all before writing?* A model that reads Tuesday and writes
+   Thursday passes the gate and fails the precondition. `Ledger.read_count()`
+   is coverage-blind and says so.
+
+5. **A tier-1 match must be unambiguous.** Every pattern is a `fullmatch` over
+   the whole normalized message, and normalisation is shallow on purpose:
+   case, whitespace, curly apostrophes, trailing punctuation, nothing else. A
+   near-miss falls through. `fullmatch` rather than `search` specifically so
+   "add lunch tomorrow, and what's the weather" cannot answer the weather half
+   and drop the write.
+
+6. **Tier-1 responses are templates.** The greeting draws from `quips.yaml`'s
+   `greetings:` group — authored voice, not model output — plus the injected
+   clock. Nothing here is generated.
+
+7. **Falling through is never a failure.** `respond()` returns `None` whenever
+   it cannot answer well, and the caller cannot distinguish that from "no
+   pattern matched". Both mean the model handles it.
+
+8. **The fallback is the absence of a plan, not a plan.** `plans.resolve()`
+   answers `None` for anything that is not a plan name, and
+   `run_turn(plan=None)` is the pre-router path byte for byte. **The router
+   may narrow what a turn is allowed to do; it may never be the reason Friday
+   can do less than it could yesterday**, and the cheapest guarantee of that
+   is for the failure mode to be the old code rather than a plan approximating
+   it.
+
+9. **No slash commands, deliberately.** `friday.py` registers
+   `MessageHandler(filters.TEXT & ~filters.COMMAND)`, so PTB drops `/brief`
+   before any Friday code runs, while the dashboard has no such filter and
+   would accept it. A pattern that works on one surface and silently does
+   nothing on the other is worse than no pattern.
+
+10. **There is no `resume` pattern and there must not be one.** A paused
+    Friday drops the message in `conversation.handle()`'s pause check, which
+    runs ABOVE the router and must — hoisting the router over it would let
+    every tier-1 answer speak while paused, which is exactly what pausing is
+    for. So `pause`'s confirmation says where the other end of the switch is.
+
+### What tier 1 actually catches
+
+Measured against the 183-message historical corpus:
+
+| pattern | share | why it is there |
+|---|---:|---|
+| weather | 13.7% | see below — this is the only path to an answer |
+| greeting | 13.1% | pure cost |
+| calendar (today/tomorrow only) | 2.7% | **offline, not cost** |
+| brief | 1.6% | already deterministic, was reaching CHAT for no reason |
+| pause | 0% | a candidate from the brief; reported honestly |
+| **total** | **31.1%** | |
+
+**The weather responder is not a cheaper path to an existing answer — it is
+the only path to one.** The weather tool went with the Phase II teardown, no
+weather block is injected into any prompt, and
+`connectors/weather.py`'s docstring still claims it is "called on demand from
+`on_message`", which stopped being true at the teardown. Every weather
+question in the corpus was answered by a model with no weather data in front
+of it.
+
+It is also **the one thing in `router/` that fetches**, which is stated rather
+than hidden: two 10s requests at worst, while `TURN_GATE` is held, cached 10
+minutes and **never served past 30** — a stale forecast delivered confidently
+is worse than falling through. This is not a violation of **INJECT, NEVER
+FETCH**: that rule governs what goes into a *prompt* and exists because a
+model that has to ask can decline to. Nothing here reaches a model. What it
+shares with the rule is the gate, which is why the bound matters.
+
+**The calendar pattern is restricted to an explicit `today`/`tomorrow`.** A
+bare "what's on my calendar" falls through: it has no date, and guessing which
+day someone meant is the confident-wrong-answer this layer refuses to produce.
+
+### The classifier
+
+`CLASSIFY` (`gemini-3.5-flash-lite`, temperature 0.0), constrained to one
+member of `plans.names()` via `response_schema`. ~255 input tokens, 3–8
+output, **577ms median**.
+
+**Constrained output was verified live before the prompt was written.** An
+unconstrained classifier puts a regex over model prose on the path that
+decides whether a turn may write to the calendar. The answer arrives as JSON,
+so it is a **quoted** string — `'"ANSWER"'`, not `'ANSWER'` — and `json.loads`
+is how it is read. The bare-token fallback accepts one token and refuses a
+sentence; a hand-rolled quote strip would quietly become a substring search.
+
+**Measured accuracy: 97.6% (81/83) against a hand-labeled corpus.**
+
+| plan | n | accuracy |
+|---|---:|---:|
+| ANSWER | 27 | 100% |
+| READ_THEN_ANSWER | 12 | 100% |
+| READ_THEN_WRITE | 6 | 100% |
+| WRITE_DIRECT | 33 | **97.0%** |
+| CLARIFY | 5 | 80% |
+
+**The prompt was written against observed failures, not from first
+principles.** A throwaway one-line prompt scored 2/5 in the Phase 0 probe, and
+one failure — `"I have work on Wednesday from 6-9 pm"` → `ANSWER` — sits in
+the largest category of real traffic. So the first thing the definitions say
+about `WRITE_DIRECT` is that **a statement of fact about the user's own
+schedule is a write**, with five corpus examples of that shape. It reads like
+an odd thing to have to spell out and it is the most valuable line in the
+file.
+
+**The definitions live in code, not `AGENTS.md`.** Every other prompt fragment
+in Friday is persona and belongs to the user in a file they can edit while the
+daemon runs. These name the plan shapes in `router/plans.py`; a user edit
+renaming one would silently reroute every message.
+
+**No history, deliberately.** One message plus the injected standing context.
+If picking between five shapes needed twenty turns of transcript, the
+vocabulary would be wrong. The real casualty is the bare follow-up — "double
+it", "why not?" — which has no shape of its own and lands on `ANSWER`,
+correctly often enough and wrongly at negligible cost.
+
+**`CLASSIFY`'s free tier is rate-limited per minute, not per day.** An 83-call
+evaluation run back-to-back hit `429 RESOURCE_EXHAUSTED` repeatedly and had to
+be paced to 7s between calls. Irrelevant to chat, where calls are seconds
+apart; it matters the moment anything batches CLASSIFY — which the urgency
+tagger will.
+
+### CLARIFY, and the two-round cap
+
+`router/clarify.py`. Structurally `CLARIFY` and `ANSWER` are identical — no
+tools, no hops, one dispatch — so **the directive is the whole of the plan**.
+Without it, `CLARIFY` is `ANSWER` with a different name on the log line and
+the model is as likely to invent a date as to ask for one. The directive says
+**ONE question**, which is load-bearing: asked for everything missing at once
+the model produces a form, which reads as an interrogation for something the
+user thought was one sentence.
+
+**Two rounds, then answer with what is known.** The cap exists for a failure
+this design creates: the classifier sees one message and no history, so the
+user's *answer* to a clarifying question is itself a bare fragment — "Its
+work", "tomorrow at 3" — which is the exact shape that routes to `CLARIFY`
+again. Uncapped, Friday asks a question, receives its answer, and asks the
+same question about the answer.
+
+**The third round is not a refusal and not a toolless plan.** It drops to
+`plan=None` — CHAT's full scope — plus an instruction to act on the most
+reasonable reading and state the assumption in one clause. A third round that
+cannot act on what it worked out is the opposite of "answer with what is
+known".
+
+`guard()` runs on **every** turn, because that is where the streak is cleared.
+A counter incremented only by the branch it guards never resets, and the next
+unrelated message inherits a cap it did nothing to earn. The streak is one
+`system_state` key, not derived: `llm_exchanges.plan` would make an
+instrumentation table load-bearing for behavior, and `conversation_history`
+has no column for a plan at all.
+
+### Offline
+
+`llm/dispatch.py::last_error_kind()` — one string, set on every dispatch
+before the retry decision so a path added later cannot forget it.
+`router/classify.py` skips its own call when the last thing to touch the API
+could not reach it, so a blocked network costs **one** failed request per turn
+instead of two.
+
+**This is not a reachability probe** — that is step 9, and it is a module with
+state, timestamps and staleness rules. This is an observation of a call that
+already happened. It carries no timestamp because it has no staleness
+question, and it heals with no timer: the CHAT turn the classifier declined to
+route will run and overwrite it either way.
+
+**`network` only.** A 429 means the API answered and refused us, and the
+classifier is a different model on a different quota. A 500 means the far side
+had a bad minute, per request. Only "we reached nothing" generalises from one
+call to the next — which is why `transient` was never folded into
+`rate_limit`.
+
+Exposed as *how did the last call end*, never *is the model up*. The second is
+a bigger claim than the data supports, and a caller that believed it would
+eventually stop trying.
+
+---
+
 ## Calendar Writes: which path gates
 
 *Both paths survive verbatim in `actions/calendar.py`. What changed is who
@@ -973,7 +1254,21 @@ formatter for injected context, `policy/` answers three separated questions,
 sentences sit where a channel can own them, and `TurnResult.model_text` no
 longer shares a name with `Reply.text`.
 
-**Next is step 7** — the router: plan shapes and a pattern-matched fast path.
+**Done — Phase III step 7 (the router).** `friday/router/`: three tiers between
+a message and a model. Tier 1 catches 31.1% of real traffic with no model and
+no network, tier 2 picks a plan shape at 97.6% measured accuracy for ~577ms
+and 255 tokens, and tier 3 is the old path unchanged. A plan narrows the
+profile's tool scope and hop budget and can never widen either;
+`READ_THEN_WRITE` structurally cannot reach its write before its read; and
+`CLARIFY` asks at most twice.
+
+Friday now answers greetings, weather, briefings and today/tomorrow's calendar
+without a model at all — **and the weather answers are better than before,
+because CHAT had no weather data to answer with.**
+
+**Next is step 8** — the to-do layer, which `policy/suppression.py`'s windowed
+briefing-echo and completed-item rules were built for.
+
 `Channel.notify` still has no producer; the alert that will call it arrives
 with the tagger.
 
@@ -989,7 +1284,7 @@ with the tagger.
 6. **Canvas uses the iCal feed.** Never HTML scraping. Use `icalendar`.
 7. **The LLM processes all ingested data.** Never bypass it for urgency, filtering, or calendar decisions — even for clean structured data.
 8. **The calendar backend is the event store.** Briefings and reminders read from it, not from the SQLite events table.
-9. **Briefings run with tools OFF.** Enforced structurally: `COMPOSE.tool_scope` is `None`, so the provider is handed no `tools` argument at all. If a briefing is thin, expand `bundle_briefing_context` — never give COMPOSE a scope. `bundle_briefing_context` survived the teardown intact precisely because it is the layer worth keeping.
+9. **Briefings run with tools OFF.** Enforced structurally: `COMPOSE.tool_scope` is `None`, so the provider is handed no `tools` argument at all. If a briefing is thin, expand `bundle_briefing_context` — never give COMPOSE a scope. `bundle_briefing_context` survived the teardown intact precisely because it is the layer worth keeping. **True but currently moot: no briefing reaches a model.** `agent/briefings.py::_compose` is a deterministic renderer — header plus the bundle's sections — and `COMPOSE` has no callers at all. The rule binds the moment one is composed by a model again, which is why it stays written down; it is not describing live enforcement today.
 10. **Every LLM call goes through `llm/dispatch.py`.** No direct provider call anywhere else, no second door for images or JSON, no "just this once" convenience path. See the LLM Layer section.
 11. **`llm/providers/gemini.py` is the only file that may import a provider SDK.** If a layer above it needs to know something SDK-shaped, the abstraction is wrong — fix the type, not the import.
 12. **SQLite is the operational backbone only.** No state.json. No vector store. No Redis.
@@ -1017,6 +1312,12 @@ with the tagger.
 34. **Policy decides and acts on nothing.** `gating.py`, `visibility.py` and `suppression.py` perform no queries, no writes, and no clock read of their own — `now` is passed in so a decision can be tested without waiting for one.
 35. **Suppression hides a reminder, never an item.** A suppressed item stays on the list, stays in the briefing, and stays answerable. What is withheld is the standalone interrupt.
 36. **An update or delete tool must take the target day as a parameter**, even when it also takes an event id — otherwise its precondition has nothing to check and fails closed forever. See `tools/preconditions.py`.
+37. **A router plan narrows the profile; it can never widen it, and the profile wins.** Tool scope is INTERSECTED (`llm/assembly.py::build_tools`) and the hop budget is `min()`'d (`agent/turn.py`). A plan came from a classifier's one-word answer; the profile table is architecture. An empty intersection is `None`, never `()`.
+38. **The router's fallback is the absence of a plan, not a plan.** `run_turn(plan=None)` is the pre-router path byte for byte. The router may narrow what a turn can do; it may never be the reason Friday can do less than it could yesterday.
+39. **A tier-1 match must be a `fullmatch` over the whole message, and near-misses fall through.** A wrong fast-path answer is worse than a slow right one: it is confident, fast, and has no model in the loop to hedge. `search()` would let "add lunch tomorrow, and what's the weather" answer the weather and drop the write.
+40. **`conversation_history` IS NOT THE TRANSCRIPT OF RECORD.** It holds 48 rows starting at `id=266` — it has been reset or pruned at some point with no record of when or why, and nothing in the code does that today. **The only surviving history is `logs/friday.log`**, where every turn appears as `Message (channel): <first 80 chars>`. All 183 messages the router was built against came from there. Anyone reasoning about usage, traffic shape or hit rates from the database will be wrong by a factor of four, and will not be able to tell.
+41. **No slash commands in the router.** `friday.py` filters `~COMMAND` before any Friday code runs; the dashboard does not. A pattern that works on one surface and silently does nothing on the other is worse than no pattern. Bare words only.
+42. **There is no chat `resume` and there must not be one.** The pause check runs above the router and must — hoisting the router over it would let every tier-1 answer speak while paused.
 
 ---
 

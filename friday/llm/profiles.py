@@ -44,7 +44,7 @@ class _Spec:
 
 # CHAT's timeout is the whole budget for one dispatch — the model call, the
 # single transport redial, and every retry come out of it. It sits under
-# channels/telegram.py::_EXECUTOR_TIMEOUT_S (150) so the deadline expires
+# channels/conversation.py::EXECUTOR_TIMEOUT_S (150) so the deadline expires
 # first and the pipeline is released by design rather than by the backstop.
 #
 _SPECS: dict[str, _Spec] = {
@@ -76,8 +76,15 @@ _SPECS: dict[str, _Spec] = {
         default_temperature=1.0,
     ),
 
-    # Briefings. Same model as CHAT: a briefing is the most-read thing Friday
-    # writes and there is nothing to save by making it worse.
+    # Briefings.
+    #
+    # NOT THE SAME MODEL AS CHAT, though this comment claimed so until step 7.
+    # Config runs COMPOSE on gemini-3.6-flash and CHAT on gemma-4-31b-it, and
+    # gemini-3.6-flash is the one carrying a 20-request/day free-tier ceiling.
+    # That has cost nothing so far only because COMPOSE HAS NO CALLERS: every
+    # briefing is rendered deterministically by agent/briefings.py::_compose
+    # and reaches no model at all. The moment a briefing is composed by a
+    # model again, that ceiling is two briefings a day.
     #
     # NOT VOICE. Invariant 6 — persona voice applies only to conversational
     # replies, never to cards, briefings, errors or TTS. Handing the butler
