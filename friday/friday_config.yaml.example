@@ -122,6 +122,39 @@ canvas:
                       # Only needed if the REST host differs from the iCal
                       # URL's origin, which is derived automatically.
 
+# The bell schedule, and the A/B rotation. Powers the dashboard's period card.
+# Edit the times here or through the dashboard's Schedule tab; assign courses
+# with the picker there rather than by hand (it lists your real Canvas ids).
+schedule:
+  bedtime: '23:00'    # the far end of the after-school card's free-time math
+  periods:
+    # canvas_course is a Canvas course id, as a string. null = no course, which
+    # is a valid state (lunch, study hall, an elective Canvas does not carry).
+    - {n: 1, start: '08:00', end: '08:50', canvas_course: null}
+    - {n: 2, start: '08:55', end: '09:45', canvas_course: null}
+    - {n: 3, start: '09:50', end: '10:40', canvas_course: null}
+    # 4th and 5th alternate. `alternates` is [A-day course, B-day course].
+    - {n: 4, start: '10:45', end: '11:35', alternates: [null, null]}
+    - {n: 5, start: '12:20', end: '13:10', alternates: [null, null]}
+    - {n: 6, start: '13:15', end: '14:05', canvas_course: null}
+    - {n: 7, start: '14:10', end: '15:00', canvas_course: null}
+  ab_cycle:
+    start_date: null  # the first A day, ISO YYYY-MM-DD. While this is null the
+                      # card shows BOTH courses for 4th and 5th, labeled A and
+                      # B, rather than guessing which one is today.
+    pattern: [A, B]
+    manual_override: null       # 'A' or 'B' — forces today's letter and
+                                # EXPIRES AT MIDNIGHT. For assemblies, late
+                                # starts and exam weeks, which break the
+                                # rotation constantly.
+    manual_override_date: null  # set automatically alongside the override;
+                                # it is what makes the expiry real.
+                      #
+                      # The rotation advances by SCHOOL DAYS, not calendar
+                      # parity — every weekday counts. There is no holiday
+                      # calendar and there should not be one; use the manual
+                      # override when the school drifts.
+
 weather:
   api_key: ''         # OpenWeatherMap. Env fallback: WEATHER_API_KEY
   location: ''        # "City,CC" format, e.g. Austin,US.

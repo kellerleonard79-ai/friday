@@ -38,6 +38,7 @@ from pydantic import BaseModel
 
 import compat
 import memory.state as state
+import schedule
 from dashboard import auth, stream
 import paths
 import self_edit
@@ -171,6 +172,11 @@ def _migrate_config(cfg: dict) -> dict:
             cfg["notifications"]["evening_briefing"]["time"] = str(
                 agent_cfg["briefing_time"]
             )
+
+    # The bell schedule. Owned by schedule.py so the defaults and the
+    # backfill live next to the code that reads them, rather than becoming a
+    # third copy of the period list in this file.
+    schedule.ensure(cfg)
 
     gm = cfg.get("groupme") or {}
     groups = gm.get("groups") or []
