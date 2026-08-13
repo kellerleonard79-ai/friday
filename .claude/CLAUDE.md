@@ -917,16 +917,43 @@ CHAT's 120 s deadline but is visibly sluggish. And it is better at turn
 discipline than flash-lite, not immune to it — under a long history it still
 re-proposed a previous event and emitted a stray token.
 
-**The `避` bug was architectural, and it is structurally fixed.** In Phase II
-tools sent Telegram messages themselves mid-turn, set flags on the agent object,
-and the model then had to be *talked into* staying quiet — which is where the
-stray token and the empty markdown fence came from. That is gone: tools return
-effects, `effects/runner.py` is the only code that sends, and ordering is a
-sort. **So stray model output is no longer a reason to avoid any particular
-model.** When a model emits a stray token now it is cosmetic noise in the reply,
-not a message sent out of order, not a write performed without a card, and not a
-turn whose bookkeeping is wrong. Choose the model on extraction accuracy,
-latency and quota — the architecture no longer depends on the model behaving.
+**The `避` bug was two bugs, and they were fixed in two different steps.** The
+distinction matters because the first fix was widely assumed to be the whole
+of it, and it was not.
+
+*The half step 4 killed structurally.* In Phase II tools sent Telegram
+messages themselves mid-turn, set flags on the agent object, and the model
+then had to be *talked into* staying quiet afterward. That is genuinely dead:
+tools return effects, `effects/runner.py` is the only code that sends, and
+ordering is a sort rather than a rule. A tool cannot message the user because
+it has no channel to import.
+
+*The half that survived until step 5.* Suppressing the model's own prose after
+a card was a branch that **only ran when `result.text` was empty**. So the
+invariant "nothing may editorialize on a permission card" was, in the live
+system, being upheld by the model's willingness to stay quiet — exactly the
+arrangement step 4 was supposed to have retired. The code looked correct
+because the only model in use usually did stay quiet. Step 5 made the
+suppression unconditional: prose after a card is now dropped whether or not
+the model produced any (see rule 20).
+
+**How it was found is the part worth keeping.** Nothing in Telegram exposed
+it. The first permission card the *dashboard* ever produced came back with the
+model narrating its own tool call underneath it, in Chinese — visible because
+the dashboard renders a turn's events as a list, where a second bubble under a
+card is obvious, while Telegram's chat flow had been absorbing the same thing
+as just another message. **A second surface rendering the same data
+differently is a test the first surface cannot run**, and this one found a
+live invariant violation that had been shipping for a step and a half. That is
+an argument for building the second surface *earlier* than it feels justified,
+not after the first one is finished.
+
+**What this means for model choice.** Stray model output is still not a reason
+to avoid a particular model — it is cosmetic noise in a reply, not a message
+sent out of order, not a write performed without a card, not a turn whose
+bookkeeping is wrong. Choose on extraction accuracy, latency and quota. But
+the reason that is true is that the suppression is unconditional now; it was
+not true when this section first claimed it.
 
 Blocks worth knowing about:
 - `dispatcher` — `enabled: false` restores pre-dispatcher behavior exactly (all tools, no extra call).
