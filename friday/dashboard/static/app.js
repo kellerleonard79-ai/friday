@@ -1208,18 +1208,133 @@ function renderPeriodCard() {
   });
 }
 
-// After the last bell the card stops being about periods. Commit 5 fills this
-// in with commitments, tonight's work and the free-time math.
+// After the last bell the card stops being about periods and becomes a
+// different thing: what is already spoken for, what is due, and what is left.
+// Three sections ordered by how much choice there is about them.
+
+let AFTER = null;          // last /api/after-school payload
+let AFTER_PENDING = false;
+
+function clockLabel(iso) {
+  try {
+    return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  } catch { return ''; }
+}
+
+function spanLabel(mins) {
+  const a = Math.abs(mins);
+  const h = Math.floor(a / 60), m = a % 60;
+  if (h && m) return `${h}h ${m}m`;
+  if (h) return `${h}h`;
+  return `${m}m`;
+}
+
+async function loadAfterSchool() {
+  if (AFTER_PENDING) return;
+  AFTER_PENDING = true;
+  try {
+    AFTER = await api.get('/api/after-school');
+    AFTER._at = Date.now();
+  } catch { /* keep the last payload rather than blanking the card */ }
+  finally { AFTER_PENDING = false; }
+  renderPeriodCard();
+}
+
 function renderAfterSchool(card) {
+  if (!AFTER) {
+    card.innerHTML = '<div class="pc-head"><span class="pc-eyebrow">After school</span></div>'
+      + '<div class="pc-empty">Loading…</div>';
+    loadAfterSchool();
+    return;
+  }
+
+  const a = AFTER;
+
+  const commitments = a.commitments.length
+    ? `<ul class="pc-work">${a.commitments.map((c) => `
+        <li>
+          <span class="pc-work-title">${escapeHtml(c.title)}${
+            c.location ? ` <span class="pc-loc">${escapeHtml(c.location)}</span>` : ''}</span>
+          <span class="pc-work-due mono">${escapeHtml(clockLabel(c.start))}–${escapeHtml(clockLabel(c.end))}</span>
+        </li>`).join('')}</ul>`
+    : '<div class="pc-empty">Nothing on the calendar.</div>';
+
+  const due = a.due.length
+    ? `<ul class="pc-work">${a.due.map((d) => `
+        <li>
+          <span class="pc-work-title">${escapeHtml(d.title)}${
+            d.course_name ? ` <span class="pc-loc">${escapeHtml(d.course_name)}</span>` : ''}</span>
+          <span class="pc-work-due mono">${escapeHtml(dueLabelFor(d, a))}</span>
+        </li>`).join('')}</ul>`
+    : '<div class="pc-empty">Nothing due tonight or tomorrow.</div>';
+
+  // THE HEADLINE. Negative is the case this card exists for, so it is loud
+  // and it names the overrun rather than showing a minus sign.
+  //
+  // TWO DIFFERENT NEGATIVES, and they are not the same sentence. A commitment
+  // running past bedtime is a scheduling problem; the clock already being
+  // past bedtime is just late. Saying "your last commitment ends 11:07pm"
+  // when there are no commitments is a card describing something that did not
+  // happen, which is how a user learns to stop believing it.
+  let free;
+  if (a.overcommitted && a.commitments.length) {
+    free = `<div class="pc-free over">
+        <span class="pc-free-n">${escapeHtml(spanLabel(a.free_minutes))} past bedtime</span>
+        <span class="pc-free-sub">Your last commitment ends ${escapeHtml(clockLabel(a.free_from))},
+          after your ${escapeHtml(clockLabel(a.bedtime))} bedtime. No free time tonight.</span>
+      </div>`;
+  } else if (a.overcommitted) {
+    free = `<div class="pc-free over">
+        <span class="pc-free-n">${escapeHtml(spanLabel(a.free_minutes))} past bedtime</span>
+        <span class="pc-free-sub">It is ${escapeHtml(clockLabel(a.now))} and bedtime was ${
+          escapeHtml(clockLabel(a.bedtime))}.</span>
+      </div>`;
+  } else {
+    free = `<div class="pc-free">
+        <span class="pc-free-n">${escapeHtml(spanLabel(a.free_minutes))} free</span>
+        <span class="pc-free-sub">From ${escapeHtml(clockLabel(a.free_from))} to ${
+          escapeHtml(clockLabel(a.bedtime))}${
+          a.committed_minutes ? `, after ${escapeHtml(spanLabel(a.committed_minutes))} of commitments` : ''}.</span>
+      </div>`;
+  }
+
   card.innerHTML = `
-    <div class="pc-head"><span class="pc-eyebrow">After school</span></div>
-    <div class="pc-course">School's out.</div>
+    <div class="pc-head">
+      <span class="pc-eyebrow">After school</span>
+      <span class="pc-letter">${escapeHtml(clockLabel(a.now))}</span>
+    </div>
+    ${free}
+    <div class="pc-section">
+      <div class="pc-section-h">Fixed commitments</div>
+      ${commitments}
+      ${a.calendar_error ? `<div class="pc-stale">Calendar unavailable — ${escapeHtml(a.calendar_error)}</div>` : ''}
+    </div>
+    <div class="pc-section">
+      <div class="pc-section-h">Due tonight or tomorrow</div>
+      ${due}
+    </div>
     <div class="pc-nav">
-      <button class="btn btn-outline" data-pc="back">Look at today's periods</button>
-    </div>`;
+      <button class="icon-btn" data-pc="reload" title="Refresh">⟳</button>
+      <span class="pc-dots"></span>
+      <button class="btn btn-outline pc-now" data-pc="back">Today's periods</button>
+    </div>
+    ${staleNotice()}
+  `;
+
   card.querySelector('[data-pc="back"]').onclick = () => {
     VIEW_INDEX = 0; VIEW_AT = Date.now(); renderPeriodCard();
   };
+  card.querySelector('[data-pc="reload"]').onclick = () => loadAfterSchool();
+}
+
+// The after-school payload carries its own `today`, so dueLabel's SCHED-based
+// relative math is given the right anchor rather than assuming one is loaded.
+function dueLabelFor(d, payload) {
+  const saved = SCHED;
+  try {
+    SCHED = SCHED || { today: (payload.now || '').slice(0, 10), courses: {}, assignments_by_course: {} };
+    return dueLabel(d);
+  } finally { SCHED = saved; }
 }
 
 // Said out loud rather than shown silently: a card confidently rendering
@@ -1240,15 +1355,29 @@ async function loadSchedule() {
 }
 
 function startPeriodCard() {
+  AFTER = null;          // a stale free-time number is worse than a spinner
   loadSchedule();
   if (PERIOD_TIMER) clearInterval(PERIOD_TIMER);
   // Local math only — no request. Twenty seconds is under the smallest
   // meaningful unit the card shows (a minute) without being a busy loop.
-  PERIOD_TIMER = setInterval(renderPeriodCard, 20000);
+  PERIOD_TIMER = setInterval(() => {
+    renderPeriodCard();
+    // The free-time math counts down against the wall clock, so it does need
+    // periodic re-reading — but every five minutes, not every tick.
+    if (AFTER && Date.now() - (AFTER._at || 0) > 300000) {
+      AFTER._at = Date.now();
+      loadAfterSchool();
+    }
+  }, 20000);
 }
 
 // Canvas moved. Re-read rather than trusting the event to carry the data.
-onStream('canvas', () => { if (CURRENT_ROUTE === 'today') loadSchedule(); });
+// Both payloads: the after-school card's due list comes from the same cache.
+onStream('canvas', () => {
+  if (CURRENT_ROUTE !== 'today') return;
+  loadSchedule();
+  if (AFTER) loadAfterSchool();
+});
 
 // ── Schedule ───────────────────────────────────────────────────────────
 //

@@ -1279,6 +1279,106 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
             "cache": canvas_connector.cache_status(conn),
         }
 
+    @app.get("/api/after-school")
+    def api_after_school() -> dict:
+        """The card the period card becomes after the last bell.
+
+        Three sections, ordered by how much choice there is about them: fixed
+        commitments, then what is due, then what is left. The last one is the
+        point — "you have 90 minutes" is the thing currently discovered at
+        11pm.
+        """
+        from connectors import canvas as canvas_connector
+        cfg = _load_config(config_path)
+        sched = cfg.get("schedule") or {}
+        now = datetime.now()
+        today = now.date()
+
+        bedtime_raw = str(sched.get("bedtime") or "23:00")
+        try:
+            bh, bm = (int(x) for x in bedtime_raw.split(":", 1))
+            bedtime = now.replace(hour=bh, minute=bm, second=0, microsecond=0)
+        except ValueError:
+            bedtime = now.replace(hour=23, minute=0, second=0, microsecond=0)
+
+        # ── Fixed commitments: the same read the model uses ───────────────────
+        # get_schedule is the registered tool; the decorator returns the
+        # function unchanged, so this is the one calendar read path rather
+        # than a second one that could disagree with it. Extracurriculars are
+        # ordinary calendar events and need no model of their own.
+        commitments: list[dict] = []
+        cal_error = ""
+        try:
+            from tools.calendar_read import get_schedule
+            from tools.types import ToolError as _ToolError
+            out = get_schedule(date_from=today.isoformat(),
+                               date_to=today.isoformat())
+            if isinstance(out, _ToolError):
+                cal_error = out.message
+            else:
+                for e in out.data.get("events", []):
+                    if e.get("all_day"):
+                        continue        # an all-day event blocks no time
+                    try:
+                        start = datetime.fromisoformat(e["start"])
+                        end = datetime.fromisoformat(e["end"])
+                    except (ValueError, KeyError):
+                        continue
+                    if end <= now:
+                        continue        # already over
+                    commitments.append({
+                        "title": e.get("title", ""),
+                        "calendar": e.get("calendar", ""),
+                        "location": e.get("location", ""),
+                        "start": start.isoformat(timespec="minutes"),
+                        "end": end.isoformat(timespec="minutes"),
+                        "minutes": int((end - start).total_seconds() // 60),
+                    })
+        except Exception as e:
+            cal_error = str(e)
+            logger.debug(f"after-school calendar read failed: {e}")
+        commitments.sort(key=lambda c: c["start"])
+
+        # ── Due tonight or tomorrow ───────────────────────────────────────────
+        tomorrow = today + timedelta(days=1)
+        due = [a for a in canvas_connector.assignments(
+                   conn, due_after=today.isoformat(),
+                   due_before=tomorrow.isoformat() + "T23:59:59", limit=100)
+               if not a.get("submitted")]
+        courses = {c["id"]: c for c in canvas_connector.courses(conn)}
+        for a in due:
+            c = courses.get(str(a["course_id"]))
+            a["course_name"] = c["name"] if c else ""
+
+        # ── The free-time math ────────────────────────────────────────────────
+        #
+        # MEASURED FROM THE END OF THE LAST COMMITMENT, not from now and not
+        # from the final bell. "You have four hours" is wrong if practice runs
+        # until 5:30, and it is wrong in the direction that gets someone to
+        # 11pm with the work not started.
+        last_end = now
+        for c in commitments:
+            end = datetime.fromisoformat(c["end"])
+            if end > last_end:
+                last_end = end
+        free_minutes = int((bedtime - last_end).total_seconds() // 60)
+        committed = sum(c["minutes"] for c in commitments)
+
+        return {
+            "now": now.isoformat(timespec="minutes"),
+            "bedtime": bedtime.isoformat(timespec="minutes"),
+            "commitments": commitments,
+            "calendar_error": cal_error,
+            "due": due,
+            "free_minutes": free_minutes,
+            "free_from": last_end.isoformat(timespec="minutes"),
+            "committed_minutes": committed,
+            # Stated rather than left for the client to infer from a sign: the
+            # negative case is the single most useful thing this card reports.
+            "overcommitted": free_minutes < 0,
+            "cache": canvas_connector.cache_status(conn),
+        }
+
     @app.post("/api/schedule/override")
     def api_schedule_override(payload: dict = Body(default={})) -> dict:
         """Force today's letter, or clear the force.
