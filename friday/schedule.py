@@ -7,11 +7,32 @@ queries anything, or writes anything — `now` and `today` are passed in, the
 same rule policy/ follows and for the same reason: a rotation bug that only
 reproduces at 07:58 on the third Tuesday is not one you can test by waiting.
 
-WHY SCHOOL-DAY COUNTING AND NOT DATE PARITY. An A/B rotation advances once per
-day the school is open. Parity on the ordinal date breaks the first weekend it
-meets — Friday A, Monday would be A again on a two-day parity — and breaks
-again on every holiday. Counting weekdays elapsed since a known A day is
-correct across weekends by construction.
+WHY SCHOOL-DAY COUNTING AND NOT DATE PARITY — AND AN HONEST CORRECTION.
+
+This was first written down claiming date parity "breaks the first weekend it
+meets". THAT IS FALSE, and the check is in tests/test_schedule.py: over 400
+days there are ZERO divergences between counting school days and calendar
+parity for a two-letter pattern. A weekend is two days, an even skip, so
+parity survives it untouched. The intuition was wrong and the test that was
+supposed to prove it was asserting the right answer for the wrong reason.
+
+What counting school days actually buys, measured over the same 400 days:
+
+    pattern length 2  →   0 divergences from parity
+    pattern length 3  → 190
+    pattern length 4  → 141
+
+So it is the model that stays correct if `pattern` is ever something other
+than [A, B] — which is a config key, so it can be. For A/B specifically it
+agrees with parity everywhere, and is kept because it is the model that
+matches how a rotation is actually described rather than a coincidence about
+even numbers that nobody would notice breaking.
+
+NEITHER APPROACH SURVIVES A HOLIDAY. A one-day closure shifts the true count
+by one and both methods miss it identically — verified in the tests against
+an inserted Labor Day. That is not an argument for a holiday calendar (see
+below); it is the reason MANUAL OVERRIDE is the load-bearing part of this
+module and not a convenience.
 
 There is no holiday calendar and there must not be one, deliberately: a wrong
 holiday list is worse than none (it desynchronises silently and nobody knows

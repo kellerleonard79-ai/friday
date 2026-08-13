@@ -4,10 +4,16 @@ The bell schedule and the A/B rotation. Plain asserts, no test framework.
 
     python3 tests/test_schedule.py     (from the friday/ package directory)
 
-THE ROTATION IS THE REASON THIS FILE EXISTS. Date parity looks correct for
-four days and then meets a weekend, and the failure is silent: the card says
-"B day", the user walks into A-day Biology, and nothing anywhere logs an
-error. Every weekend and multi-week case below is one that parity gets wrong.
+THE ROTATION IS THE REASON THIS FILE EXISTS, and the first version of this
+docstring was wrong about why. It claimed the weekend cases below are ones
+"parity gets wrong". They are not — see the divergence block at the bottom,
+which proves parity and school-day counting agree everywhere for a two-letter
+pattern, because a weekend is an even skip.
+
+The weekend cases are still worth asserting: they pin the behavior that is
+correct, whatever the reason it is correct. What actually justifies the
+counter is pattern length, and what actually breaks both is a holiday. Both
+are measured at the bottom rather than asserted from intuition.
 """
 
 import sys
@@ -74,8 +80,9 @@ check("and back to A", schedule.letter_for(live, WED) == "A")
 check("Thursday is B", schedule.letter_for(live, THU) == "B")
 check("Friday is A", schedule.letter_for(live, FRI) == "A")
 
-# The whole point: Friday A → Monday B. Parity would say Monday is A.
-check("MONDAY AFTER A FRIDAY-A IS B (parity says A)",
+# Friday A → Monday B. (Calendar parity happens to agree here; see the
+# divergence block at the bottom. Asserted anyway — it is the right answer.)
+check("Monday after a Friday-A is B",
       schedule.letter_for(live, NEXT_MON) == "B")
 
 check("Saturday has no letter", schedule.letter_for(live, SAT) is None)
@@ -187,6 +194,60 @@ check("ensure never overwrites a set value",
       and len(kept["schedule"]["periods"]) == 1)
 check("ensure backfills a missing ab_cycle",
       kept["schedule"]["ab_cycle"]["pattern"] == ["A", "B"])
+
+# ── What the counter is actually worth ───────────────────────────────────────
+#
+# MEASURED, NOT ASSUMED. The original claim here was that calendar parity
+# "breaks the first weekend it meets". It does not: a weekend is two days, an
+# even skip, so parity survives it. These assertions record what is true so
+# the wrong reason cannot be reintroduced by someone reading the weekend
+# cases above and inferring the old story.
+
+from datetime import timedelta                                   # noqa: E402
+
+ANCHOR = date(2026, 8, 10)
+
+
+def divergences(pattern_len: int, days: int = 400) -> int:
+    n = 0
+    for i in range(days):
+        d = ANCHOR + timedelta(days=i)
+        if not schedule.is_school_day(d):
+            continue
+        if (schedule.school_days_since(ANCHOR, d) % pattern_len
+                != (d - ANCHOR).days % pattern_len):
+            n += 1
+    return n
+
+
+check("A/B: school-day counting and calendar parity NEVER diverge "
+      "(a weekend is an even skip)", divergences(2) == 0)
+check("a 3-letter pattern diverges constantly — this is what the counter buys",
+      divergences(3) > 100)
+check("a 4-letter pattern too", divergences(4) > 100)
+
+
+def school_days_minus_holidays(start, today, holidays):
+    n, d = 0, start
+    while d < today:
+        if schedule.is_school_day(d) and d not in holidays:
+            n += 1
+        d += timedelta(days=1)
+    return n
+
+
+# A one-day closure shifts the true count by one, and BOTH methods miss it
+# identically. This is the argument for the manual override, and the argument
+# against pretending a holiday calendar would be maintained.
+LABOR_DAY = {date(2026, 9, 7)}
+AFTER_HOLIDAY = date(2026, 9, 8)
+check("a one-day holiday desynchronises the weekday counter",
+      school_days_minus_holidays(ANCHOR, AFTER_HOLIDAY, LABOR_DAY) % 2
+      != schedule.school_days_since(ANCHOR, AFTER_HOLIDAY) % 2)
+check("...and calendar parity misses it in exactly the same way",
+      schedule.school_days_since(ANCHOR, AFTER_HOLIDAY) % 2
+      == (AFTER_HOLIDAY - ANCHOR).days % 2)
+
 
 # The module decides and acts on nothing — same contract as policy/.
 src = Path(schedule.__file__).read_text()
