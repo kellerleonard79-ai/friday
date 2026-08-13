@@ -1385,3 +1385,154 @@ select.input {
 .sched-row .input { max-width: 220px; }
 
 .hint .warn { color: var(--danger); }
+
+/* ── Period card ────────────────────────────────────────────────────────── */
+
+.period-card {
+  border-color: var(--border-strong);
+  background: linear-gradient(160deg, var(--panel-2), var(--panel));
+}
+
+.pc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.pc-eyebrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.pc-letter {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--teal);
+  border: 1px solid var(--teal-dim);
+  border-radius: 3px;
+  padding: 2px 8px;
+}
+
+/* A forced letter is visually distinct from a counted one — the user needs to
+   know the card is showing what they told it, not what it worked out. */
+.pc-letter.forced {
+  color: var(--orange-bright);
+  border-color: var(--border-strong);
+}
+
+.pc-course {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 25px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.15;
+  margin-bottom: 10px;
+}
+
+.pc-course-sm {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin-bottom: 4px;
+}
+
+.pc-course.pc-none, .pc-none { color: var(--muted-2); font-weight: 400; }
+
+.pc-timing {
+  font-size: 12px;
+  color: var(--orange-soft);
+  letter-spacing: 0.06em;
+  margin-top: 10px;
+}
+
+.pc-work { list-style: none; margin: 0; padding: 0; }
+
+.pc-work li {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+  color: var(--text-2);
+}
+
+.pc-work li:last-child { border-bottom: none; }
+.pc-work li.done { opacity: 0.5; text-decoration: line-through; }
+.pc-work-title { min-width: 0; }
+.pc-work-due { color: var(--muted); font-size: 11px; white-space: nowrap; }
+
+.pc-empty { color: var(--muted-2); font-size: 13px; font-style: italic; }
+
+.pc-unresolved {
+  color: var(--orange-bright);
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+
+.pc-alts { display: grid; gap: 12px; }
+
+.pc-alt {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 10px;
+  align-items: start;
+}
+
+.pc-alt-letter {
+  color: var(--teal);
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--teal-dim);
+  border-radius: 3px;
+  text-align: center;
+  padding: 1px 0;
+}
+
+.pc-alt-body { min-width: 0; }
+
+.pc-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.pc-dots { display: flex; gap: 5px; flex: 1; }
+
+.pc-dot {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--muted-2);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  width: 19px;
+  text-align: center;
+  line-height: 17px;
+}
+
+.pc-dot.on {
+  color: var(--bg);
+  background: var(--orange);
+  border-color: var(--orange);
+  font-weight: 500;
+}
+
+.pc-nav .pc-now { padding: 4px 10px; font-size: 12px; }
+
+.pc-stale {
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--danger);
+  font-family: 'JetBrains Mono', monospace;
+}

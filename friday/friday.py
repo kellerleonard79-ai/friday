@@ -348,6 +348,25 @@ def main() -> None:
 
     # ── Poll connectors job ───────────────────────────────────────────────────
 
+    def _publish_dashboard(app, event: dict) -> None:
+        """Push one event to any attached browser, if a dashboard is running.
+
+        Best-effort by construction: the dashboard is optional (it may have
+        failed to start, and friday.py carries on when it does), so every hop
+        to it is guarded. A poll must never fail because nobody is looking.
+        """
+        try:
+            server = app.bot_data.get("dashboard_server")
+            if server is None:
+                return
+            # config.app is the FastAPI instance as handed to uvicorn.
+            # config.loaded_app is that same app wrapped in middleware, which
+            # has no .state — reaching through it is how this goes silently
+            # dead the first time it is refactored.
+            server.config.app.state.broadcaster.publish(event)
+        except Exception as e:
+            logger.debug(f"dashboard publish skipped: {e}")
+
     async def poll_connectors_job(context) -> None:
         logger.info("Polling connectors...")
         loop = asyncio.get_running_loop()
@@ -388,6 +407,14 @@ def main() -> None:
                     f"rest={'ok' if cache['rest_ok'] else 'unavailable'}"
                     + (f" — {cache['error']}" if cache["error"] else "")
                 )
+                # Tell any open dashboard that the numbers moved. A NUDGE, NOT
+                # A PAYLOAD: the browser re-reads /api/schedule, which is the
+                # same thing it does on load, so there is one code path that
+                # fills the card and no chance of the stream and the endpoint
+                # disagreeing. Consistent with stream.py — the stream is not
+                # the record.
+                _publish_dashboard(app, {"kind": "canvas",
+                                         "refreshed_at": cache.get("refreshed_at", "")})
             except Exception as e:
                 logger.error(f"Canvas poll failed: {e}")
 

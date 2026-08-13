@@ -59,6 +59,12 @@
       <h1>TODAY</h1>
     </header>
 
+    <!-- The period card. Filled entirely by app.js, which computes the
+         current period from the browser's own clock — see renderPeriodCard.
+         Empty here on purpose: a placeholder rendered in markup would flash
+         the wrong period for one frame on every page load. -->
+    <section class="panel period-card" id="period-card" hidden></section>
+
     <section class="panel today-hero">
       <div class="hero-indicator">
         <div class="pulse" id="hero-pulse"></div>

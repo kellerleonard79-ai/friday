@@ -424,7 +424,7 @@ def refresh(config: dict, conn: sqlite3.Connection) -> dict:
     cfg = config.get("canvas") or {}
     now_iso = datetime.now().isoformat(timespec="seconds")
     result = {"ical_ok": False, "rest_ok": False, "courses": 0,
-              "assignments": 0, "error": ""}
+              "assignments": 0, "error": "", "refreshed_at": now_iso}
 
     # ── Layer 1: iCal. Works with a dead token. ───────────────────────────────
     ical_url = (cfg.get("ical_url") or "").strip()

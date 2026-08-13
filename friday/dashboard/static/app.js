@@ -122,6 +122,7 @@ function navigate(route) {
   if (STATUS_TIMER) { clearInterval(STATUS_TIMER); STATUS_TIMER = null; }
   if (VOICE_TIMER) { clearInterval(VOICE_TIMER); VOICE_TIMER = null; }
   if (CHAT_PENDING_TIMER) { clearInterval(CHAT_PENDING_TIMER); CHAT_PENDING_TIMER = null; }
+  if (PERIOD_TIMER) { clearInterval(PERIOD_TIMER); PERIOD_TIMER = null; }
   document.querySelectorAll('.nav-item').forEach((a) => {
     a.classList.toggle('active', a.dataset.route === route);
   });
@@ -195,6 +196,12 @@ function renderToday() {
   const heroText = document.getElementById('hero-status');
   const heroPulse = document.getElementById('hero-pulse');
   const pauseBtn = document.getElementById('pause-btn');
+
+  // The period card runs on its own timer and its own data. It is first on
+  // the page because it is the thing being looked up, not the thing being
+  // monitored.
+  VIEW_INDEX = null;
+  startPeriodCard();
 
   // Static action handlers (bound once; tick() only refreshes data).
   // The endpoint composes the briefing before it answers — an LLM round-trip,
@@ -975,6 +982,273 @@ function renderGroupCards(remote) {
     container.appendChild(card);
   }
 }
+
+// ── Period card ────────────────────────────────────────────────────────
+//
+// THE BROWSER OWNS THE CLOCK. The server sends the schedule, today's letter
+// and the assignments — facts that change at most once a day — and never
+// "which period is it now". Everything below computes that locally, so the
+// card stays correct with the daemon unreachable, which on school Wi-Fi is
+// most of the day. A card that needed a round trip to know it is 4th period
+// would be blank for exactly the seven hours it is most wanted.
+//
+// Assignment data arrives on the stream as a NUDGE — the server says Canvas
+// moved, the browser re-reads /api/schedule. One code path fills the card.
+
+let SCHED = null;          // last /api/schedule payload
+let PERIOD_TIMER = null;
+let VIEW_INDEX = null;     // manual override: an index into SCHED.periods
+let VIEW_AT = 0;           // when the manual view was chosen (ms)
+
+// A laptop left open must not sit on 2nd period at 3pm.
+const VIEW_RETURN_MS = 120000;
+
+function hhmmToMin(s) {
+  if (!s) return null;
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(s).trim());
+  if (!m) return null;
+  const h = +m[1], mm = +m[2];
+  if (h > 23 || mm > 59) return null;
+  return h * 60 + mm;
+}
+
+function minToLabel(mins) {
+  const h = Math.floor(mins / 60), m = mins % 60;
+  const ampm = h >= 12 ? 'pm' : 'am';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2, '0')}${ampm}`;
+}
+
+function fmtLeft(mins) {
+  if (mins <= 0) return 'ending now';
+  if (mins < 60) return `${mins} min left`;
+  const h = Math.floor(mins / 60);
+  return `${h}h ${mins % 60}m left`;
+}
+
+// Where the clock is. Mirrors schedule.py::current_period — see the note
+// there on why the same answer exists on both sides.
+function locateNow(periods, nowMin) {
+  const timed = periods
+    .map((p, i) => ({ p, i, s: hhmmToMin(p.start), e: hhmmToMin(p.end) }))
+    .filter((x) => x.s != null && x.e != null)
+    .sort((a, b) => a.s - b.s);
+  if (!timed.length) return { state: 'no_periods' };
+  if (nowMin < timed[0].s) return { state: 'before', next: timed[0] };
+  for (let k = 0; k < timed.length; k++) {
+    const cur = timed[k];
+    if (nowMin >= cur.s && nowMin < cur.e) {
+      return { state: 'in_period', cur, next: timed[k + 1] || null };
+    }
+    const nxt = timed[k + 1];
+    if (nxt && nowMin >= cur.e && nowMin < nxt.s) {
+      return { state: 'passing', prev: cur, next: nxt };
+    }
+  }
+  return { state: 'after' };
+}
+
+function courseName(id) {
+  if (!SCHED || id == null) return null;
+  const c = SCHED.courses[String(id)];
+  return c ? (c.name || '') : null;
+}
+
+// Upcoming work for one course. Undated items are kept — "no due date" is a
+// real state and dropping it would hide an assignment entirely.
+function courseWork(id, limit = 4) {
+  if (!SCHED || id == null) return [];
+  return (SCHED.assignments_by_course[String(id)] || []).slice(0, limit);
+}
+
+function dueLabel(a) {
+  if (!a.due_at) return 'no due date';
+  const today = SCHED ? SCHED.today : null;
+  const day = String(a.due_at).slice(0, 10);
+  let rel = day;
+  if (today) {
+    const d = Math.round(
+      (Date.parse(`${day}T00:00:00`) - Date.parse(`${today}T00:00:00`)) / 86400000);
+    if (d === 0) rel = 'today';
+    else if (d === 1) rel = 'tomorrow';
+    else if (d > 1 && d < 7) rel = `in ${d} days`;
+  }
+  // has_due_time is false for everything the iCal layer produced. Rendering a
+  // date as a time would invent midnight — see memory/db.py on that column.
+  if (a.has_due_time) {
+    try {
+      const t = new Date(a.due_at)
+        .toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      return `${rel} ${t}`;
+    } catch { /* fall through to the bare day */ }
+  }
+  return rel;
+}
+
+function workList(id) {
+  const work = courseWork(id);
+  if (!work.length) {
+    // Early in a semester most courses are empty. Say so — a blank slot reads
+    // as a card that failed to load.
+    return '<div class="pc-empty">Nothing posted.</div>';
+  }
+  return `<ul class="pc-work">${work.map((a) => `
+    <li${a.submitted ? ' class="done"' : ''}>
+      <span class="pc-work-title">${escapeHtml(a.title)}</span>
+      <span class="pc-work-due mono">${escapeHtml(dueLabel(a))}</span>
+    </li>`).join('')}</ul>`;
+}
+
+// One period's body: the course (or both, or none) plus its work.
+function periodBody(p) {
+  if (p.alternating && !p.resolved) {
+    const both = (p.alternates || []).map((a) => {
+      const n = courseName(a.course_id);
+      return `
+        <div class="pc-alt">
+          <span class="pc-alt-letter mono">${escapeHtml(a.letter)}</span>
+          <div class="pc-alt-body">
+            <div class="pc-course-sm">${n ? escapeHtml(n) : '<span class="pc-none">unassigned</span>'}</div>
+            ${n ? workList(a.course_id) : ''}
+          </div>
+        </div>`;
+    }).join('');
+    return `
+      <div class="pc-unresolved">Rotation not set — showing both.</div>
+      <div class="pc-alts">${both}</div>`;
+  }
+  const name = courseName(p.course_id);
+  if (!name) {
+    return '<div class="pc-course pc-none">No course assigned</div>'
+      + '<div class="pc-empty">Set one on the Schedule page.</div>';
+  }
+  return `<div class="pc-course">${escapeHtml(name)}</div>${workList(p.course_id)}`;
+}
+
+function renderPeriodCard() {
+  const card = document.getElementById('period-card');
+  if (!card) return;
+  if (!SCHED || !(SCHED.periods || []).length) { card.hidden = true; return; }
+  card.hidden = false;
+
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const periods = SCHED.periods;
+
+  // A manual view expires on its own so the card returns to the truth.
+  if (VIEW_INDEX != null && Date.now() - VIEW_AT > VIEW_RETURN_MS) VIEW_INDEX = null;
+
+  const loc = locateNow(periods, nowMin);
+
+  // After the last bell the card becomes a different thing entirely.
+  if (VIEW_INDEX == null && loc.state === 'after') {
+    renderAfterSchool(card);
+    return;
+  }
+
+  let shown = null;      // the period object being displayed
+  let eyebrow = '';
+  let timing = '';
+
+  if (VIEW_INDEX != null) {
+    shown = periods[VIEW_INDEX];
+    eyebrow = `Period ${shown.n}`;
+    timing = `${minToLabel(hhmmToMin(shown.start))} – ${minToLabel(hhmmToMin(shown.end))}`;
+  } else if (loc.state === 'in_period') {
+    shown = loc.cur.p;
+    eyebrow = `Period ${shown.n}`;
+    timing = `${fmtLeft(loc.cur.e - nowMin)} · ends ${minToLabel(loc.cur.e)}`;
+  } else if (loc.state === 'passing') {
+    shown = loc.next.p;
+    eyebrow = 'Passing time';
+    timing = `Period ${shown.n} starts in ${loc.next.s - nowMin} min`;
+  } else if (loc.state === 'before') {
+    shown = loc.next.p;
+    eyebrow = 'Before first bell';
+    timing = `Period ${shown.n} starts at ${minToLabel(loc.next.s)}`;
+  }
+
+  if (!shown) { card.hidden = true; return; }
+
+  const idx = periods.indexOf(shown);
+  const letter = SCHED.letter
+    ? `<span class="pc-letter ${SCHED.letter_source === 'override' ? 'forced' : ''}">${
+        escapeHtml(SCHED.letter)} DAY</span>`
+    : '';
+  const stale = staleNotice();
+
+  card.innerHTML = `
+    <div class="pc-head">
+      <span class="pc-eyebrow">${escapeHtml(eyebrow)}</span>
+      ${letter}
+    </div>
+    ${periodBody(shown)}
+    <div class="pc-timing mono">${escapeHtml(timing)}</div>
+    <div class="pc-nav">
+      <button class="icon-btn" data-pc="prev" ${idx <= 0 ? 'disabled' : ''}>‹</button>
+      <span class="pc-dots">${periods.map((p, i) =>
+        `<span class="pc-dot${i === idx ? ' on' : ''}">${escapeHtml(String(p.n))}</span>`).join('')}</span>
+      <button class="icon-btn" data-pc="next" ${idx >= periods.length - 1 ? 'disabled' : ''}>›</button>
+      ${VIEW_INDEX != null ? '<button class="btn btn-outline pc-now" data-pc="now">Back to now</button>' : ''}
+    </div>
+    ${stale}
+  `;
+
+  card.querySelectorAll('[data-pc]').forEach((b) => {
+    b.onclick = () => {
+      const act = b.dataset.pc;
+      if (act === 'now') { VIEW_INDEX = null; }
+      else {
+        VIEW_INDEX = Math.max(0, Math.min(periods.length - 1,
+          idx + (act === 'next' ? 1 : -1)));
+        VIEW_AT = Date.now();
+      }
+      renderPeriodCard();
+    };
+  });
+}
+
+// After the last bell the card stops being about periods. Commit 5 fills this
+// in with commitments, tonight's work and the free-time math.
+function renderAfterSchool(card) {
+  card.innerHTML = `
+    <div class="pc-head"><span class="pc-eyebrow">After school</span></div>
+    <div class="pc-course">School's out.</div>
+    <div class="pc-nav">
+      <button class="btn btn-outline" data-pc="back">Look at today's periods</button>
+    </div>`;
+  card.querySelector('[data-pc="back"]').onclick = () => {
+    VIEW_INDEX = 0; VIEW_AT = Date.now(); renderPeriodCard();
+  };
+}
+
+// Said out loud rather than shown silently: a card confidently rendering
+// hours-old homework is worse than one that admits its age.
+function staleNotice() {
+  const c = (SCHED && SCHED.cache) || {};
+  if (!c.refreshed_at) return '';
+  const age = (Date.now() - Date.parse(c.refreshed_at)) / 60000;
+  if (!(age > 45)) return '';
+  return `<div class="pc-stale">Canvas last read ${escapeHtml(fmtRelative(c.refreshed_at))}.</div>`;
+}
+
+async function loadSchedule() {
+  try {
+    SCHED = await api.get('/api/schedule');
+  } catch { /* keep the last payload; the card keeps working offline */ }
+  renderPeriodCard();
+}
+
+function startPeriodCard() {
+  loadSchedule();
+  if (PERIOD_TIMER) clearInterval(PERIOD_TIMER);
+  // Local math only — no request. Twenty seconds is under the smallest
+  // meaningful unit the card shows (a minute) without being a busy loop.
+  PERIOD_TIMER = setInterval(renderPeriodCard, 20000);
+}
+
+// Canvas moved. Re-read rather than trusting the event to carry the data.
+onStream('canvas', () => { if (CURRENT_ROUTE === 'today') loadSchedule(); });
 
 // ── Schedule ───────────────────────────────────────────────────────────
 //
