@@ -1198,6 +1198,121 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
         _publish_pending(broadcaster, pid, "cancelled")
         return {"ok": True, "status": "cancelled", "events": channel.events}
 
+    # ── Schedule and the period card ─────────────────────────────────────────
+    #
+    # THE SERVER ANSWERS WHAT IT KNOWS AND THE BROWSER ANSWERS WHAT TIME IT IS.
+    # This endpoint returns the schedule, today's letter and the assignments —
+    # facts that change at most once a day — and never "which period is it
+    # now". The client computes that from the clock it already has, so the card
+    # stays correct when the daemon is unreachable, which on school Wi-Fi is
+    # most of the day. See app.js's period card for the other half.
+
+    @app.get("/api/canvas/courses")
+    def api_canvas_courses() -> dict:
+        """The cached course list for the picker. Reads SQLite, never Canvas —
+        see connectors/canvas.py on why the network is poll-cycle only."""
+        from connectors import canvas as canvas_connector
+        return {
+            "courses": canvas_connector.courses(conn),
+            "cache": canvas_connector.cache_status(conn),
+        }
+
+    @app.get("/api/schedule")
+    def api_schedule() -> dict:
+        """Everything the period card needs except the current time.
+
+        Assignments come back grouped by course id so the card can render a
+        period without scanning a flat list, and every course the schedule
+        names gets a key even when it has nothing posted — an empty list is
+        "nothing posted yet", which early in a semester is most of them, and
+        a missing key is indistinguishable from a bug.
+        """
+        from connectors import canvas as canvas_connector
+        cfg = _load_config(config_path)
+        sched = cfg.get("schedule") or {}
+        today = date.today()
+        letter = schedule.letter_for(sched, today)
+
+        cycle = sched.get("ab_cycle") or {}
+        override = cycle.get("manual_override")
+        override_live = bool(override) and (
+            not cycle.get("manual_override_date")
+            or str(cycle.get("manual_override_date")) == today.isoformat())
+        if override_live:
+            source = "override"
+        elif letter:
+            source = "counted"
+        else:
+            source = "unresolved"
+
+        courses = {c["id"]: c for c in canvas_connector.courses(conn)}
+        periods = schedule.periods_with_courses(sched, letter)
+
+        # Every course id the schedule mentions, resolved or not — an
+        # unresolved alternating period needs both of its courses' work.
+        named: set[str] = set()
+        for p in periods:
+            if p.get("course_id"):
+                named.add(str(p["course_id"]))
+            for a in p.get("alternates") or []:
+                if a.get("course_id"):
+                    named.add(str(a["course_id"]))
+
+        by_course: dict[str, list] = {cid: [] for cid in named}
+        if named:
+            horizon = (today + timedelta(days=21)).isoformat()
+            for a in canvas_connector.assignments(
+                conn, course_ids=sorted(named),
+                due_after=today.isoformat(), due_before=horizon, limit=500,
+            ):
+                by_course.setdefault(str(a["course_id"]), []).append(a)
+
+        return {
+            "schedule": sched,
+            "today": today.isoformat(),
+            "is_school_day": schedule.is_school_day(today),
+            "letter": letter,
+            "letter_source": source,
+            "periods": periods,
+            "courses": courses,
+            "assignments_by_course": by_course,
+            "cache": canvas_connector.cache_status(conn),
+        }
+
+    @app.post("/api/schedule/override")
+    def api_schedule_override(payload: dict = Body(default={})) -> dict:
+        """Force today's letter, or clear the force.
+
+        THE DATE IS STAMPED HERE, NOT SUPPLIED BY THE CALLER. An override is
+        only ever for today; letting a client name the day would be letting it
+        set one that never expires, which is the failure the expiry exists to
+        prevent.
+        """
+        letter = payload.get("letter")
+        cfg = _load_config(config_path)
+        sched = cfg.setdefault("schedule", {})
+        cycle = sched.setdefault("ab_cycle", {})
+        pattern = [str(p).upper() for p in (cycle.get("pattern") or ["A", "B"])]
+
+        if letter in (None, "", "clear"):
+            cycle["manual_override"] = None
+            cycle["manual_override_date"] = None
+        else:
+            letter = str(letter).strip().upper()
+            if letter not in pattern:
+                raise HTTPException(
+                    400, f"{letter!r} is not one of {pattern}.")
+            cycle["manual_override"] = letter
+            cycle["manual_override_date"] = date.today().isoformat()
+
+        try:
+            _save_config_atomic(config_path, cfg)
+        except Exception as e:
+            raise HTTPException(500, f"Could not write config: {e}")
+        return {"ok": True,
+                "letter": schedule.letter_for(sched, date.today()),
+                "override": cycle["manual_override"]}
+
     @app.post("/api/test/canvas")
     def api_test_canvas() -> dict:
         cfg = _load_config(config_path)

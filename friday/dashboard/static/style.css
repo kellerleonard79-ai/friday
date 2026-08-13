@@ -1304,3 +1304,84 @@ select.input {
   .sidebar { padding-top: calc(24px + env(safe-area-inset-top)); }
   #page    { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
 }
+
+/* ── Schedule page ──────────────────────────────────────────────────────── */
+
+.course-list { margin-top: 10px; }
+
+.course-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin-bottom: 6px;
+  background: var(--panel-2);
+}
+
+.course-row .course-name { color: var(--text-2); font-size: 14px; }
+.course-row .course-code {
+  color: var(--teal);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+.course-row .course-id { color: var(--muted-2); font-size: 11px; }
+
+/* The period grid. Times are fixed-width so the seven rows line up as a
+   column you can read down, which is the whole point of the setup page. */
+.period-row {
+  display: grid;
+  grid-template-columns: 28px 110px 12px 110px 1fr;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+}
+
+/* The alternating periods are marked in the setup UI as well as on the card —
+   they are the two the user has to think about twice. */
+.period-row.alternating {
+  border-color: var(--border);
+  background: var(--panel-2);
+}
+
+.period-row .period-n {
+  color: var(--orange);
+  font-size: 15px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.period-row .period-dash { color: var(--muted-2); text-align: center; }
+
+.period-courses {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.period-courses .period-course { flex: 1; min-width: 0; }
+
+.alt-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--teal);
+  letter-spacing: 0.1em;
+}
+
+.sched-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.sched-row .field-label { margin: 0; white-space: nowrap; }
+.sched-row .input { max-width: 220px; }
+
+.hint .warn { color: var(--danger); }

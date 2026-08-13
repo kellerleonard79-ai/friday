@@ -106,6 +106,7 @@ const ROUTES = {
   ai: renderAI,
   persona: renderPersona,
   integrations: renderIntegrations,
+  schedule: renderSchedule,
   calendar: renderCalendar,
   notifications: renderNotifications,
   voice: renderVoice,
@@ -972,6 +973,183 @@ function renderGroupCards(remote) {
       await saveConfig();
     };
     container.appendChild(card);
+  }
+}
+
+// ── Schedule ───────────────────────────────────────────────────────────
+//
+// The setup flow for the period card: bell times, a Canvas course per period,
+// and the A/B rotation's anchor. Written once and then forgotten.
+//
+// Period assignments are ordinary config edits — mutate CONFIG, POST the whole
+// document — exactly like the GroupMe group cards and the gcal rows above.
+// The A/B override is NOT, and goes to its own endpoint: an override is only
+// ever for today, and the server stamps the date so a client cannot set one
+// that never expires.
+
+let COURSE_CACHE = [];   // [{id, name, course_code, source, fetched_at}]
+
+// "IB BIOLOGY 1-RYALW" is what the iCal feed gives; a real course_code (REST)
+// is shorter and is what you would actually recognise, so it leads when
+// present. Both are shown — the code alone is ambiguous across years.
+function courseLabel(c) {
+  if (!c) return '(unknown course)';
+  return c.course_code ? `${c.course_code} — ${c.name}` : c.name;
+}
+
+function courseOption(selectedId) {
+  const opts = ['<option value="">— none —</option>'];
+  for (const c of COURSE_CACHE) {
+    const sel = String(c.id) === String(selectedId) ? ' selected' : '';
+    opts.push(`<option value="${escapeAttr(c.id)}"${sel}>${escapeHtml(courseLabel(c))}</option>`);
+  }
+  return opts.join('');
+}
+
+async function renderSchedule() {
+  const s = (CONFIG.schedule = CONFIG.schedule || {});
+  s.periods = s.periods || [];
+  s.ab_cycle = s.ab_cycle || { pattern: ['A', 'B'] };
+
+  bindInput(document.getElementById('sched-bedtime'), 'schedule.bedtime');
+
+  const hint = document.getElementById('courses-hint');
+  try {
+    const r = await api.get('/api/canvas/courses');
+    COURSE_CACHE = r.courses || [];
+    renderCourseList(r.cache || {});
+    hint.innerHTML = COURSE_CACHE.length
+      ? `${COURSE_CACHE.length} course${COURSE_CACHE.length === 1 ? '' : 's'} from Canvas${
+          r.cache && r.cache.refreshed_at ? `, as of ${escapeHtml(fmtRelative(r.cache.refreshed_at))}` : ''}`
+      : 'No courses cached yet — Friday refreshes Canvas every 15 minutes.';
+    // The REST layer is what supplies course codes, due times and submission
+    // status. Say so plainly rather than silently rendering a thinner card.
+    if (r.cache && !r.cache.rest_ok) {
+      hint.innerHTML += ' <span class="warn">· Canvas API token expired or unset —'
+        + ' course codes and due times unavailable, due dates still work.</span>';
+    }
+  } catch (e) {
+    hint.textContent = `Could not load courses: ${e.message}`;
+  }
+
+  renderPeriodRows();
+  renderAbCycle();
+}
+
+function renderCourseList(cache) {
+  const box = document.getElementById('course-list');
+  if (!box) return;
+  box.innerHTML = '';
+  for (const c of COURSE_CACHE) {
+    const row = document.createElement('div');
+    row.className = 'course-row';
+    row.innerHTML = `
+      <span class="course-name">${escapeHtml(c.name)}</span>
+      <span class="course-code mono">${escapeHtml(c.course_code || '—')}</span>
+      <span class="course-id mono">${escapeHtml(c.id)}</span>
+    `;
+    box.appendChild(row);
+  }
+}
+
+function renderPeriodRows() {
+  const box = document.getElementById('period-rows');
+  if (!box) return;
+  box.innerHTML = '';
+  const periods = CONFIG.schedule.periods || [];
+
+  periods.forEach((p) => {
+    const alternating = Array.isArray(p.alternates);
+    const row = document.createElement('div');
+    row.className = 'period-row' + (alternating ? ' alternating' : '');
+    row.innerHTML = `
+      <span class="period-n mono">${escapeHtml(String(p.n))}</span>
+      <input type="time" class="input period-start" value="${escapeAttr(p.start || '')}">
+      <span class="period-dash">–</span>
+      <input type="time" class="input period-end" value="${escapeAttr(p.end || '')}">
+      <div class="period-courses">
+        ${alternating
+          ? `<label class="alt-label">A</label>
+             <select class="input period-course" data-alt="0">${courseOption(p.alternates[0])}</select>
+             <label class="alt-label">B</label>
+             <select class="input period-course" data-alt="1">${courseOption(p.alternates[1])}</select>`
+          : `<select class="input period-course">${courseOption(p.canvas_course)}</select>`}
+      </div>
+    `;
+
+    row.querySelector('.period-start').onblur = async (e) => {
+      p.start = e.target.value; await saveConfig();
+    };
+    row.querySelector('.period-end').onblur = async (e) => {
+      p.end = e.target.value; await saveConfig();
+    };
+    row.querySelectorAll('.period-course').forEach((sel) => {
+      sel.onchange = async () => {
+        const v = sel.value || null;
+        if (alternating) p.alternates[Number(sel.dataset.alt)] = v;
+        else p.canvas_course = v;
+        await saveConfig();
+      };
+    });
+    box.appendChild(row);
+  });
+}
+
+function renderAbCycle() {
+  const cycle = CONFIG.schedule.ab_cycle;
+  const startEl = document.getElementById('ab-start');
+  startEl.value = cycle.start_date || '';
+  startEl.onblur = async () => {
+    cycle.start_date = startEl.value || null;
+    await saveConfig();
+    refreshAbStatus();
+  };
+
+  document.querySelectorAll('#ab-override [data-letter]').forEach((b) => {
+    b.onclick = async () => {
+      try {
+        const r = await api.post('/api/schedule/override', {
+          letter: b.dataset.letter === 'clear' ? null : b.dataset.letter,
+        });
+        // The server owns the date stamp, so the local copy is refreshed from
+        // its answer rather than assumed.
+        cycle.manual_override = r.override;
+        flash('SAVED');
+        refreshAbStatus();
+      } catch (e) {
+        flash(e.detail || 'OVERRIDE FAILED', true);
+      }
+    };
+  });
+  refreshAbStatus();
+}
+
+async function refreshAbStatus() {
+  const out = document.getElementById('ab-status');
+  if (!out) return;
+  let s;
+  try { s = await api.get('/api/schedule'); }
+  catch { out.textContent = ''; return; }
+
+  const cycle = CONFIG.schedule.ab_cycle;
+  cycle.manual_override = (s.schedule.ab_cycle || {}).manual_override || null;
+
+  document.querySelectorAll('#ab-override [data-letter]').forEach((b) => {
+    const active = s.letter_source === 'override'
+      ? b.dataset.letter === s.letter
+      : b.dataset.letter === 'clear';
+    b.classList.toggle('active', active);
+  });
+
+  if (s.letter_source === 'override') {
+    out.innerHTML = `Today is forced to <strong>${escapeHtml(s.letter)}</strong>. Clears at midnight.`;
+  } else if (s.letter_source === 'counted') {
+    out.innerHTML = `Today is a <strong>${escapeHtml(s.letter)}</strong> day, counted from the first A day.`;
+  } else if (!s.is_school_day) {
+    out.textContent = 'Weekend — no letter today.';
+  } else {
+    out.innerHTML = 'No first A day set, so the rotation is unresolved. '
+      + '4th and 5th show <strong>both</strong> courses, labeled.';
   }
 }
 

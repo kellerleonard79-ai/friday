@@ -38,6 +38,7 @@
       <a class="nav-item" data-route="ai">AI Model</a>
       <a class="nav-item" data-route="persona">Persona</a>
       <a class="nav-item" data-route="integrations">Integrations</a>
+      <a class="nav-item" data-route="schedule">Schedule</a>
       <a class="nav-item" data-route="calendar">Calendar</a>
       <a class="nav-item" data-route="notifications">Notifications</a>
       <a class="nav-item" data-route="voice">Voice</a>
@@ -300,6 +301,61 @@
         locked down and forwarding is disabled. This integration is deferred
         until a clean access path becomes available.
       </div>
+    </section>
+  </template>
+
+  <!-- The setup flow for the period card. Meant to be used once and then
+       forgotten, which is why it lives on its own page rather than on the
+       card itself. -->
+  <template id="page-schedule">
+    <header class="page-header"><h1>SCHEDULE</h1></header>
+
+    <section class="panel">
+      <h2>CANVAS COURSES</h2>
+      <div class="hint" id="courses-hint">Loading…</div>
+      <div id="course-list" class="course-list"></div>
+    </section>
+
+    <section class="panel">
+      <h2>PERIODS</h2>
+      <div class="hint">
+        Set the bell times and assign a Canvas course to each period.
+        4th and 5th alternate — they take two, one for A days and one for B.
+        Leaving a period unassigned is fine.
+      </div>
+      <div id="period-rows"></div>
+    </section>
+
+    <section class="panel">
+      <h2>A/B ROTATION</h2>
+      <div class="hint">
+        The rotation advances by <strong>school days</strong>, not calendar
+        dates, so weekends do not flip it. There is no holiday calendar —
+        when the school drifts, override today's letter below.
+      </div>
+      <div class="sched-row">
+        <label class="field-label">FIRST A DAY</label>
+        <input type="date" class="input" id="ab-start">
+      </div>
+      <div class="hint" id="ab-status"></div>
+      <div class="sched-row" style="margin-top: 12px;">
+        <label class="field-label">TODAY IS</label>
+        <div class="segmented" id="ab-override">
+          <button data-letter="A">A DAY</button>
+          <button data-letter="B">B DAY</button>
+          <button data-letter="clear">AUTO</button>
+        </div>
+      </div>
+      <div class="hint">An override applies to today only and clears at midnight.</div>
+    </section>
+
+    <section class="panel">
+      <h2>AFTER SCHOOL</h2>
+      <div class="sched-row">
+        <label class="field-label">BEDTIME</label>
+        <input type="time" class="input" id="sched-bedtime">
+      </div>
+      <div class="hint">The far end of the free-time math on the after-school card.</div>
     </section>
   </template>
 
