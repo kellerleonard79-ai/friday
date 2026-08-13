@@ -1416,13 +1416,12 @@ function startPeriodCard() {
   }, 20000);
 }
 
-// Canvas moved. Re-read rather than trusting the event to carry the data.
-// Both payloads: the after-school card's due list comes from the same cache.
-onStream('canvas', () => {
-  if (CURRENT_ROUTE !== 'today') return;
-  loadSchedule();
-  if (AFTER) loadAfterSchool();
-});
+// The card's stream subscription is registered further down, beside the other
+// onStream calls — NOT here. STREAM_HANDLERS is a `const` declared in the Live
+// stream section below, so calling onStream() from this point in the file
+// reads it inside its temporal dead zone and throws at load, which aborts the
+// whole script and renders a blank dashboard. Registration order does not
+// matter; position relative to that declaration does.
 
 // ── Schedule ───────────────────────────────────────────────────────────
 //
@@ -1880,6 +1879,14 @@ function raiseNotification(title, body) {
 }
 
 onStream('notify', (ev) => raiseNotification(ev.title, ev.text));
+
+// Canvas moved. Re-read rather than trusting the event to carry the data —
+// both payloads, since the after-school due list comes from the same cache.
+onStream('canvas', () => {
+  if (CURRENT_ROUTE !== 'today') return;
+  loadSchedule();
+  if (AFTER) loadAfterSchool();
+});
 
 function onStream(kind, fn) {
   (STREAM_HANDLERS[kind] = STREAM_HANDLERS[kind] || []).push(fn);
