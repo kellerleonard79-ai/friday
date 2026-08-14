@@ -1,5 +1,13 @@
 # Project Friday — Claude Code Instructions
 
+## Working with the user
+
+**Do not verify a change with a headless browser or by booting a dev/preview
+server, unless explicitly asked.** The user checks visually themselves and
+will report back if something looks wrong. Default to static verification —
+syntax checks, unit tests, reading the diff — and stop there. This holds for
+every prompt, not just the one where it was said.
+
 > **⚠️ REBUILD IN PROGRESS — Phase III, branch `phase3-dispatcher`.**
 >
 > The LLM layer was torn down in full (`llm-layer-teardown`) and is being
@@ -799,8 +807,11 @@ text the model may have influenced, and an unescaped quote ends the AppleScript
 literal. Permission is requested on a user gesture (sending a message), because
 browsers refuse the request outside one and the refusal is permanent.
 
-`notify` has **no producer yet** — the urgent-alert path that will call it
-arrives with the tagger.
+`notify` has its first producer: `friday.py`'s Canvas-health check calls it
+directly (constructing a `DashboardChannel` from the dashboard's broadcaster)
+when the Canvas REST token dies, latched in `system_state` so it fires once
+per outage and clears on recovery. **The tagger's urgent-alert path is still
+unbuilt** — that producer arrives with step 8, separately.
 
 
 ## Context and Policy
@@ -1269,8 +1280,9 @@ because CHAT had no weather data to answer with.**
 **Next is step 8** — the to-do layer, which `policy/suppression.py`'s windowed
 briefing-echo and completed-item rules were built for.
 
-`Channel.notify` still has no producer; the alert that will call it arrives
-with the tagger.
+`Channel.notify` has one producer now — a deterministic Canvas-token-expiry
+check in `friday.py`, unrelated to the tagger. The tagger's own urgent-alert
+producer is still unbuilt and arrives with step 8.
 
 ---
 

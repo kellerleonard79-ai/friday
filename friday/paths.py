@@ -55,6 +55,14 @@ def log_dir() -> Path:
     return d
 
 
+def tls_dir() -> Path:
+    """Tailscale-issued HTTPS cert/key for the dashboard's tailnet bind.
+    Not under resource_path() — these are fetched at runtime, not bundled."""
+    d = data_dir() / "tls"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def db_path(cfg: dict | None = None) -> Path:
     rel = ((cfg or {}).get("memory") or {}).get("db_path", "memory/friday_memory.db")
     p = Path(rel)

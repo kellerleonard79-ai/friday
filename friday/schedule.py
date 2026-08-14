@@ -374,6 +374,69 @@ def periods_with_courses(schedule_cfg: dict, letter: str | None) -> list[dict]:
     return out
 
 
+#  A GAP IS NOT ALWAYS A PASSING PERIOD. The default placeholder schedule
+#  alone has one: the alternating 4th/5th slot ends at 11:35 and 6th period
+#  does not start until 13:15 — that 100-minute gap is lunch, not a walk
+#  between classrooms, and a first cut of this function held the machine
+#  awake for the whole of it. Nothing in the config marks a gap as "lunch"
+#  explicitly (lunch is not its own period entry), so the only signal
+#  available is duration: a real passing period is a few minutes, lunch is
+#  not. `max_gap_minutes` draws that line, generously, rather than trying to
+#  special-case a period count or a specific gap position.
+DEFAULT_MAX_PASSING_MINUTES = 15
+
+
+def passing_period_blocks(schedule_cfg: dict, day: date_cls,
+                          lead_minutes: int = 2,
+                          max_gap_minutes: int = DEFAULT_MAX_PASSING_MINUTES) -> list[dict]:
+    """The gaps between bells, as wake windows — one per passing period.
+
+    A block spans one period's end to the next period's start, which is a
+    property of the TIME SLOTS, not of which letter day it is: an alternating
+    slot is one time with two identities (see the module docstring), so the
+    gap on either side of it is the same gap on an A day and a B day. This is
+    why the function takes no letter.
+
+    `wake_at` is `lead_minutes` before the block starts, never the block start
+    itself — waking a sleeping Mac at the exact moment the bell rings is too
+    late for it to be reachable BY the bell. Two periods back to back (no gap)
+    produce no block; a gap longer than `max_gap_minutes` is lunch or a free
+    period, not a passing period, and is excluded rather than turned into an
+    hour-long hold; a schedule with fewer than two timed periods produces
+    none at all.
+
+    PURE, like the rest of this module: `day` is passed in rather than read
+    off the clock, and this returns nothing on a non-school day rather than
+    the caller having to remember to check `is_school_day` itself.
+    """
+    if not is_school_day(day):
+        return []
+    parsed = []
+    for p in (schedule_cfg or {}).get("periods") or []:
+        s, e = _parse_hhmm(p.get("start")), _parse_hhmm(p.get("end"))
+        if s and e and s < e:
+            parsed.append((s, e))
+    parsed.sort(key=lambda x: x[0])
+
+    blocks = []
+    for i in range(len(parsed) - 1):
+        gap_start, gap_end = parsed[i][1], parsed[i + 1][0]
+        if gap_start >= gap_end:
+            continue   # back-to-back bells — no passing period to wake for
+        gap_minutes = (datetime.combine(day, gap_end)
+                       - datetime.combine(day, gap_start)).total_seconds() / 60
+        if gap_minutes > max_gap_minutes:
+            continue   # lunch, a free period, etc. — not a passing period
+        wake_dt = datetime.combine(day, gap_start) - timedelta(minutes=lead_minutes)
+        blocks.append({
+            "start": gap_start.strftime("%H:%M"),
+            "end": gap_end.strftime("%H:%M"),
+            "wake_at": wake_dt.time().strftime("%H:%M"),
+            "label": f"Passing {i + 1}→{i + 2}",
+        })
+    return blocks
+
+
 def current_period(schedule_cfg: dict, now: datetime,
                    letter: str | None = None) -> dict:
     """Where the clock is in the day.

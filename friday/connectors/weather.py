@@ -7,9 +7,13 @@ Called on demand from on_message and injected into the evening briefing.
 import logging
 import os
 import re
+import time
 from datetime import datetime, timedelta
+from typing import Any
 
 import requests
+
+import connectors.location as location
 
 logger = logging.getLogger("friday.weather")
 
@@ -71,14 +75,58 @@ def _slot_label(dt: datetime) -> str:
     return f"{h - 12}pm"
 
 
+# ── Where "here" means ───────────────────────────────────────────────────────
+#
+# Two sources compete for "here", and the config decides which wins:
+#
+#   - `weather.location` — a "City,CC" string the user typed once.
+#   - connectors/location.py — the machine's own fix. CoreLocation on macOS
+#     (tens of metres) if the TCC grant is live, IP geolocation (city-level)
+#     otherwise. Warmed every 15 minutes by the poll job, so reading it here
+#     is location.cached() — no I/O, never the ~25s fetch() path. That
+#     matters on both callers: respond() runs while router/fastpath.py holds
+#     TURN_GATE, and snapshot() runs on this process's shared PTB loop.
+#
+# `weather.use_machine_location` defaults to True. False pins the configured
+# string — for a laptop Friday travels with, or anyone who would rather type
+# a city once than trust Wi-Fi positioning.
+#
+# Falls back to the configured string whenever there is no live fix yet (the
+# poll job hasn't warmed the cache, both location backends are down), so a
+# cold boot answers with the old behavior rather than nothing.
+def _here(cfg: dict) -> tuple[dict, str, str, str] | None:
+    """(request_params, cache_key, display_name, source) for "here", or None
+    if neither a machine fix nor a configured location is available.
+
+    `source` is "corelocation" (device-level, tens of metres), "ip"
+    (device-level lookup, city-level precision) or "configured" (the typed
+    string) — surfaced in the widget so a user who assumes the toggle bought
+    GPS-grade accuracy can see that, absent the TCC grant, it bought the same
+    city-level fix a typed string would have given them.
+    """
+    use_machine = cfg.get("use_machine_location", True)
+    if use_machine:
+        fix = location.cached()
+        if fix is not None:
+            lat, lon = fix["lat"], fix["lon"]
+            key = f"geo:{lat:.3f},{lon:.3f}"
+            return ({"lat": lat, "lon": lon}, key, fix.get("place") or "",
+                    fix.get("source") or "ip")
+
+    loc = (cfg.get("location") or os.environ.get("WEATHER_LOCATION", "")).strip()
+    if loc:
+        return ({"q": loc}, f"city:{loc}", loc, "configured")
+    return None
+
+
 def respond(cfg: dict, query: str = "") -> str:
     """Return a natural-language answer to a weather query, or '' on failure."""
-    api_key  = cfg.get("api_key") or os.environ.get("WEATHER_API_KEY", "")
-    location = (cfg.get("location") or os.environ.get("WEATHER_LOCATION", "")).strip()
-    if not api_key or not location:
+    api_key = cfg.get("api_key") or os.environ.get("WEATHER_API_KEY", "")
+    here = _here(cfg)
+    if not api_key or here is None:
         return ""
     try:
-        params = {"q": location, "appid": api_key, "units": "imperial"}
+        params = {**here[0], "appid": api_key, "units": "imperial"}
         now    = datetime.now()
         intent = _intent(query)
 
@@ -151,3 +199,128 @@ def respond(cfg: dict, query: str = "") -> str:
 # Keep fetch() as an alias so the evening briefing can still call it for a full summary
 def fetch(cfg: dict) -> str:
     return respond(cfg, "")
+
+
+# ── The dashboard snapshot ───────────────────────────────────────────────────
+#
+# respond() above answers a QUESTION and returns a SENTENCE, because its caller
+# is router/fastpath.py and its output goes to a person reading a chat message.
+# The dashboard widget needs neither: it needs numbers it can lay out itself.
+#
+# So this is a second entry point rather than a parse of the first. Rendering a
+# sentence and then picking it apart with a regex to find the temperature is
+# how a display ends up depending on the exact wording of a chat reply — and
+# that wording is the one thing in this file most likely to be edited.
+#
+# respond() is deliberately untouched. It has a live consumer in the router's
+# tier 1, which catches 13.7% of real traffic, and this widget is not a reason
+# to reshape it.
+
+_SNAP_TIMEOUT_S = 10
+
+# The snapshot cache. Same two-age rule as router/fastpath.py's weather cache
+# and connectors/stocks.py's quote cache — under _SNAP_FRESH_S serve the cache,
+# past _SNAP_MAX_AGE_S the entry does not exist even when the fetch fails.
+# A dashboard is glanced at, not read, which is exactly the reading where a
+# stale number gets believed.
+_SNAP_FRESH_S = 600.0       # 10 minutes
+_SNAP_MAX_AGE_S = 3600.0    # 1 hour
+_snapshot_cache: dict[str, tuple[float, dict]] = {}
+
+
+def _slot_dt(ts: int) -> datetime:
+    return datetime.fromtimestamp(ts)
+
+
+def snapshot(cfg: dict) -> dict:
+    """Structured current conditions plus a short forecast, for the dashboard.
+
+    Returns {"ok": bool, ...}. Never raises — a widget that throws takes the
+    page down with it, and the weather is the least important thing on it.
+    """
+    api_key = cfg.get("api_key") or os.environ.get("WEATHER_API_KEY", "")
+    here = _here(cfg)
+    if not api_key or here is None:
+        return {"ok": False, "error": "Weather is not configured — set a location and an "
+                                      "OpenWeatherMap key under Integrations."}
+    here_params, cache_key, fallback_name, source = here
+
+    now_ts = time.time()
+    hit = _snapshot_cache.get(cache_key)
+    if hit and (now_ts - hit[0]) < _SNAP_FRESH_S:
+        return {**hit[1], "age_seconds": int(now_ts - hit[0])}
+
+    params = {**here_params, "appid": api_key, "units": "imperial"}
+    try:
+        r = requests.get(_URL_CURRENT, params=params, timeout=_SNAP_TIMEOUT_S)
+        r.raise_for_status()
+        cur = r.json()
+
+        main = cur.get("main") or {}
+        weather0 = (cur.get("weather") or [{}])[0]
+        wind = cur.get("wind") or {}
+        sys_ = cur.get("sys") or {}
+
+        out: dict[str, Any] = {
+            "ok": True,
+            "error": "",
+            "location": cur.get("name") or fallback_name,
+            "location_source": source,
+            "temp": round(float(main.get("temp", 0))),
+            "feels_like": round(float(main.get("feels_like", 0))),
+            "description": (weather0.get("description") or "").title(),
+            "icon": weather0.get("icon") or "",
+            "condition": weather0.get("main") or "",
+            "humidity": main.get("humidity"),
+            "wind_mph": round(float(wind.get("speed", 0))),
+            "sunrise": sys_.get("sunrise"),
+            "sunset": sys_.get("sunset"),
+            "observed_at": cur.get("dt"),
+            "high": None,
+            "low": None,
+            "forecast": [],
+        }
+
+        # The daily high/low comes from the FORECAST, not from the current
+        # endpoint's main.temp_min / temp_max. Those two look like a daily
+        # range and are not — for a single station they are the current
+        # reading, so they render as "H 88 L 87" on a day that will reach 95.
+        try:
+            rf = requests.get(_URL_FORECAST, params={**params, "cnt": 8},
+                              timeout=_SNAP_TIMEOUT_S)
+            rf.raise_for_status()
+            slots = rf.json().get("list", []) or []
+        except Exception as e:
+            logger.debug(f"Forecast leg of the snapshot failed: {e}")
+            slots = []
+
+        today = datetime.now().date()
+        today_temps = [
+            s["main"]["temp"] for s in slots
+            if _slot_dt(s["dt"]).date() == today and (s.get("main") or {}).get("temp") is not None
+        ]
+        if today_temps:
+            out["high"] = round(max([*today_temps, main.get("temp", today_temps[0])]))
+            out["low"] = round(min([*today_temps, main.get("temp", today_temps[0])]))
+
+        for s in slots[:5]:
+            sw = (s.get("weather") or [{}])[0]
+            out["forecast"].append({
+                "label": _slot_label(_slot_dt(s["dt"])),
+                "temp": round(float((s.get("main") or {}).get("temp", 0))),
+                "icon": sw.get("icon") or "",
+                "condition": sw.get("main") or "",
+                "pop": round(float(s.get("pop", 0)) * 100),
+            })
+
+        _snapshot_cache[cache_key] = (now_ts, out)
+        return {**out, "age_seconds": 0}
+
+    except Exception as e:
+        logger.warning(f"Weather snapshot failed: {e}")
+        # Inside the hard bound a cached snapshot is better than nothing, and
+        # it is labelled with its age so the widget can say so.
+        if hit and (now_ts - hit[0]) < _SNAP_MAX_AGE_S:
+            return {**hit[1], "age_seconds": int(now_ts - hit[0])}
+        _snapshot_cache.pop(cache_key, None)
+        return {"ok": False, "error": "Could not reach the weather service."}

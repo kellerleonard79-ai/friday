@@ -341,6 +341,42 @@ check("...and calendar parity misses it in exactly the same way",
       == (AFTER_HOLIDAY - ANCHOR).days % 2)
 
 
+# ── passing_period_blocks: derived wake windows ───────────────────────────
+#
+# DEFAULT_SCHEDULE is exactly the case that first exposed the bug worth
+# pinning here: the alternating 4th/5th slot ends at 11:35 and 6th period
+# doesn't start until 13:15 — 100 minutes, which is lunch, not a passing
+# period. A first cut of this function turned that gap into an hour-long
+# wake-hold with no distinction from the five-minute ones around it.
+
+THURSDAY = date(2026, 8, 13)
+SATURDAY = date(2026, 8, 15)
+
+_default_blocks = schedule.passing_period_blocks(schedule.DEFAULT_SCHEDULE, THURSDAY)
+check("passing_period_blocks finds one block per short gap",
+      len(_default_blocks) == 4)
+check("...and excludes the 100-minute lunch gap",
+      not any(b["start"] == "11:35" for b in _default_blocks))
+_first = next(b for b in _default_blocks if b["start"] == "08:50")
+check("wake_at is 2 minutes before the block by default",
+      _first["wake_at"] == "08:48")
+check("a non-school day produces no blocks",
+      schedule.passing_period_blocks(schedule.DEFAULT_SCHEDULE, SATURDAY) == [])
+check("lead_minutes is configurable",
+      schedule.passing_period_blocks(schedule.DEFAULT_SCHEDULE, THURSDAY,
+                                     lead_minutes=5)[0]["wake_at"] == "08:45")
+check("max_gap_minutes is configurable and can admit the lunch gap",
+      any(b["start"] == "11:35" for b in schedule.passing_period_blocks(
+          schedule.DEFAULT_SCHEDULE, THURSDAY, max_gap_minutes=200)))
+
+_back_to_back = {"periods": [
+    {"n": 1, "start": "08:00", "end": "08:50"},
+    {"n": 2, "start": "08:50", "end": "09:40"},   # no gap at all
+]}
+check("back-to-back periods (no gap) produce no block",
+      schedule.passing_period_blocks(_back_to_back, THURSDAY) == [])
+
+
 # The module decides and acts on nothing — same contract as policy/.
 src = Path(schedule.__file__).read_text()
 check("schedule.py performs no I/O and reads no clock",

@@ -596,6 +596,16 @@ def _strip_groupme_scaffolding(body: str) -> str:
     return "\n".join(lines[i:]).strip()
 
 
+def canvas_token_expired_alert() -> str:
+    """Deterministic text for the Canvas REST-token-expired alert. No model
+    in the loop — this fires off a plain 401 on the connector's REST layer."""
+    return ("Sir, your Canvas API token has expired or been revoked "
+            "(401 from the REST API). Due dates will keep updating from the "
+            "iCal feed, but due times, points and submission status won't "
+            "refresh until you generate a new token and update it in "
+            "friday_config.yaml.")
+
+
 def fallback_urgent_alert(source: str, title: str, body: str) -> str:
     """Deterministic alert text for when the model is unavailable. Plainer than
     the composed version, but never an emoji-and-header dump — an LLM outage

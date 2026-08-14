@@ -13,24 +13,54 @@ let CURRENT_ROUTE = null;
 let STATUS_TIMER = null;
 
 // ── API helpers ────────────────────────────────────────────────────────
+//
+// Every request carries a bound timeout. A phone reaching for a sleeping Mac
+// (over Tailscale, or with the Wi-Fi asleep) otherwise hangs on the browser's
+// own default — tens of seconds to minutes — with nothing rendered and no
+// error to catch. Reads default short, because a stale widget beats a stuck
+// one; chat and the slower server-side network calls (Canvas connectivity
+// test, the Gemini model list) get an explicit longer allowance instead of
+// inheriting a timeout sized for a local SQLite read.
+const DEFAULT_GET_TIMEOUT_MS = 5000;
+const DEFAULT_POST_TIMEOUT_MS = 12000;
+const DEFAULT_DEL_TIMEOUT_MS = 8000;
+
+function fetchWithTimeout(path, opts, timeoutMs) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  return fetch(path, { ...opts, signal: ctrl.signal }).finally(() => clearTimeout(t));
+}
+
+function timeoutError(path) {
+  const e = new Error(`${path} → timed out after no response`);
+  e.timedOut = true;
+  return e;
+}
 
 const api = {
-  async get(path) {
-    const r = await fetch(path);
+  async get(path, { timeoutMs = DEFAULT_GET_TIMEOUT_MS } = {}) {
+    let r;
+    try { r = await fetchWithTimeout(path, undefined, timeoutMs); }
+    catch (e) { throw e.name === 'AbortError' ? timeoutError(path) : e; }
     if (!r.ok) throw new Error(`${path} → ${r.status}`);
     return r.json();
   },
-  async post(path, body) {
-    const r = await fetch(path, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: body ? JSON.stringify(body) : null,
-    });
+  async post(path, body, { timeoutMs = DEFAULT_POST_TIMEOUT_MS } = {}) {
+    let r;
+    try {
+      r = await fetchWithTimeout(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: body ? JSON.stringify(body) : null,
+      }, timeoutMs);
+    } catch (e) { throw e.name === 'AbortError' ? timeoutError(path) : e; }
     if (!r.ok) throw await apiError(path, r);
     return r.json();
   },
-  async del(path) {
-    const r = await fetch(path, { method: 'DELETE' });
+  async del(path, { timeoutMs = DEFAULT_DEL_TIMEOUT_MS } = {}) {
+    let r;
+    try { r = await fetchWithTimeout(path, { method: 'DELETE' }, timeoutMs); }
+    catch (e) { throw e.name === 'AbortError' ? timeoutError(path) : e; }
     if (!r.ok) throw await apiError(path, r);
     return r.json();
   },
@@ -47,6 +77,30 @@ async function apiError(path, r) {
   e.detail = detail;
   e.status = r.status;
   return e;
+}
+
+// A GET whose response may have come from the service worker's cache rather
+// than the network — see dashboard/static/sw.js. The SW stamps every cached
+// response with x-friday-cached-at when it stores it, so its presence here
+// means "this is what was true as of that timestamp," not "just fetched."
+async function fetchCached(path, timeoutMs = DEFAULT_GET_TIMEOUT_MS) {
+  const r = await fetchWithTimeout(path, undefined, timeoutMs)
+    .catch((e) => { throw e.name === 'AbortError' ? timeoutError(path) : e; });
+  if (!r.ok) throw new Error(`${path} → ${r.status}`);
+  const data = await r.json();
+  return { data, cachedAt: r.headers.get('x-friday-cached-at') };
+}
+
+// "updated 12:04 PM" — shown whenever a card's data came from the offline
+// cache rather than a fresh fetch. Stale is this card's expected mode, not an
+// error state; the point is letting this morning's data be told apart from
+// last week's, which a silently-stale card cannot do.
+function updatedNotice(cachedAt) {
+  if (!cachedAt) return '';
+  let label;
+  try { label = new Date(cachedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }
+  catch { return ''; }
+  return `<div class="pc-updated mono">updated ${escapeHtml(label)}</div>`;
 }
 
 function flash(text = 'SAVED', isError = false) {
@@ -102,18 +156,19 @@ function bindInput(el, path, opts = {}) {
 
 const ROUTES = {
   today: renderToday,
-  chat: renderChat,
   ai: renderAI,
   persona: renderPersona,
   integrations: renderIntegrations,
   schedule: renderSchedule,
   calendar: renderCalendar,
   notifications: renderNotifications,
+  power: renderPower,
   voice: renderVoice,
   about: renderAbout,
 };
 
 let VOICE_TIMER = null;
+let WIDGET_TIMER = null;
 
 function navigate(route) {
   if (!ROUTES[route]) route = 'today';
@@ -123,6 +178,8 @@ function navigate(route) {
   if (VOICE_TIMER) { clearInterval(VOICE_TIMER); VOICE_TIMER = null; }
   if (CHAT_PENDING_TIMER) { clearInterval(CHAT_PENDING_TIMER); CHAT_PENDING_TIMER = null; }
   if (PERIOD_TIMER) { clearInterval(PERIOD_TIMER); PERIOD_TIMER = null; }
+  if (WIDGET_TIMER) { clearInterval(WIDGET_TIMER); WIDGET_TIMER = null; }
+  if (POWER_TIMER) { clearInterval(POWER_TIMER); POWER_TIMER = null; }
   document.querySelectorAll('.nav-item').forEach((a) => {
     a.classList.toggle('active', a.dataset.route === route);
   });
@@ -141,11 +198,15 @@ function navigate(route) {
   PAGE.offsetHeight;
   PAGE.style.animation = '';
   ROUTES[route]();
+  // The homepage's ONLINE strip is created by the clone above, so it starts
+  // life reading CONNECTING. Repaint it now rather than leaving it wrong for
+  // up to one poll interval.
+  updateSidebar();
   location.hash = `#/${route}`;
 }
 
 document.querySelectorAll('.nav-item').forEach((a) => {
-  a.addEventListener('click', () => navigate(a.dataset.route));
+  a.addEventListener('click', () => { navigate(a.dataset.route); closeSidebar(); });
 });
 
 window.addEventListener('hashchange', () => {
@@ -153,25 +214,62 @@ window.addEventListener('hashchange', () => {
   navigate(r);
 });
 
+// ── Settings drawer ────────────────────────────────────────────────────
+// Today is the homepage; everything else (AI Model, Persona, Integrations,
+// Schedule, Calendar, Notifications, Voice, About) lives in this off-canvas
+// drawer, opened by the settings button in .topbar and closed by the
+// backdrop, a nav pick (see above), or the Escape key. Same drawer at every
+// viewport width — it used to be mobile-only, with a permanent sidebar
+// column on desktop; the column is gone.
+
+const SIDEBAR = document.getElementById('sidebar');
+const SIDEBAR_BACKDROP = document.getElementById('sidebar-backdrop');
+const HAMBURGER_BTN = document.getElementById('hamburger-btn');
+const TOPBAR_HOME = document.getElementById('topbar-home');
+TOPBAR_HOME.addEventListener('click', () => { navigate('today'); closeSidebar(); });
+
+function openSidebar() {
+  SIDEBAR.classList.add('open');
+  SIDEBAR_BACKDROP.classList.add('show');
+  HAMBURGER_BTN.setAttribute('aria-expanded', 'true');
+}
+function closeSidebar() {
+  SIDEBAR.classList.remove('open');
+  SIDEBAR_BACKDROP.classList.remove('show');
+  HAMBURGER_BTN.setAttribute('aria-expanded', 'false');
+}
+HAMBURGER_BTN.addEventListener('click', () => {
+  SIDEBAR.classList.contains('open') ? closeSidebar() : openSidebar();
+});
+SIDEBAR_BACKDROP.addEventListener('click', closeSidebar);
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeSidebar();
+});
+
 // ── Sidebar status indicator ───────────────────────────────────────────
+
+// Two readouts, one poll: the drawer footer (always in the DOM) and the
+// homepage's bottom-left ONLINE strip (only while Today is the rendered
+// route). Each write is guarded because exactly one of them is missing on
+// every settings page.
+function paintStatus(cls, text) {
+  for (const [dotId, txtId] of [['sidebar-dot', 'sidebar-status'],
+                                ['home-dot', 'home-status']]) {
+    const dot = document.getElementById(dotId);
+    const txt = document.getElementById(txtId);
+    if (dot) dot.className = `dot ${cls}`.trim();
+    if (txt) txt.textContent = text;
+  }
+}
 
 async function updateSidebar() {
   try {
-    const s = await api.get('/api/status');
-    const dot = document.getElementById('sidebar-dot');
-    const txt = document.getElementById('sidebar-status');
-    dot.className = 'dot';
-    if (s.status === 'running' && s.paused) {
-      dot.classList.add('paused'); txt.textContent = 'PAUSED';
-    } else if (s.status === 'running') {
-      dot.classList.add('online'); txt.textContent = 'ONLINE';
-    } else {
-      dot.classList.add('offline'); txt.textContent = 'OFFLINE';
-    }
+    const s = await api.get('/api/status', { timeoutMs: 3000 });
+    if (s.status === 'running' && s.paused) paintStatus('paused', 'PAUSED');
+    else if (s.status === 'running')        paintStatus('online', 'ONLINE');
+    else                                    paintStatus('offline', 'OFFLINE');
   } catch {
-    const dot = document.getElementById('sidebar-dot');
-    dot.className = 'dot error';
-    document.getElementById('sidebar-status').textContent = 'DISCONNECTED';
+    paintStatus('error', 'DISCONNECTED');
   }
 }
 
@@ -186,178 +284,36 @@ setInterval(updateSidebar, 5000);
 // sections only re-render when their content signature actually changes (and
 // pending is frozen entirely while an edit form is open).
 
-let TODAY_PAUSED = false;       // last-known pause state, for the Pause button
-let FEED_SIG = null;
-let NEXT_SIG = null;
 let PENDING_SIG = null;
 let PENDING_EDITING = false;
 
 function renderToday() {
-  const heroText = document.getElementById('hero-status');
-  const heroPulse = document.getElementById('hero-pulse');
-  const pauseBtn = document.getElementById('pause-btn');
-
   // The period card runs on its own timer and its own data. It is first on
   // the page because it is the thing being looked up, not the thing being
   // monitored.
   VIEW_INDEX = null;
   startPeriodCard();
 
-  // Static action handlers (bound once; tick() only refreshes data).
-  // The endpoint composes the briefing before it answers — an LLM round-trip,
-  // so tens of seconds. Disable the button for the duration; otherwise the
-  // instant "REQUESTED" flash invites a second click while the first is still
-  // running, and there is no signal for whether it actually worked.
-  const briefBtn = document.querySelector('[data-action="brief"]');
-  briefBtn.onclick = async () => {
-    const label = briefBtn.textContent;
-    briefBtn.disabled = true;
-    briefBtn.textContent = 'Composing…';
-    flash('COMPOSING BRIEFING…');
-    try {
-      await api.post('/api/friday/brief');
-      flash('BRIEFING SENT');
-      tick();
-    } catch (e) {
-      flash(`FAILED — ${String(e.message || e).slice(0, 80)}`, true);
-    } finally {
-      briefBtn.disabled = false;
-      briefBtn.textContent = label;
-    }
-  };
-  pauseBtn.onclick = async () => {
-    const next = !TODAY_PAUSED;
-    try {
-      await api.post('/api/friday/pause', { paused: next });
-      flash(next ? 'PAUSED' : 'RESUMED');
-      tick();
-    } catch { flash('FAILED', true); }
-  };
-  document.querySelector('[data-action="restart"]').onclick = async () => {
-    try { await api.post('/api/friday/restart'); flash('RESTARTING'); }
-    catch { flash('FAILED', true); }
-  };
+  // Weather and markets. Their own timer, because their data ages on a
+  // different clock from the 5s status tick and refetching quotes six times
+  // a minute would be six times the requests for one cached answer.
+  startWidgets();
 
-  setupLlmPanel();
+  // The chat panel, now the left half of this page rather than its own
+  // route. Same transcript load, same pending-card sync, same wiring —
+  // transferred whole, not reimplemented.
+  startChat();
 
   async function tick() {
     let d;
     try { d = await api.get('/api/today'); }
     catch { return; }
 
-    // Hero state
-    TODAY_PAUSED = !!d.paused;
-    heroText.className = 'hero-text';
-    heroPulse.className = 'pulse';
-    if (d.status === 'running' && d.paused) {
-      heroText.textContent = 'PAUSED'; heroText.classList.add('paused');
-      heroPulse.classList.add('paused'); pauseBtn.textContent = 'Resume';
-    } else if (d.status === 'running') {
-      heroText.textContent = 'ONLINE'; heroPulse.classList.add('online');
-      pauseBtn.textContent = 'Pause';
-    } else {
-      heroText.textContent = 'OFFLINE'; heroText.classList.add('offline');
-      heroPulse.classList.add('offline'); pauseBtn.textContent = 'Pause';
-    }
-
-    // Next-briefing + pending count (cheap, every tick)
-    const nb = d.next_briefing;
-    document.getElementById('next-briefing').textContent = nb
-      ? `${nb.slot}, ${nb.time} (in ${fmtMins(nb.in_minutes)})` : 'none scheduled';
-    const pc = d.pending_approvals_count || 0;
-    const pcEl = document.getElementById('next-pending');
-    pcEl.textContent = pc;
-    pcEl.classList.toggle('has-pending', pc > 0);
-
-    const lmEl = document.getElementById('next-last-msg');
-    if (lmEl) {
-      lmEl.textContent = d.last_message_at ? fmtRelative(d.last_message_at) : 'no messages yet';
-      lmEl.title = d.last_message_preview || '';
-    }
-
-    renderFeed(d.activity_feed || []);
-    renderWhatsNext(d.whats_next || {});
     renderPending(d);
-    renderTodayStats(d.today_stats || {});
   }
 
   tick();
   STATUS_TIMER = setInterval(tick, 5000);
-}
-
-const KIND_ORDER = ['BRIEF', 'CAL+', 'ALERT', 'TOOL', 'MSG', 'GROUPME', 'CANVAS'];
-
-function renderFeed(feed) {
-  const sig = feed.map((e) => e.timestamp + e.kind + e.summary).join('|');
-  if (sig === FEED_SIG) return;   // unchanged — preserve open detail toggles
-  FEED_SIG = sig;
-  const host = document.getElementById('activity-feed');
-  if (!feed.length) {
-    host.innerHTML = '<div class="feed-empty">No activity today yet.</div>';
-    return;
-  }
-  host.innerHTML = '';
-  for (const e of feed) {
-    const row = document.createElement('div');
-    row.className = 'feed-row';
-    const kindClass = 'k-' + e.kind.replace(/[^A-Z]/g, '').toLowerCase();
-    const hasDetails = !!(e.details && e.details.trim());
-    row.innerHTML = `
-      <span class="feed-time mono">${fmtTime(e.timestamp)}</span>
-      <span class="feed-kind ${kindClass}">${escapeHtml(e.kind)}</span>
-      <span class="feed-summary">${escapeHtml(e.summary)}</span>
-      <span class="feed-toggle">${hasDetails ? '+' : ''}</span>
-    `;
-    if (hasDetails) {
-      const detail = document.createElement('pre');
-      detail.className = 'feed-detail hidden';
-      detail.textContent = e.details;
-      const toggle = row.querySelector('.feed-toggle');
-      row.classList.add('expandable');
-      row.onclick = () => {
-        const open = detail.classList.toggle('hidden');
-        toggle.textContent = open ? '+' : '–';
-      };
-      host.appendChild(row);
-      host.appendChild(detail);
-    } else {
-      host.appendChild(row);
-    }
-  }
-}
-
-function renderWhatsNext(wn) {
-  const sig = JSON.stringify(wn);
-  if (sig === NEXT_SIG) return;
-  NEXT_SIG = sig;
-  const host = document.getElementById('whats-next');
-  const parts = [];
-
-  const events = wn.remaining_events || [];
-  parts.push('<div class="wn-group"><div class="wn-head">REMAINING TODAY</div>');
-  if (events.length) {
-    for (const ev of events) {
-      parts.push(`<div class="wn-item"><span class="wn-time mono">${escapeHtml(ev.time || '—')}</span>`
-        + `<span class="wn-title">${escapeHtml(ev.title)}</span>`
-        + `<span class="wn-cal">${escapeHtml(ev.calendar || '')}</span></div>`);
-    }
-  } else {
-    parts.push('<div class="wn-empty">Nothing left on the calendar today.</div>');
-  }
-  parts.push('</div>');
-
-  const canvas = wn.canvas_pending || [];
-  if (canvas.length) {
-    parts.push('<div class="wn-group"><div class="wn-head">CANVAS — DUE SOON</div>');
-    for (const c of canvas) {
-      parts.push(`<div class="wn-item"><span class="feed-kind k-canvas">${escapeHtml(c.urgency)}</span>`
-        + `<span class="wn-title">${escapeHtml(c.title)}</span>`
-        + `<span class="wn-cal mono">${escapeHtml(fmtDate(c.due_at))}</span></div>`);
-    }
-    parts.push('</div>');
-  }
-
-  host.innerHTML = parts.join('');
 }
 
 function renderPending(d) {
@@ -497,64 +453,157 @@ async function pendingAction(id, verb) {
   }
 }
 
-function renderTodayStats(s) {
-  document.getElementById('ts-calls').textContent = s.llm_calls ?? '0';
-  document.getElementById('ts-tin').textContent = fmtNum(s.tokens_in);
-  document.getElementById('ts-tout').textContent = fmtNum(s.tokens_out);
-  const c = s.cost || {};
-  let cost = '—';
-  if (c.free_tier) {
-    cost = `FREE · ${c.pct_of_daily_quota ?? 0}% of quota`;
-  } else if (c.dollars != null) {
-    cost = `$${c.dollars} today`;
-  }
-  document.getElementById('ts-cost').textContent = cost;
+// ── Widgets: weather and markets ───────────────────────────────────────
+//
+// Both panels render their own failure into themselves. Neither may throw:
+// they sit above the activity feed and the pending-approval cards, and a
+// widget that takes the page down takes those with it.
+
+// OpenWeatherMap icon code → a glyph. U+FE0E (the text variation selector) is
+// load-bearing on every one of these: without it macOS renders ☀ ⛅ ☔ ⚡ ❄ as
+// full-colour emoji, which is the one thing that would look pasted-on in a
+// monochrome HUD. With it they are glyphs that inherit `color`.
+const WX_GLYPH = {
+  '01d': '☀︎', '01n': '☽︎',
+  '02d': '⛅︎', '02n': '☁︎',
+  '03d': '☁︎', '03n': '☁︎',
+  '04d': '☁︎', '04n': '☁︎',
+  '09d': '☔︎', '09n': '☔︎',
+  '10d': '☂︎', '10n': '☂︎',
+  '11d': '⚡︎', '11n': '⚡︎',
+  '13d': '❄︎', '13n': '❄︎',
+  '50d': '≈',       '50n': '≈',
+};
+const wxGlyph = (code) => WX_GLYPH[code] || '○';
+
+function startWidgets() {
+  initWeatherWidget();
+  const tick = () => { loadWeather(); loadTickerMarquee(); };
+  tick();
+  // 60s: the quote cache is 60s and the weather cache is 10 minutes, so this
+  // polls the first honestly and is absorbed by the second.
+  WIDGET_TIMER = setInterval(tick, 60000);
 }
 
-function setupLlmPanel() {
-  const toggle = document.getElementById('llm-toggle');
-  const body = document.getElementById('llm-body');
-  const chevron = document.getElementById('llm-chevron');
-  toggle.onclick = async () => {
-    const opening = body.classList.contains('hidden');
-    body.classList.toggle('hidden');
-    chevron.textContent = opening ? '▾' : '▸';
-    if (opening) { body.innerHTML = '<div class="hint">loading…</div>'; await loadLastLlm(); }
-  };
+// Click/tap toggles .pinned, which keeps the widget enlarged independent of
+// hover — the only interaction touch has, and on desktop the second click
+// that shrinks it back down. Bound once per page load: navigate() clones a
+// fresh #page-today template on every visit, so there's never a stale
+// listener to double up.
+function initWeatherWidget() {
+  const widget = document.getElementById('weather-widget');
+  if (!widget) return;
+  widget.addEventListener('click', () => widget.classList.toggle('pinned'));
 }
 
-async function loadLastLlm() {
-  const body = document.getElementById('llm-body');
+async function loadWeather() {
+  const body = document.getElementById('weather-body');
+  const compactIcon = document.getElementById('wx-compact-icon');
+  const compactTemp = document.getElementById('wx-compact-temp');
+  if (!body) return;                       // navigated away mid-flight
   let d;
-  try { d = await api.get('/api/llm/last'); }
-  catch (e) { body.innerHTML = `<div class="hint">Error: ${escapeHtml(e.message)}</div>`; return; }
-  if (!d.present) { body.innerHTML = '<div class="hint">No exchanges recorded yet.</div>'; return; }
-  const tools = (d.tool_calls || []).map((t) =>
-    `<div class="llm-tool"><span class="feed-kind k-tool">${escapeHtml(t.tool_name)}</span>`
-    + `<span class="mono">${t.duration_ms}ms</span>`
-    + `<pre class="llm-pre">args: ${escapeHtml(t.args_json || '')}\nresult: ${escapeHtml(t.result_preview || '')}</pre></div>`
-  ).join('');
+  try { d = await api.get('/api/weather'); }
+  catch { body.innerHTML = '<div class="hint">Weather unavailable.</div>'; return; }
+  if (!d.ok) {
+    body.innerHTML = `<div class="hint">${escapeHtml(d.error || 'Weather unavailable.')}</div>`;
+    if (compactTemp) compactTemp.textContent = '—°';
+    return;
+  }
+
+  if (compactIcon) compactIcon.textContent = wxGlyph(d.icon);
+  if (compactTemp) compactTemp.textContent = `${d.temp}°`;
+
+  const hilo = (d.high != null && d.low != null)
+    ? `<span class="wx-hilo">H ${d.high}° &middot; L ${d.low}°</span>` : '';
+  // The age is shown only when the reading is actually old. A permanent
+  // "0 minutes ago" is noise, and it trains the eye to stop reading the line
+  // that matters on the day the fetch has been failing for half an hour.
+  const age = d.age_seconds > 900
+    ? `<div class="wx-stale">as of ${Math.round(d.age_seconds / 60)} min ago</div>` : '';
+
+  const strip = (d.forecast || []).map((f) => `
+    <div class="wx-slot">
+      <div class="wx-slot-time">${escapeHtml(f.label)}</div>
+      <div class="wx-slot-icon">${wxGlyph(f.icon)}</div>
+      <div class="wx-slot-temp">${f.temp}°</div>
+      <div class="wx-slot-pop${f.pop >= 30 ? ' wet' : ''}">${f.pop}%</div>
+    </div>`).join('');
+
   body.innerHTML = `
-    <div class="llm-meta mono">${escapeHtml(d.model)} · ${escapeHtml(d.triggered_by)} · ${d.duration_ms}ms · in ${fmtNum(d.tokens_in)} / out ${fmtNum(d.tokens_out)}</div>
-    <div class="llm-block"><div class="llm-h">PROMPT</div><pre class="llm-pre">${escapeHtml(d.prompt || '')}</pre></div>
-    <div class="llm-block"><div class="llm-h">RESPONSE</div><pre class="llm-pre">${escapeHtml(d.response || '')}</pre></div>
-    ${tools ? `<div class="llm-block"><div class="llm-h">TOOL CALLS</div>${tools}</div>` : ''}
+    <div class="wx-now">
+      <div class="wx-icon">${wxGlyph(d.icon)}</div>
+      <div class="wx-main">
+        <div class="wx-temp">${d.temp}°</div>
+        <div class="wx-desc">${escapeHtml(d.description || '')}</div>
+      </div>
+      <div class="wx-meta">
+        <div class="wx-place">${escapeHtml(d.location || '')}${
+          // Device-precise positioning is the one case worth flagging — it's
+          // the upgrade over a typed city, and most installs won't have the
+          // TCC grant, so it earns a tag exactly when it's actually live.
+          d.location_source === 'corelocation'
+            ? ' <span class="wx-src" title="Device location (Wi-Fi positioning)">GPS</span>' : ''
+        }</div>
+        <div class="wx-feels">Feels ${d.feels_like}°</div>
+        ${hilo}
+        <div class="wx-wind">${d.humidity ?? '—'}% humidity &middot; ${d.wind_mph} mph</div>
+      </div>
+    </div>
+    ${strip ? `<div class="wx-strip">${strip}</div>` : ''}
+    ${age}
   `;
 }
 
-function fmtMins(m) {
-  if (m == null) return '—';
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60), mm = m % 60;
-  return mm ? `${h}h ${mm}m` : `${h}h`;
+// Seconds per ticker item in the scrolling loop. A fixed total duration would
+// make the tape crawl with three tickers configured and blur past with
+// twelve; scaling per-item keeps the reading speed constant either way.
+const TICKER_SECONDS_PER_ITEM = 3.2;
+const TICKER_MIN_SECONDS = 12;
+
+function tickerItemHtml(q, stale) {
+  const up = q.change >= 0;
+  const sign = up ? '+' : '';
+  const title = `${escapeHtml(q.name)}${stale ? ' — last known price' : ''}`;
+  return `
+    <span class="ticker-item${stale ? ' stale' : ''}" title="${title}">
+      <span class="ticker-sym">${escapeHtml(q.symbol)}</span>
+      <span class="ticker-price">${q.price.toFixed(2)}</span>
+      <span class="ticker-chg ${up ? 'up' : 'down'}">${sign}${q.change_pct.toFixed(2)}%</span>
+    </span>`;
 }
 
-function fmtTime(iso) {
-  try {
-    const d = new Date(iso);
-    if (isNaN(d)) return '--:--';
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  } catch { return '--:--'; }
+async function loadTickerMarquee() {
+  const marquee = document.getElementById('ticker-marquee');
+  const track = document.getElementById('ticker-track');
+  if (!marquee || !track) return;          // navigated away mid-flight
+  let d;
+  try { d = await api.get('/api/stocks'); }
+  catch { marquee.classList.add('hidden'); return; }
+
+  // Switched off in Integrations — hide the strip entirely rather than
+  // render an empty one. An off switch that leaves a bar behind does not
+  // read as off.
+  if (d.disabled) { marquee.classList.add('hidden'); return; }
+
+  if (!d.ok || !(d.quotes || []).length) {
+    // Keep the strip present but static, rather than collapsing it: a gap
+    // that appears and disappears as the market feed blips is more jarring
+    // than a line saying so.
+    track.style.animation = 'none';
+    track.innerHTML = `<span class="ticker-note">${escapeHtml(d.error || 'Markets unavailable.')}</span>`;
+    marquee.classList.remove('hidden');
+    return;
+  }
+
+  const stale = new Set(d.stale || []);
+  const items = d.quotes.map((q) => tickerItemHtml(q, stale.has(q.symbol))).join('');
+  // Two identical copies back to back — the CSS loop translates by exactly
+  // -50% of the track's own (max-content) width, which is always "one copy's
+  // width" regardless of ticker count, so the seam is invisible.
+  track.innerHTML = `<span class="ticker-set">${items}</span><span class="ticker-set" aria-hidden="true">${items}</span>`;
+  track.style.animationDuration =
+    `${Math.max(TICKER_MIN_SECONDS, d.quotes.length * TICKER_SECONDS_PER_ITEM)}s`;
+  marquee.classList.remove('hidden');
 }
 
 function fmtDate(iso) {
@@ -593,13 +642,6 @@ function maskUrl(url) {
   const s = String(url || '');
   if (s.length <= 28) return s;
   return s.slice(0, 20) + '••••••••' + s.slice(-8);
-}
-
-function fmtNum(n) {
-  if (n == null) return '—';
-  const v = parseInt(n, 10);
-  if (isNaN(v)) return '—';
-  return v.toLocaleString();
 }
 
 // ── AI Model ───────────────────────────────────────────────────────────
@@ -648,7 +690,7 @@ async function refreshGeminiModels() {
   const hint = document.getElementById('gemini-model-hint');
   sel.innerHTML = '<option>Loading...</option>';
   let r;
-  try { r = await api.get('/api/gemini/models'); }
+  try { r = await api.get('/api/gemini/models', { timeoutMs: 15000 }); }
   catch (e) { sel.innerHTML = `<option>Error: ${e.message}</option>`; return; }
   if (!r.ok) { sel.innerHTML = `<option>${r.error}</option>`; hint.textContent = ''; return; }
   const current = get(CONFIG, 'gemini.model') || '';
@@ -906,7 +948,7 @@ function renderIntegrations() {
     const out = document.getElementById('canvas-test-result');
     out.textContent = 'testing...';
     try {
-      const r = await api.post('/api/test/canvas');
+      const r = await api.post('/api/test/canvas', undefined, { timeoutMs: 20000 });
       out.textContent = r.ok ? `✓ HTTP ${r.status_code}` : `✗ ${r.error || r.status_code}`;
       out.style.color = r.ok ? 'var(--teal)' : 'var(--danger)';
     } catch (e) {
@@ -914,6 +956,99 @@ function renderIntegrations() {
       out.style.color = 'var(--danger)';
     }
   };
+
+  // Weather. The key is a secret and follows the same explicit-Save flow as
+  // the other three; the location and the toggle are not, so they auto-save
+  // on blur/change.
+  const wxLocLabel = document.getElementById('wx-location-label');
+  const wxLocHint = document.getElementById('wx-location-hint');
+  const wxLocInput = document.getElementById('wx-location');
+  // The city field means two different things depending on the toggle — the
+  // primary source, or the fallback for when connectors/location.py has no
+  // fix yet — and the label says which so the field never reads as dead.
+  const refreshWxLocLabel = () => {
+    const machine = document.getElementById('wx-use-machine').checked;
+    wxLocLabel.textContent = machine ? 'FALLBACK LOCATION' : 'LOCATION';
+    wxLocHint.textContent = machine
+      ? 'Used only until the machine has a location fix, or if it loses one.'
+      : '"City,CC" — the format OpenWeatherMap expects.';
+  };
+  bindInput(document.getElementById('wx-use-machine'), 'weather.use_machine_location',
+            { onChange: refreshWxLocLabel });
+  refreshWxLocLabel();
+  bindInput(wxLocInput, 'weather.location');
+  const wxK = document.getElementById('wx-key');
+  wxK.value = get(CONFIG, 'weather.api_key') || '';
+  document.getElementById('wx-key-save').onclick = async () => {
+    set(CONFIG, 'weather.api_key', wxK.value);
+    await saveConfig();
+  };
+
+  // Markets
+  renderTickerSettings();
+}
+
+// The ticker editor. A text box rather than a chip UI with an add button: the
+// list is six things long and typing it is faster than six interactions.
+//
+// The parse is duplicated from connectors/stocks.py::normalize deliberately —
+// the SERVER's copy is the one that decides what gets fetched, and this one
+// exists purely so a typo is visible before a save rather than as a silently
+// missing row afterwards. If they ever disagree the server wins, which is why
+// the chips below are drawn from this parse and the widget is drawn from the
+// server's response.
+const TICKER_RE = /^[A-Za-z0-9.\-^=]{1,15}$/;
+
+function parseTickers(raw) {
+  const seen = new Set();
+  const good = [];
+  const bad = [];
+  for (const t of String(raw || '').split(/[,\n]/)) {
+    const sym = t.trim().toUpperCase();
+    if (!sym) continue;
+    if (!TICKER_RE.test(sym)) { bad.push(sym); continue; }
+    if (seen.has(sym)) continue;
+    seen.add(sym);
+    good.push(sym);
+  }
+  return { good: good.slice(0, 12), bad, overflow: good.length > 12 };
+}
+
+function renderTickerSettings() {
+  const input = document.getElementById('mk-tickers');
+  const chips = document.getElementById('mk-chips');
+  const err = document.getElementById('mk-error');
+  const toggle = document.getElementById('mk-enabled');
+  if (!input) return;
+
+  const current = get(CONFIG, 'stocks.tickers') || [];
+  input.value = current.join(', ');
+
+  const draw = (syms) => {
+    chips.innerHTML = syms.map((t) => `<span class="ticker-chip">${escapeHtml(t)}</span>`).join('');
+  };
+  draw(current);
+
+  bindInput(toggle, 'stocks.enabled');
+
+  const save = async () => {
+    const { good, bad, overflow } = parseTickers(input.value);
+    const problems = [];
+    if (bad.length) problems.push(`Not a symbol: ${bad.join(', ')}`);
+    if (overflow) problems.push('Only the first twelve are kept.');
+    err.textContent = problems.join(' ');
+    err.classList.toggle('hidden', !problems.length);
+
+    set(CONFIG, 'stocks.tickers', good);
+    input.value = good.join(', ');
+    draw(good);
+    await saveConfig();
+    // The marquee is on another page; refresh it only if it happens to be up.
+    if (document.getElementById('ticker-track')) loadTickerMarquee();
+  };
+
+  document.getElementById('mk-save').onclick = save;
+  input.addEventListener('blur', save);
 }
 
 async function fetchGroups() {
@@ -1206,6 +1341,7 @@ function renderPeriodCard() {
       ${VIEW_INDEX != null ? '<button class="btn btn-outline pc-now" data-pc="now">Back to now</button>' : ''}
     </div>
     ${stale}
+    ${updatedNotice(SCHED._cachedAt)}
   `;
 
   card.querySelectorAll('[data-pc]').forEach((b) => {
@@ -1247,8 +1383,10 @@ async function loadAfterSchool() {
   if (AFTER_PENDING) return;
   AFTER_PENDING = true;
   try {
-    AFTER = await api.get('/api/after-school');
+    const { data, cachedAt } = await fetchCached('/api/after-school', 3000);
+    AFTER = data;
     AFTER._at = Date.now();
+    AFTER._cachedAt = cachedAt;
   } catch { /* keep the last payload rather than blanking the card */ }
   finally { AFTER_PENDING = false; }
   renderPeriodCard();
@@ -1327,63 +1465,19 @@ function renderAfterSchool(card) {
       <div class="pc-section-h">Due tonight or tomorrow</div>
       ${due}
     </div>
-    <div class="pc-section">
-      <div class="pc-section-h">Add a commitment</div>
-      <div class="quick-add">
-        <input class="input" id="qa-title" placeholder="What is it?">
-        <input class="input" id="qa-date" type="date" value="${escapeAttr((a.now || '').slice(0, 10))}">
-        <input class="input" id="qa-start" type="time">
-        <input class="input" id="qa-end" type="time">
-        <button class="btn btn-primary" id="qa-add">Add</button>
-      </div>
-      <div class="hint" id="qa-result">Goes through the same confirmation card as everything else.</div>
-    </div>
     <div class="pc-nav">
       <button class="icon-btn" data-pc="reload" title="Refresh">⟳</button>
       <span class="pc-dots"></span>
       <button class="btn btn-outline pc-now" data-pc="back">Today's periods</button>
     </div>
     ${staleNotice()}
+    ${updatedNotice(a._cachedAt)}
   `;
 
   card.querySelector('[data-pc="back"]').onclick = () => {
     VIEW_INDEX = 0; VIEW_AT = Date.now(); renderPeriodCard();
   };
   card.querySelector('[data-pc="reload"]').onclick = () => loadAfterSchool();
-  wireQuickAdd(card);
-}
-
-// The quick-add field. It POSTs and then STOPS — the confirmation card is
-// what happens next, and it arrives on the stream like every other card. This
-// deliberately does not write anything, report success, or refresh the
-// commitments list: nothing has been written yet at that point, and a card
-// that said "added" before the tap would be the one lie this whole gate
-// exists to prevent.
-function wireQuickAdd(card) {
-  const btn = card.querySelector('#qa-add');
-  const out = card.querySelector('#qa-result');
-  if (!btn) return;
-  btn.onclick = async () => {
-    const title = card.querySelector('#qa-title').value.trim();
-    if (!title) { out.textContent = 'Give it a name first.'; return; }
-    btn.disabled = true;
-    out.textContent = 'Proposing…';
-    try {
-      await api.post('/api/commitment', {
-        title,
-        date: card.querySelector('#qa-date').value,
-        start_time: card.querySelector('#qa-start').value,
-        end_time: card.querySelector('#qa-end').value,
-      });
-      card.querySelector('#qa-title').value = '';
-      out.textContent = 'Confirmation card sent — approve it in Chat or Telegram.';
-      flash('CARD SENT');
-    } catch (e) {
-      out.textContent = e.detail || e.message;
-    } finally {
-      btn.disabled = false;
-    }
-  };
 }
 
 // The after-school payload carries its own `today`, so dueLabel's SCHED-based
@@ -1408,7 +1502,9 @@ function staleNotice() {
 
 async function loadSchedule() {
   try {
-    SCHED = await api.get('/api/schedule');
+    const { data, cachedAt } = await fetchCached('/api/schedule', 3000);
+    SCHED = data;
+    SCHED._cachedAt = cachedAt;
   } catch { /* keep the last payload; the card keeps working offline */ }
   renderPeriodCard();
 }
@@ -1643,13 +1739,59 @@ async function refreshAbStatus() {
   if (s.letter_source === 'override') {
     out.innerHTML = `Today is forced to <strong>${escapeHtml(s.letter)}</strong>. Clears at midnight.`;
   } else if (s.letter_source === 'counted') {
-    out.innerHTML = `Today is a <strong>${escapeHtml(s.letter)}</strong> day, counted from the first A day.`;
-  } else if (!s.is_school_day) {
-    out.textContent = 'Weekend — no letter today.';
+    out.innerHTML = `Today is a <strong>${escapeHtml(s.letter)}</strong> day, counted from the first A day.`
+      + ` First A day: <strong>${escapeHtml(anchorLabel(s) || '?')}</strong>.`;
   } else {
-    out.innerHTML = 'No first A day set, so the rotation is unresolved. '
+    out.innerHTML = unresolvedReason(s);
+  }
+}
+
+// The anchor, spelled out. A date input shows the local format and stores
+// ISO, and the two disagree about which number is the month — so the status
+// line names the month in words. That is the whole defence against setting
+// the rotation to a date you did not mean, and it is cheap.
+function anchorLabel(s) {
+  const raw = ((s.schedule || {}).ab_cycle || {}).start_date;
+  if (!raw) return '';
+  const d = new Date(`${String(raw).slice(0, 10)}T00:00:00`);
+  if (isNaN(d)) return String(raw);
+  return d.toLocaleDateString([], {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+}
+
+// WHY THIS IS FOUR SENTENCES AND NOT ONE.
+//
+// letter_for() returns None for four different reasons and says outright
+// that they mean the same thing to its caller — which is true of the card,
+// where the answer is "show both, labeled" either way. It is NOT true here.
+// This line is the one place a user finds out WHY there is no letter, and it
+// used to answer "No first A day set" for all of them.
+//
+// That is how a first A day of 2026-11-12 sat unnoticed while the user
+// believed they had set 2026-08-12: the rotation was configured, the anchor
+// was simply three months out, and the only status text on the page said it
+// was not configured at all. A wrong reason is worse than no reason — it
+// sends you to look at the wrong field.
+function unresolvedReason(s) {
+  const raw = ((s.schedule || {}).ab_cycle || {}).start_date;
+  if (!raw) {
+    return 'No first A day set, so the rotation is unresolved. '
       + '4th and 5th show <strong>both</strong> courses, labeled.';
   }
+  const anchor = String(raw).slice(0, 10);
+  if (isNaN(new Date(`${anchor}T00:00:00`))) {
+    return `<span class="warn">${escapeHtml(String(raw))} is not a date Friday `
+      + 'can read, so the rotation is unresolved.</span>';
+  }
+  if (anchor > s.today) {
+    return `<span class="warn">The first A day is set to `
+      + `<strong>${escapeHtml(anchorLabel(s))}</strong>, which has not happened `
+      + 'yet — there is no letter until then. If that is not the date you '
+      + 'meant, it is the field above.</span>';
+  }
+  if (!s.is_school_day) return 'Weekend — no letter today.';
+  return 'The rotation is unresolved. 4th and 5th show '
+    + '<strong>both</strong> courses, labeled.';
 }
 
 // ── Calendar ───────────────────────────────────────────────────────────
@@ -1753,6 +1895,211 @@ function renderNotifications() {
       await saveConfig();
     };
   });
+}
+
+// ── Wake schedule ──────────────────────────────────────────────────────
+//
+// Derived blocks come from GET /api/power/status, which calls power.py's own
+// combined_blocks() — never re-derived here, so the dashboard can never show
+// a block power_reconcile_job disagrees about. Custom blocks and per-block
+// enable are ordinary config edits, same as GroupMe groups and gcal rows:
+// mutate CONFIG.wake_schedule client-side, POST the whole document. Only the
+// manual hold (a timestamp, not a config value) gets its own endpoint.
+
+let POWER_TIMER = null;
+let POWER_STATUS = null;
+
+const WEEKDAY_LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+
+function renderPower() {
+  const w = (CONFIG.wake_schedule = CONFIG.wake_schedule || {});
+  w.custom_blocks = w.custom_blocks || [];
+  w.derived_overrides = w.derived_overrides || {};
+
+  bindInput(document.getElementById('power-enabled'), 'wake_schedule.enabled');
+  const leadEl = document.getElementById('power-lead-minutes');
+  const daysEl = document.getElementById('power-days-ahead');
+  leadEl.value = w.lead_minutes ?? 2;
+  daysEl.value = w.wake_days_ahead ?? 3;
+  leadEl.onchange = async () => {
+    w.lead_minutes = Math.max(0, parseInt(leadEl.value, 10) || 0);
+    await saveConfig();
+    loadPowerStatus();
+  };
+  daysEl.onchange = async () => {
+    w.wake_days_ahead = Math.max(1, parseInt(daysEl.value, 10) || 1);
+    await saveConfig();
+  };
+
+  document.getElementById('power-manual-start').onclick = async () => {
+    const minutes = parseInt(document.getElementById('power-manual-minutes').value, 10) || 30;
+    try {
+      await api.post('/api/power/manual', { minutes });
+      flash('HOLDING AWAKE');
+    } catch { flash('FAILED', true); }
+    loadPowerStatus();
+  };
+  document.getElementById('power-manual-clear').onclick = async () => {
+    try {
+      await api.post('/api/power/manual', { clear: true });
+      flash('HOLD ENDED');
+    } catch { flash('FAILED', true); }
+    loadPowerStatus();
+  };
+
+  document.getElementById('power-custom-add').onclick = async () => {
+    w.custom_blocks.push({ label: '', start: '15:05', end: '15:20', enabled: true, weekdays: null });
+    renderCustomBlocks();
+    await saveConfig();
+  };
+
+  renderCustomBlocks();
+  loadPowerStatus();
+  if (POWER_TIMER) clearInterval(POWER_TIMER);
+  POWER_TIMER = setInterval(loadPowerStatus, 15000);
+}
+
+function renderCustomBlocks() {
+  const w = CONFIG.wake_schedule;
+  const container = document.getElementById('power-custom-list');
+  container.innerHTML = '';
+  (w.custom_blocks || []).forEach((b, idx) => {
+    const row = document.createElement('div');
+    row.innerHTML = `
+      <div class="power-block-edit">
+        <input class="input" placeholder="Label (e.g. After school)" value="${escapeAttr(b.label || '')}">
+        <input type="time" class="input small">
+        <input type="time" class="input small">
+      </div>
+      <div class="power-weekdays"></div>
+      <div class="notif-row" style="border-bottom:none; padding:8px 0 16px;">
+        <label class="switch"><input type="checkbox" ${b.enabled !== false ? 'checked' : ''}><span class="slider-sw"></span></label>
+        <button class="icon-btn" title="Remove">×</button>
+      </div>
+    `;
+    const [labelEl, startEl, endEl] = row.querySelectorAll('.power-block-edit input');
+    startEl.value = b.start || '';
+    endEl.value = b.end || '';
+    labelEl.onblur = async () => { b.label = labelEl.value; await saveConfig(); };
+    startEl.onchange = async () => { b.start = startEl.value; await saveConfig(); loadPowerStatus(); };
+    endEl.onchange = async () => { b.end = endEl.value; await saveConfig(); loadPowerStatus(); };
+
+    const wdWrap = row.querySelector('.power-weekdays');
+    const selected = new Set(b.weekdays == null ? [0, 1, 2, 3, 4, 5, 6] : b.weekdays);
+    WEEKDAY_LETTERS.forEach((letter, day) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = letter;
+      btn.className = selected.has(day) ? 'active' : '';
+      btn.onclick = async () => {
+        if (selected.has(day)) selected.delete(day); else selected.add(day);
+        btn.classList.toggle('active');
+        b.weekdays = [...selected].sort((x, y) => x - y);
+        await saveConfig();
+        loadPowerStatus();
+      };
+      wdWrap.appendChild(btn);
+    });
+
+    row.querySelector('.switch input').onchange = async (e) => {
+      b.enabled = e.target.checked;
+      await saveConfig();
+      loadPowerStatus();
+    };
+    row.querySelector('.icon-btn').onclick = async () => {
+      w.custom_blocks.splice(idx, 1);
+      renderCustomBlocks();
+      await saveConfig();
+      loadPowerStatus();
+    };
+    container.appendChild(row);
+  });
+}
+
+function renderDerivedBlocks(blocks) {
+  const container = document.getElementById('power-derived-list');
+  if (!container) return;
+  const derived = (blocks || []).filter((b) => b.source === 'derived');
+  if (!derived.length) {
+    container.innerHTML = '<div class="pc-empty">No passing periods for this day — a weekend, or no bell schedule set on the Schedule page.</div>';
+    return;
+  }
+  const w = (CONFIG.wake_schedule = CONFIG.wake_schedule || {});
+  w.derived_overrides = w.derived_overrides || {};
+  container.innerHTML = '';
+  derived.forEach((b) => {
+    const key = `${b.start}-${b.end}`;
+    const row = document.createElement('div');
+    row.className = 'power-block-row';
+    row.innerHTML = `
+      <label class="switch"><input type="checkbox" ${b.enabled ? 'checked' : ''}><span class="slider-sw"></span></label>
+      <div>
+        <div class="power-block-label">${escapeHtml(b.label)}</div>
+        <div class="power-block-time">${escapeHtml(b.start)}–${escapeHtml(b.end)} · wakes at ${escapeHtml(b.wake_at)}</div>
+      </div>
+      <span></span>
+    `;
+    row.querySelector('input[type="checkbox"]').onchange = async (e) => {
+      w.derived_overrides[key] = e.target.checked;
+      await saveConfig();
+      loadPowerStatus();
+    };
+    container.appendChild(row);
+  });
+}
+
+async function loadPowerStatus() {
+  if (CURRENT_ROUTE !== 'power') return;
+  let s;
+  try { s = await api.get('/api/power/status', { timeoutMs: 6000 }); }
+  catch { return; }
+  POWER_STATUS = s;
+
+  const dot = document.getElementById('power-dot');
+  const text = document.getElementById('power-status-text');
+  if (dot && text) {
+    dot.className = 'dot' + (s.active ? ' online' : (s.enabled ? ' offline' : ' error'));
+    if (!s.enabled) text.textContent = 'Disabled';
+    else if (s.active && s.manual) text.textContent = `Holding awake — manual hold, until ${clockLabel(s.manual.until)}`;
+    else if (s.active && s.block) text.textContent = `Holding awake — ${s.block.label}, until ${s.block.end}`;
+    else if (s.active) text.textContent = 'Holding awake';
+    else text.textContent = 'Free to sleep';
+  }
+
+  const batt = document.getElementById('power-battery');
+  if (batt) {
+    batt.textContent = (s.battery && s.battery.percent != null)
+      ? `${s.battery.percent}%${s.battery.source ? ` · ${s.battery.source}` : ''}`
+      : 'unknown';
+  }
+
+  const nextWake = document.getElementById('power-next-wake');
+  if (nextWake) {
+    nextWake.textContent = s.next_wake
+      ? `${clockLabel(s.next_wake)} · ${new Date(s.next_wake).toLocaleDateString([], { month: 'short', day: 'numeric' })}`
+      : 'none scheduled';
+  }
+
+  const manualClear = document.getElementById('power-manual-clear');
+  if (manualClear) manualClear.classList.toggle('hidden', !s.manual);
+
+  // Best-effort — see power.py::sudo_configured()'s docstring. Shown only
+  // once this process has actually tried and failed, never guessed from a
+  // read that could just be a quiet machine.
+  const sudoHint = document.getElementById('power-sudo-hint');
+  if (sudoHint) {
+    const missing = s.enabled && !s.sudo_configured;
+    sudoHint.classList.toggle('hidden', !missing);
+    if (missing) {
+      sudoHint.innerHTML = '<span class="warn">The sudoers rule below is missing or wrong — '
+        + 'the schedule cannot hold the machine awake or wake it until it is added.</span>';
+    }
+  }
+
+  const sudoLine = document.getElementById('power-sudoers-line');
+  if (sudoLine) sudoLine.value = s.sudoers_line || '';
+
+  renderDerivedBlocks((s.blocks_today && s.blocks_today.length) ? s.blocks_today : s.blocks_tomorrow);
 }
 
 // ── Voice ──────────────────────────────────────────────────────────────
@@ -2017,9 +2364,9 @@ function chatRenderEvent(ev) {
 // response. Rendered only when the chat view is mounted — a message that
 // arrives while the user is on Settings is in the transcript, which the view
 // reads when it opens.
-onStream('message', (ev) => { if (CURRENT_ROUTE === 'chat') chatRenderEvent(ev); });
-onStream('notify',  (ev) => { if (CURRENT_ROUTE === 'chat') chatRenderEvent(ev); });
-onStream('card',    (ev) => { if (CURRENT_ROUTE === 'chat') chatRenderEvent(ev); });
+onStream('message', (ev) => { if (CURRENT_ROUTE === 'today') chatRenderEvent(ev); });
+onStream('notify',  (ev) => { if (CURRENT_ROUTE === 'today') chatRenderEvent(ev); });
+onStream('card',    (ev) => { if (CURRENT_ROUTE === 'today') chatRenderEvent(ev); });
 
 // Anything this browser rendered from its own POST response must not be
 // rendered a second time when the same event arrives on the stream. Keyed on
@@ -2044,7 +2391,7 @@ async function chatSend(text) {
   thinking.innerHTML = '<div class="chat-bubble">…</div>';
   chatAppend(thinking);
   try {
-    const r = await api.post('/api/chat', { text });
+    const r = await api.post('/api/chat', { text }, { timeoutMs: 60000 });
     thinking.remove();
     if (r.paused) {
       chatAppend(chatLine('assistant', 'Paused — nothing was processed.',
@@ -2154,7 +2501,7 @@ async function chatSyncPending() {
   } catch { /* a failed poll is a stale card, not a broken page */ }
 }
 
-async function renderChat() {
+async function startChat() {
   const log = document.getElementById('chat-log');
   const form = document.getElementById('chat-form');
   const input = document.getElementById('chat-input');
@@ -2202,17 +2549,42 @@ async function renderChat() {
 
 // ── Boot ───────────────────────────────────────────────────────────────
 
+// Registered on its own, not gated on boot() succeeding — it has to be in
+// place BEFORE the daemon goes unreachable, since installing it requires a
+// working fetch of /sw.js in the first place. Scope is "/" (server.py serves
+// it from the origin root, not /static/, for exactly that reason): it has to
+// intercept navigation to "/" and the /api/schedule and /api/after-school
+// reads, not just its own directory. See dashboard/static/sw.js.
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch((e) => {
+      console.warn('Service worker registration failed — offline shell will not work:', e);
+    });
+  });
+}
+
 async function boot() {
+  registerServiceWorker();
+  // updateSidebar() and openStream() have their own failure handling
+  // (DISCONNECTED dot, EventSource's native reconnect) and do not depend on
+  // CONFIG, so they start immediately rather than waiting on it.
+  updateSidebar();
+  openStream();
   try {
     // Sensitive fields need the real values to render in their <input>s. Local-only
     // server, so we just reveal them all on initial load.
-    CONFIG = await api.get('/api/config?reveal=1');
+    CONFIG = await api.get('/api/config?reveal=1', { timeoutMs: 3000 });
   } catch (e) {
-    PAGE.innerHTML = `<div class="panel"><h2>CONNECTION ERROR</h2><div class="hint">${e.message}</div></div>`;
-    return;
+    // NEVER a blank page for this. Today does not read CONFIG at all — the
+    // period card and after-school card come from their own endpoints, which
+    // the service worker serves from cache offline — so the one thing that
+    // truly requires a reachable server here is the settings pages, and they
+    // degrade on their own (empty fields) rather than needing a blank stub
+    // dressed up as real config.
+    CONFIG = {};
+    console.warn(`Could not load config (${e.message}) — rendering Today from cache.`);
   }
-  updateSidebar();
-  openStream();
   const initial = (location.hash.replace('#/', '') || 'today');
   navigate(initial);
 }

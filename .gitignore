@@ -43,6 +43,11 @@ build/
 # Runtime logs — contain live tokens, never track.
 friday/logs/
 
+# Tailscale-issued HTTPS cert/key for the dashboard's tailnet bind —
+# fetched at runtime by dashboard/tls_certs.py, machine-specific, and the
+# key must never be committed.
+friday/tls/
+
 # macOS packaging artifacts — build output and generated assets.
 packaging/macos/google_client_secret.json
 packaging/macos/friday.icns

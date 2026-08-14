@@ -48,6 +48,7 @@ from agent.core import FridayAgent
 from llm import dispatch as llm_dispatch
 from llm import profiles as llm_profiles
 from channels.telegram import TelegramHandler
+from channels.dashboard import DashboardChannel
 from memory.db import Database
 import memory.activity as activity
 import memory.state as state
@@ -62,6 +63,7 @@ from connectors import location
 from agent import briefings
 from actions import calendar as apple_writer
 from dashboard import server as dashboard_server
+import power
 
 # Names of the two recurring briefing jobs. They lived in agent/tools.py while
 # the update_setting tool needed to replace the jobs in place; that tool is
@@ -107,7 +109,18 @@ def check_environment(config: dict) -> None:
 #                                                GroupMe event extraction that
 #                                                followed are torn down and
 #                                                currently no-ops.)
+#       run_repeating→ canvas_health_job        (5 min: Canvas cache refresh
+#                                                only, so a dead REST token or
+#                                                a stale period card is caught
+#                                                within minutes of wake, not
+#                                                up to 15 of them)
 #       run_repeating→ check_urgent_alerts_job  (1 min: fire URGENT interrupts)
+#       run_repeating→ power_reconcile_job      (1 min: passing-period wake
+#                                                hold — see power.py)
+#       run_daily    → power_materialize_job    (3:20am: materializes the next
+#                                                few days' pmset wakeorpoweron
+#                                                entries; also runs once at
+#                                                startup)
 #   • One-shot briefing overrides + missed-briefing catch-up
 #   • run_polling owns the only event loop (no second scheduler, no threads)
 def main() -> None:
@@ -172,19 +185,37 @@ def main() -> None:
         if state.get(conn, "paused") is None:
             state.set(conn, "paused", "false")
 
+        # A disablesleep flag stranded by a crash or a SIGKILL must not
+        # survive into this run — see power.startup_clear's docstring on why
+        # this is unconditional rather than read-gated. Off the loop: it
+        # shells out to pmset.
+        await asyncio.get_running_loop().run_in_executor(
+            None, power.startup_clear, conn)
+
         # Dashboard web server — runs inside this same asyncio loop. No threads,
         # no second event loop. Honors the single-loop rule in CLAUDE.md.
         config_path = paths.config_path()
         try:
-            server = await dashboard_server.start_server(
+            # One group per protocol: loopback HTTP always, plus a tailnet
+            # group that is HTTPS when a Tailscale cert is available and
+            # plain HTTP otherwise — see start_server()'s docstring.
+            dashboard_groups = await dashboard_server.start_server(
                 config_path, conn,
                 # Bound here rather than at definition: app.bot only exists once
                 # PTB has built the Application.
                 on_demand_briefing=lambda: send_on_demand_briefing(app.bot),
             )
-            task = asyncio.create_task(server.serve(), name="dashboard_server")
-            app.bot_data["dashboard_server"] = server
-            app.bot_data["dashboard_task"] = task
+            dashboard_tasks = [
+                asyncio.create_task(server.serve(sockets=sockets), name="dashboard_server")
+                for server, sockets in dashboard_groups
+            ]
+            # _publish_dashboard / _dashboard_notify reach through
+            # server.config.app, which is the same FastAPI instance on
+            # every server in the list — any one of them works, so the
+            # first (loopback) stays the singular handle those use.
+            app.bot_data["dashboard_server"] = dashboard_groups[0][0]
+            app.bot_data["dashboard_servers"] = [server for server, _ in dashboard_groups]
+            app.bot_data["dashboard_tasks"] = dashboard_tasks
         except Exception as e:
             logger.error(f"Dashboard server failed to start: {e}")
 
@@ -205,13 +236,21 @@ def main() -> None:
 
     async def post_stop(app: Application) -> None:
         state.set(conn, "status", "stopped")
-        server = app.bot_data.get("dashboard_server")
-        if server is not None:
+        # Cleared on every shutdown path, graceful or not-quite — a machine
+        # that cannot sleep because the daemon exited mid-block is a dead
+        # battery in a backpack. Best-effort: if pmset itself is wedged this
+        # must not block the rest of shutdown.
+        try:
+            await asyncio.get_running_loop().run_in_executor(
+                None, power.shutdown_clear, conn)
+        except Exception as e:
+            logger.warning(f"power: shutdown_clear failed: {e}")
+        for server in app.bot_data.get("dashboard_servers", []):
             server.should_exit = True
-        task = app.bot_data.get("dashboard_task")
-        if task is not None:
+        tasks = app.bot_data.get("dashboard_tasks", [])
+        if tasks:
             try:
-                await asyncio.wait_for(task, timeout=3)
+                await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=3)
             except (asyncio.TimeoutError, Exception):
                 pass
         try:
@@ -367,6 +406,77 @@ def main() -> None:
         except Exception as e:
             logger.debug(f"dashboard publish skipped: {e}")
 
+    def _dashboard_notify(app, title: str, text: str) -> bool:
+        """The dashboard's own interrupt path — channels/dashboard.py's two
+        doors (an in-browser Web Notification via the SSE stream, plus a
+        native macOS notification via osascript for when no tab is open).
+        Same guard as _publish_dashboard: best-effort, dashboard optional.
+        Returns True if either door opened, mirroring DashboardChannel.notify.
+        """
+        try:
+            server = app.bot_data.get("dashboard_server")
+            if server is None:
+                return False
+            broadcaster = server.config.app.state.broadcaster
+            return DashboardChannel(sink=broadcaster.publish).notify(title, text)
+        except Exception as e:
+            logger.debug(f"dashboard notify skipped: {e}")
+            return False
+
+    async def _maybe_alert_canvas_token(app, bot, cache: dict, loop) -> None:
+        # A LATCH, not a window — same reasoning as check_urgent_alerts_job's
+        # `notified` column: this fires from two different jobs on two
+        # different cadences against the same state key, so anything short
+        # of permanent-until-recovered is a loop or a double-send.
+        #
+        # Set only once at least one door actually opened, on either channel —
+        # if Telegram is blocked (school Wi-Fi) but the dashboard notified, or
+        # the dashboard isn't open but Telegram got through, that is a
+        # delivered alert. If BOTH failed (Mac asleep with nobody watching
+        # either surface), nothing is latched and the next cycle retries.
+        alert_key = "canvas_token_alert_sent"
+        if cache.get("rest_auth_expired"):
+            if state.get(conn, alert_key) != "true":
+                text = briefings.canvas_token_expired_alert()
+                delivered = False
+                try:
+                    await bot.send_message(chat_id=chat_id, text=text)
+                    delivered = True
+                except Exception as e:
+                    logger.error(f"Canvas token-expired Telegram alert failed: {e}")
+                # _dashboard_notify's osascript door is a blocking subprocess
+                # call — off the loop, same as every other blocking call in
+                # these jobs, so a hung osascript can't stall the scheduler.
+                if await loop.run_in_executor(
+                        None, _dashboard_notify, app, "Canvas API expired", text):
+                    delivered = True
+                if delivered:
+                    state.set(conn, alert_key, "true")
+        elif cache.get("rest_ok") and state.get(conn, alert_key) == "true":
+            state.delete(conn, alert_key)
+
+    async def canvas_health_job(context) -> None:
+        """A narrow, frequent Canvas-only refresh, separate from the 15-min
+        poll_connectors_job specifically so a dead REST token — or a stale
+        period card — is caught within minutes of the Mac waking rather than
+        up to 15 of them; poll_connectors_job itself gets misfire-skipped
+        after a long sleep (see check_urgent_alerts_job above). Only touches
+        the read-only cache refresh() already used for the period card —
+        fetch()/sync_to_calendar() (the calendar-write path) stay on the
+        15-min job."""
+        canvas_cfg = config.get("canvas", {})
+        if not canvas_cfg.get("ical_url"):
+            return
+        loop = asyncio.get_running_loop()
+        try:
+            cache = await loop.run_in_executor(
+                None, canvas_connector.refresh, config, conn)
+            await _maybe_alert_canvas_token(app, context.bot, cache, loop)
+            _publish_dashboard(app, {"kind": "canvas",
+                                     "refreshed_at": cache.get("refreshed_at", "")})
+        except Exception as e:
+            logger.error(f"Canvas health check failed: {e}")
+
     async def poll_connectors_job(context) -> None:
         logger.info("Polling connectors...")
         loop = asyncio.get_running_loop()
@@ -415,6 +525,7 @@ def main() -> None:
                 # the record.
                 _publish_dashboard(app, {"kind": "canvas",
                                          "refreshed_at": cache.get("refreshed_at", "")})
+                await _maybe_alert_canvas_token(app, context.bot, cache, loop)
             except Exception as e:
                 logger.error(f"Canvas poll failed: {e}")
 
@@ -690,6 +801,51 @@ def main() -> None:
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, activity.cleanup_old_activity, conn, 30)
 
+    # ── Passing-period wake schedule ──────────────────────────────────────────
+    # Two jobs for power.py's two mechanisms. Minute-resolution for the hold
+    # (self-heals after sleep/crash/config edit — see power.reconcile), daily
+    # for materializing the actual OS-level wake events a few days ahead
+    # (pmset repeat can't express seven blocks a day; see power.py's
+    # docstring). Both are best-effort: a pmset failure here must never take
+    # the rest of the poll/job loop down with it.
+    async def power_reconcile_job(context) -> None:
+        loop = asyncio.get_running_loop()
+        cfg = load_config()   # cheap re-read: a dashboard edit takes effect
+                              # within one tick rather than needing a restart
+        try:
+            await loop.run_in_executor(None, power.reconcile, cfg, conn)
+        except Exception as e:
+            logger.warning(f"power: reconcile failed: {e}")
+
+    async def power_materialize_job(context) -> None:
+        loop = asyncio.get_running_loop()
+        cfg = load_config()
+        try:
+            result = await loop.run_in_executor(
+                None, power.materialize_wakes, cfg, conn)
+            if result.get("added") or result.get("cancelled"):
+                logger.info(
+                    f"power: materialized wakes — added {len(result.get('added', []))}, "
+                    f"cancelled {len(result.get('cancelled', []))}."
+                )
+            if result.get("failed_add") or result.get("failed_cancel"):
+                logger.warning(
+                    f"power: {len(result.get('failed_add', []))} wake(s) failed to "
+                    f"add, {len(result.get('failed_cancel', []))} failed to cancel — "
+                    f"see power.sudoers_line()."
+                )
+        except Exception as e:
+            logger.warning(f"power: materialize_wakes failed: {e}")
+
+    # ── Tailscale HTTPS cert renewal ──────────────────────────────────────────
+    # `tailscale cert` is idempotent, so this can run daily with no expiry
+    # math on this side — see dashboard/tls_certs.py and
+    # check_and_renew_tailscale_cert's docstring for why a renewal also
+    # triggers a restart.
+    async def cert_renewal_job(context) -> None:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, dashboard_server.check_and_renew_tailscale_cert)
+
     # ── Build and run application ─────────────────────────────────────────────
 
     # concurrent_updates lets callback taps (Confirm/Cancel) and new messages
@@ -733,11 +889,24 @@ def main() -> None:
         name=EVENING_BRIEFING_JOB,
     )
     app.job_queue.run_repeating(poll_connectors_job,    interval=900, first=60)
+    app.job_queue.run_repeating(canvas_health_job,      interval=300, first=45)
     app.job_queue.run_repeating(check_urgent_alerts_job, interval=60,  first=10)
     app.job_queue.run_daily(
         cleanup_activity_job,
         time=datetime.time(3, 0, tzinfo=local_tz),
     )
+    app.job_queue.run_daily(
+        cert_renewal_job,
+        time=datetime.time(3, 10, tzinfo=local_tz),
+    )
+    app.job_queue.run_repeating(power_reconcile_job, interval=60, first=15)
+    app.job_queue.run_daily(
+        power_materialize_job,
+        time=datetime.time(3, 20, tzinfo=local_tz),
+    )
+    # Also once at startup — a fresh install or a schedule edit should not
+    # have to wait for 3:20am to get its first materialized wake.
+    app.job_queue.run_once(power_materialize_job, when=20)
 
     # Restore any pending briefing override that survived a restart. The
     # system_state row persists across restarts, but the in-memory one-shot

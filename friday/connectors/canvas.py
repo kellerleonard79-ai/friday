@@ -470,7 +470,8 @@ def refresh(config: dict, conn: sqlite3.Connection) -> dict:
     cfg = config.get("canvas") or {}
     now_iso = datetime.now().isoformat(timespec="seconds")
     result = {"ical_ok": False, "rest_ok": False, "courses": 0,
-              "assignments": 0, "error": "", "refreshed_at": now_iso}
+              "assignments": 0, "error": "", "refreshed_at": now_iso,
+              "rest_auth_expired": False}
 
     # ── Layer 1: iCal. Works with a dead token. ───────────────────────────────
     ical_url = (cfg.get("ical_url") or "").strip()
@@ -511,6 +512,17 @@ def refresh(config: dict, conn: sqlite3.Connection) -> dict:
                     logger.debug(f"Canvas REST assignments for {cid} failed: {e}")
             _store_rest(conn, courses_json, per_course, now_iso)
             result["rest_ok"] = True
+        except requests.exceptions.HTTPError as e:
+            # A 401 on the FIRST call (/courses) means the token itself is
+            # dead, not that one course refused us — distinct from the
+            # per-course try/except above, which tolerates a single bad
+            # course without flagging the whole token.
+            status = e.response.status_code if e.response is not None else None
+            if status == 401:
+                result["rest_auth_expired"] = True
+            result["error"] = (result["error"] + "; " if result["error"] else "") + f"rest: {e}"
+            logger.info(f"Canvas cache — REST enrichment unavailable ({e}). "
+                        f"iCal data retained.")
         except Exception as e:
             result["error"] = (result["error"] + "; " if result["error"] else "") + f"rest: {e}"
             logger.info(f"Canvas cache — REST enrichment unavailable ({e}). "
@@ -523,6 +535,8 @@ def refresh(config: dict, conn: sqlite3.Connection) -> dict:
             state.set(conn, "canvas_refresh_at", now_iso)
         state.set(conn, "canvas_rest_ok", "true" if result["rest_ok"] else "false")
         state.set(conn, "canvas_last_error", result["error"])
+        state.set(conn, "canvas_rest_auth_expired",
+                  "true" if result["rest_auth_expired"] else "false")
     except Exception as e:
         logger.debug(f"Canvas cache status write failed: {e}")
     return result
@@ -585,7 +599,10 @@ def cache_status(conn: sqlite3.Connection) -> dict:
             "refreshed_at": state.get(conn, "canvas_refresh_at") or "",
             "rest_ok": (state.get(conn, "canvas_rest_ok") or "") == "true",
             "last_error": state.get(conn, "canvas_last_error") or "",
+            "rest_auth_expired":
+                (state.get(conn, "canvas_rest_auth_expired") or "") == "true",
         }
     except Exception as e:
         logger.debug(f"canvas cache status read failed: {e}")
-        return {"refreshed_at": "", "rest_ok": False, "last_error": ""}
+        return {"refreshed_at": "", "rest_ok": False, "last_error": "",
+                "rest_auth_expired": False}

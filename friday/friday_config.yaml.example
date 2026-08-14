@@ -156,9 +156,14 @@ schedule:
                       # override when the school drifts.
 
 weather:
-  api_key: ''         # OpenWeatherMap. Env fallback: WEATHER_API_KEY
-  location: ''        # "City,CC" format, e.g. Austin,US.
-                      # Env fallback: WEATHER_LOCATION
+  api_key: ''                 # OpenWeatherMap. Env fallback: WEATHER_API_KEY
+  location: ''                # "City,CC" format, e.g. Austin,US. Fallback only —
+                              # used when use_machine_location is false, or when
+                              # it's true but connectors/location.py has no fix
+                              # cached yet. Env fallback: WEATHER_LOCATION
+  use_machine_location: true  # prefer the Mac's own location (connectors/location.py)
+                              # over the string above. false pins the string —
+                              # for a machine that travels, or a fixed answer.
 
 groupme:
   api_token: ''       # from dev.groupme.com → "Access Token"
@@ -255,3 +260,18 @@ dashboard:
   # always be, and a dashboard with auth disabled is a dashboard that is open
   # the moment that changes.
   auth_token: ''
+
+# ── Markets ──────────────────────────────────────────────────────────────────
+# The dashboard's markets widget. Keyless — quotes come from Yahoo's public
+# chart endpoint, so there is nothing to sign up for and no secret here.
+# Symbols are Yahoo's: AAPL, BRK.B, ^GSPC (an index), BTC-USD (crypto),
+# ES=F (a future). Twelve maximum; the widget is a glance, not a portfolio.
+stocks:
+  enabled: true
+  tickers:
+    - AAPL
+    - MSFT
+    - NVDA
+    - GOOGL
+    - TSLA
+    - SPY

@@ -2,8 +2,10 @@
 dashboard/server.py
 FastAPI app that powers the F.R.I.D.A.Y. local web dashboard.
 
-Hosted inside friday.py's PTB asyncio loop (single event loop), bound to
-127.0.0.1:5174 — never exposed to the network, so no auth.
+Hosted inside friday.py's PTB asyncio loop (single event loop). Bound to
+127.0.0.1:5174 and, when Tailscale is running, this machine's tailnet
+address specifically — never 0.0.0.0. Every route requires the shared
+token; see dashboard/auth.py.
 
 All endpoints touch the SAME SQLite connection and the SAME config file the
 running agent uses. Config writes are atomic (tmp + rename).
@@ -18,6 +20,7 @@ import os
 import secrets
 import shutil
 import signal
+import socket
 import sqlite3
 import subprocess
 import tempfile
@@ -38,10 +41,13 @@ from pydantic import BaseModel
 
 import compat
 import memory.state as state
+import power
 import schedule
-from dashboard import auth, stream
+from dashboard import auth, stream, tls_certs
 import paths
 import self_edit
+from connectors import stocks as stocks_conn
+from connectors import weather as weather_conn
 from connectors.groupme import normalize_priority
 from policy import visibility
 from self_edit import sync_briefing_times as _sync_briefing_times
@@ -55,6 +61,11 @@ _LOG_PATH   = paths.log_dir() / "friday.log"
 _VOICE_LOG_PATH = paths.log_dir() / "voice.err"
 # voice/listen.py touches this for the duration of every PTT/wake session.
 _LISTENING_FLAG = compat.listening_flag_path()
+
+# Seeded into a config that has no stocks block yet. Not a hard-coded
+# portfolio — the dashboard writes over this list the first time the user
+# edits it, and connectors/stocks.py is the thing that validates a symbol.
+_DEFAULT_TICKERS = ("AAPL", "MSFT", "NVDA", "GOOGL", "TSLA", "SPY")
 
 # Sensitive keys masked by default. dot-paths into friday_config.yaml.
 _SECRET_PATHS: tuple[str, ...] = (
@@ -84,6 +95,11 @@ _GEMINI_TIERS: dict[str, dict[str, Any]] = {
 class PauseRequest(BaseModel):
     paused: bool
     until: str | None = None  # ISO datetime; menubar uses this for timed pauses
+
+
+class PowerManualRequest(BaseModel):
+    minutes: int | None = None    # required unless clear=True
+    clear: bool = False
 
 
 _NO_CACHE = "no-cache, no-store, must-revalidate"
@@ -177,6 +193,37 @@ def _migrate_config(cfg: dict) -> dict:
     # backfill live next to the code that reads them, rather than becoming a
     # third copy of the period list in this file.
     schedule.ensure(cfg)
+
+    # Machine-location weather. A config predating it has no key at all, and
+    # an absent key must read as "on" in the dashboard checkbox — the default
+    # bindInput() applies to a MISSING value is whatever the checkbox's own
+    # HTML says (unchecked), which would show OFF for a feature that is
+    # actually on. See connectors/weather.py::_here for the behavior itself.
+    wx = cfg.setdefault("weather", {})
+    if "use_machine_location" not in wx:
+        wx["use_machine_location"] = True
+
+    # The markets widget. A config predating it has no stocks block at all,
+    # and an absent block must mean "the defaults" rather than "no widget" —
+    # otherwise the feature ships invisible to every existing install.
+    st = cfg.setdefault("stocks", {})
+    if "enabled" not in st:
+        st["enabled"] = True
+    if not st.get("tickers"):
+        st["tickers"] = list(_DEFAULT_TICKERS)
+
+    # Passing-period wake schedule. Owned by power.py the same way the bell
+    # schedule is owned by schedule.py — the defaults live next to the code
+    # that reads them. A config predating this feature gets it off, not on:
+    # a machine that starts holding disablesleep the moment it happens to
+    # read a new key is the opposite of the "never left on" invariant.
+    ws = cfg.setdefault("wake_schedule", {})
+    ws.setdefault("enabled", False)
+    ws.setdefault("lead_minutes", 2)
+    ws.setdefault("max_passing_minutes", schedule.DEFAULT_MAX_PASSING_MINUTES)
+    ws.setdefault("wake_days_ahead", 3)
+    ws.setdefault("derived_overrides", {})
+    ws.setdefault("custom_blocks", [])
 
     gm = cfg.get("groupme") or {}
     groups = gm.get("groups") or []
@@ -525,6 +572,80 @@ def _pending_approvals(conn: sqlite3.Connection) -> list[dict]:
 #   POST /api/voice/{wake,restart}, GET /api/voice/logs → voice controls/logs
 #   GET  /api/logs               → tail friday.log
 #   POST /api/test/{telegram,canvas} → connectivity self-tests
+def restart_daemon() -> dict:
+    """Restart the whole daemon. Used by the /api/friday/restart route and,
+    standalone, by the Tailscale-cert renewal job — a renewed cert needs a
+    fresh process to load it, since a live asyncio SSL context has no
+    reload path.
+
+    Two deployments supervise the core and relaunch it whenever it exits —
+    tray.py on Windows, mac_app.CoreSupervisor inside Friday.app. For both,
+    a restart is just a graceful shutdown. raise_signal sets the flag that
+    CPython services on the main thread, so PTB's run_polling sees the
+    SIGINT it already handles as a clean stop.
+    """
+    def self_restart() -> dict:
+        try:
+            threading.Timer(
+                0.3, lambda: signal.raise_signal(signal.SIGINT)
+            ).start()
+            return {"ok": True}
+        except Exception as e:
+            raise HTTPException(500, f"Restart failed: {e}")
+
+    if compat.IS_WINDOWS:
+        return self_restart()
+
+    # macOS runs either way: under the com.friday.agent LaunchAgent, or as
+    # a supervised child of Friday.app with no LaunchAgent at all. Probe
+    # before assuming — `launchctl kickstart` against a label launchd has
+    # never heard of fails silently, and Popen only reports that launchctl
+    # itself started, so the endpoint used to answer ok:true while nothing
+    # restarted.
+    uid = os.getuid()
+    label = f"gui/{uid}/com.friday.agent"
+    try:
+        installed = subprocess.run(
+            ["launchctl", "print", label],
+            capture_output=True, timeout=5).returncode == 0
+    except Exception as e:
+        logger.debug(f"launchctl print {label} failed: {e}")
+        installed = False
+    if not installed:
+        return self_restart()
+    try:
+        # start_new_session so kickstart -k tearing down this job does not
+        # also kill the launchctl doing the tearing down.
+        subprocess.Popen(
+            ["launchctl", "kickstart", "-k", label],
+            start_new_session=True,
+        )
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(500, f"Restart failed: {e}")
+
+
+def check_and_renew_tailscale_cert() -> None:
+    """Daily job body: renew the tailnet HTTPS cert if Tailscale decides
+    it's close enough to its ~90-day expiry, and restart the daemon so the
+    new cert actually gets loaded. The common case is a no-op renewal
+    (tailscale cert only renews in roughly the last third of the window),
+    which changes nothing on disk and never restarts.
+
+    Best-effort like the rest of the daily jobs: Tailscale being
+    unreachable here is not a reason to fail a scheduled job.
+    """
+    try:
+        dom = tls_certs.domain()
+        if dom is None:
+            return
+        if tls_certs.renew_if_needed(dom):
+            logger.info(f"Tailscale HTTPS cert for {dom} renewed — restarting to load it.")
+            restart_daemon()
+    except Exception as e:
+        logger.warning(f"Tailscale cert renewal check failed: {e}")
+
+
 def create_app(config_path: Path, conn: sqlite3.Connection,
                started_at: datetime,
                on_demand_briefing: Callable[[], Awaitable[str]] | None = None,
@@ -613,6 +734,20 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
     def index() -> FileResponse:
         return FileResponse(str(_STATIC_DIR / "index.html"),
                             headers={"Cache-Control": _NO_CACHE})
+
+    @app.get("/sw.js")
+    def service_worker() -> FileResponse:
+        # Served from the origin root rather than under /static/ so its
+        # default scope is "/" — a script registered from /static/sw.js would
+        # only ever see requests under /static/*, which cannot intercept
+        # navigation to "/" or the /api/schedule and /api/after-school reads
+        # the offline shell depends on. Service-Worker-Allowed is the
+        # header-based escape hatch for the same rule and costs nothing to
+        # set alongside actually serving it from the root.
+        return FileResponse(str(_STATIC_DIR / "sw.js"),
+                            media_type="application/javascript",
+                            headers={"Cache-Control": _NO_CACHE,
+                                    "Service-Worker-Allowed": "/"})
 
     @app.get("/api/status")
     def api_status() -> dict:
@@ -760,52 +895,35 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
+    # ── Widgets: weather and markets ─────────────────────────────────────
+    #
+    # Both are sync defs, so FastAPI runs them in its threadpool rather than on
+    # the event loop. That is load-bearing, not incidental: this server shares
+    # the PTB loop with every Telegram handler and every scheduled job, and a
+    # blocking requests.get on that loop stalls the whole agent — the exact
+    # shape of the July 9 outage. Neither connector is async, and making them
+    # async would mean a second HTTP client for no gain.
+    #
+    # Both connectors cache and both fail soft, so these routes are thin on
+    # purpose. Neither touches SQLite and neither reaches a model.
+
+    @app.get("/api/weather")
+    def api_weather() -> dict:
+        cfg = _load_config(config_path)
+        return weather_conn.snapshot(cfg.get("weather") or {})
+
+    @app.get("/api/stocks")
+    def api_stocks() -> dict:
+        cfg = _load_config(config_path)
+        st = cfg.get("stocks") or {}
+        if not st.get("enabled", True):
+            return {"ok": False, "quotes": [], "stale": [], "disabled": True,
+                    "error": "The markets widget is switched off."}
+        return stocks_conn.quotes(st.get("tickers") or [])
+
     @app.post("/api/friday/restart")
     def api_friday_restart() -> dict:
-        # Two deployments supervise the core and relaunch it whenever it exits
-        # — tray.py on Windows, mac_app.CoreSupervisor inside Friday.app. For
-        # both, a restart is just a graceful shutdown. raise_signal sets the
-        # flag that CPython services on the main thread, so PTB's run_polling
-        # sees the SIGINT it already handles as a clean stop.
-        def self_restart() -> dict:
-            try:
-                threading.Timer(
-                    0.3, lambda: signal.raise_signal(signal.SIGINT)
-                ).start()
-                return {"ok": True}
-            except Exception as e:
-                raise HTTPException(500, f"Restart failed: {e}")
-
-        if compat.IS_WINDOWS:
-            return self_restart()
-
-        # macOS runs either way: under the com.friday.agent LaunchAgent, or as
-        # a supervised child of Friday.app with no LaunchAgent at all. Probe
-        # before assuming — `launchctl kickstart` against a label launchd has
-        # never heard of fails silently, and Popen only reports that launchctl
-        # itself started, so the endpoint used to answer ok:true while nothing
-        # restarted.
-        uid = os.getuid()
-        label = f"gui/{uid}/com.friday.agent"
-        try:
-            installed = subprocess.run(
-                ["launchctl", "print", label],
-                capture_output=True, timeout=5).returncode == 0
-        except Exception as e:
-            logger.debug(f"launchctl print {label} failed: {e}")
-            installed = False
-        if not installed:
-            return self_restart()
-        try:
-            # start_new_session so kickstart -k tearing down this job does not
-            # also kill the launchctl doing the tearing down.
-            subprocess.Popen(
-                ["launchctl", "kickstart", "-k", label],
-                start_new_session=True,
-            )
-            return {"ok": True}
-        except Exception as e:
-            raise HTTPException(500, f"Restart failed: {e}")
+        return restart_daemon()
 
     @app.get("/api/voice/status")
     def api_voice_status() -> dict:
@@ -1487,17 +1605,99 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
+    # ── Passing-period wake schedule ────────────────────────────────────────
+    # Everything here READS through power.py's own combined_blocks/active_hold
+    # (never re-derives locally, which would be a second copy of the
+    # bell-schedule-gap logic free to disagree with the one power_reconcile_job
+    # actually acts on) and WRITES only the two things that are not ordinary
+    # config edits: the manual hold (a timestamp, not a config value) and
+    # nothing else — custom_blocks and derived_overrides are plain
+    # wake_schedule keys, edited the same way GroupMe groups and schedule
+    # periods are: mutate CONFIG client-side, POST the whole document.
+
+    @app.get("/api/power/status")
+    def api_power_status() -> dict:
+        cfg = _load_config(config_path)
+        now = datetime.now()
+        hold = power.active_hold(cfg, conn, now)
+        return {
+            "enabled": bool((cfg.get("wake_schedule") or {}).get("enabled", False)),
+            "active": hold["active"],
+            "reason": hold.get("reason"),
+            "block": hold.get("block"),
+            "manual": power.manual_hold_status(conn, now),
+            "battery": power.battery_status(),
+            "next_wake": power.next_scheduled_wake(conn, now),
+            "blocks_today": power.combined_blocks(cfg, now.date()),
+            "blocks_tomorrow": power.combined_blocks(cfg, now.date() + timedelta(days=1)),
+            "sudoers_line": power.sudoers_line(),
+            # Best-effort only — see read_disablesleep()'s docstring on why
+            # this is informational and never what reconcile() acts on.
+            "disablesleep_reported": power.read_disablesleep(),
+            "sudo_configured": power.sudo_configured(),
+        }
+
+    @app.post("/api/power/manual")
+    def api_power_manual(payload: PowerManualRequest) -> dict:
+        if payload.clear:
+            power.clear_manual_hold(conn)
+            return {"ok": True, "active": False}
+        minutes = payload.minutes or 0
+        if minutes <= 0:
+            raise HTTPException(400, "minutes must be positive.")
+        if minutes > 480:
+            raise HTTPException(400, "That's a long hold — cap it at 8 hours (480 minutes).")
+        until = power.set_manual_hold(conn, minutes, reason="dashboard")
+        return {"ok": True, "active": True, "until": until}
+
     return app
 
 
 # ── Lifecycle helper called from friday.py ───────────────────────────────────
 
+def _tailscale_address() -> str | None:
+    """This machine's tailnet IPv4 address, or None if Tailscale isn't
+    installed, isn't running, or isn't logged in.
+
+    Resolved live via the CLI rather than read from config: the address can
+    change (re-auth, a different tailnet) and a stale value saved once would
+    bind to an address that no longer belongs to this machine — or silently
+    stop binding to the one that does. tls_certs.run() carries the PATH
+    fallback (see its module docstring for the LaunchAgent PATH trap).
+    """
+    result = tls_certs.run(["ip", "-4"])
+    if result is None:
+        logger.info("Tailscale address not available; dashboard stays on loopback only.")
+        return None
+    addr = result.stdout.strip().splitlines()[0].strip() if result.stdout.strip() else ""
+    return addr or None
+
+
 async def start_server(config_path: Path, conn: sqlite3.Connection,
                        host: str = "127.0.0.1", port: int = 5174,
                        on_demand_briefing: Callable[[], Awaitable[str]] | None = None
-                       ) -> uvicorn.Server:
-    """Build the FastAPI app, wrap in uvicorn, return the Server (caller schedules
-    server.serve() as an asyncio task and keeps a handle for clean shutdown).
+                       ) -> list[tuple[uvicorn.Server, list[socket.socket]]]:
+    """Build the FastAPI app, wrap in uvicorn, return one (Server, sockets)
+    pair per protocol group — the caller schedules each as its own
+    server.serve(sockets=sockets) task and keeps the list for clean
+    shutdown.
+
+    Binds `host` (loopback, always plain HTTP — sitting at the Mac must
+    never be forced onto TLS) and, when Tailscale is running, this
+    machine's tailnet address — specifically, never 0.0.0.0, so nothing on
+    school Wi-Fi or any other network this machine joins can see the port.
+    Loopback stays bound alongside it rather than being replaced: a socket
+    bound only to the tailnet address is unreachable from 127.0.0.1, and
+    menubar.py / mac_app.py / tray.py all poll that address.
+
+    The tailnet bind is HTTPS when a Tailscale-issued cert is available
+    (tls_certs.ensure_cert) and plain HTTP otherwise. That split exists for
+    the offline dashboard: a service worker refuses to register over
+    anything but localhost or HTTPS, so the phone needs a real cert, not
+    just the network-level privacy Tailscale already gave it. A single
+    uvicorn.Server applies one SSL setting to every socket it serves, so
+    HTTP-loopback and HTTPS-tailnet have to be two Server instances (two
+    groups) rather than two sockets under one.
 
     on_demand_briefing composes a briefing and sends it to Telegram; friday.py
     supplies it so /api/friday/brief can run the real thing on the shared loop.
@@ -1505,14 +1705,53 @@ async def start_server(config_path: Path, conn: sqlite3.Connection,
     """
     app = create_app(config_path, conn, started_at=datetime.now(),
                      on_demand_briefing=on_demand_briefing, port_hint=port)
-    cfg = uvicorn.Config(
+
+    http_hosts = [host]
+    tailnet_ip = _tailscale_address()
+    https_host: str | None = None
+    cert: tuple[Path, Path] | None = None
+    if tailnet_ip:
+        dom = tls_certs.domain()
+        cert = tls_certs.ensure_cert(dom) if dom else None
+        if cert:
+            https_host = tailnet_ip
+        elif tailnet_ip not in http_hosts:
+            # No cert available — fall back to the old plain-HTTP tailnet
+            # bind rather than dropping tailnet reachability entirely.
+            http_hosts.append(tailnet_ip)
+
+    groups: list[tuple[uvicorn.Server, list[socket.socket]]] = []
+
+    http_cfg = uvicorn.Config(
         app,
-        host=host,
+        host=http_hosts[0],
         port=port,
         log_level="warning",
         access_log=False,
         loop="asyncio",
     )
-    server = uvicorn.Server(cfg)
-    logger.info(f"Dashboard server starting on http://{host}:{port}")
-    return server
+    http_sockets = [http_cfg.bind_socket()]
+    for extra_host in http_hosts[1:]:
+        extra_cfg = uvicorn.Config(app, host=extra_host, port=port, log_level="warning")
+        http_sockets.append(extra_cfg.bind_socket())
+    groups.append((uvicorn.Server(http_cfg), http_sockets))
+    for h in http_hosts:
+        logger.info(f"Dashboard server starting on http://{h}:{port}")
+
+    if https_host and cert:
+        cert_path, key_path = cert
+        https_cfg = uvicorn.Config(
+            app,
+            host=https_host,
+            port=port,
+            ssl_certfile=str(cert_path),
+            ssl_keyfile=str(key_path),
+            log_level="warning",
+            access_log=False,
+            loop="asyncio",
+        )
+        https_sockets = [https_cfg.bind_socket()]
+        groups.append((uvicorn.Server(https_cfg), https_sockets))
+        logger.info(f"Dashboard server starting on https://{https_host}:{port}")
+
+    return groups

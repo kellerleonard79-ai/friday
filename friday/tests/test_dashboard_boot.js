@@ -24,11 +24,16 @@ const path = require('path');
 
 const el = () => ({
   textContent: '', innerHTML: '', value: '', offsetHeight: 0,
-  style: {}, dataset: {},
+  style: {}, dataset: {}, disabled: false,
   classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
   addEventListener() {}, appendChild() {}, removeAttribute() {}, setAttribute() {},
   querySelector: () => el(), querySelectorAll: () => [],
   content: { cloneNode: () => ({}) },
+  // Reached only once a route actually renders — which offline boot() now
+  // does for Today instead of stopping at "CONNECTION ERROR". Real DOM
+  // methods with no interesting return value; no-ops here are enough to let
+  // execution reach the last line, same as the rest of this stub.
+  focus() {}, blur() {}, remove() {}, click() {},
 });
 
 global.document = {

@@ -1,21 +1,41 @@
+/* ── Palette ───────────────────────────────────────────────────────────────
+   Monochromatic cyan. The dash used to be high-contrast orange on near-black
+   brown; it is now one hue — cyan — carried at four brightnesses, over a
+   near-black blue-teal ground.
+
+   The `--orange-*` names are kept as aliases rather than renamed across ~200
+   usages in this file: a rename touching every rule is a diff nobody can read
+   for a change that is one hue. New rules should use the `--cy-*` names. */
 :root {
-  --bg: #1A0800;
-  --bg-glow: #2A1300;
-  --panel: #21100A;
-  --panel-2: #2D1810;
-  --orange: #FF6B00;
-  --orange-bright: #FF8A33;
-  --orange-soft: #FFA968;
-  --orange-dim: #FF6B0088;
-  --teal: #00B5A3;
-  --teal-dim: #00B5A388;
-  --text: #FFFFFF;
-  --text-2: #F2E6DA;
-  --muted: #FFA968;
-  --muted-2: #C58F66;
-  --border: #FF6B003D;
-  --border-strong: #FF6B0080;
-  --danger: #FF3B30;
+  --cy: #22D3EE;             /* cyan-400 — the structural line colour */
+  --cy-bright: #67E8F9;      /* cyan-300 — emphasis, live values */
+  --cy-soft: #A5F3FC;        /* cyan-200 — secondary readouts */
+  --cy-deep: #0891B2;        /* cyan-600 — receding edges */
+  --cy-rgb: 34, 211, 238;    /* for rgba() glows without a second literal */
+
+  --bg: #04141B;
+  --bg-glow: #0A2733;
+  /* Glass, not a solid fill. Every surface using this also sets
+     backdrop-filter — the alpha is what the blur shows through. */
+  --panel: rgba(8, 51, 68, 0.22);
+  --panel-2: rgba(8, 51, 68, 0.38);
+  --glass-blur: blur(14px) saturate(1.2);
+  --glow-sm: 0 0 10px rgba(34, 211, 238, 0.30);
+  --glow-md: 0 0 18px rgba(34, 211, 238, 0.22);
+
+  --orange: var(--cy);
+  --orange-bright: var(--cy-bright);
+  --orange-soft: var(--cy-soft);
+  --orange-dim: rgba(34, 211, 238, 0.55);
+  --teal: #38BDF8;
+  --teal-dim: rgba(56, 189, 248, 0.55);
+  --text: #E8FBFF;
+  --text-2: #C6E9F2;
+  --muted: #7FD6E8;
+  --muted-2: #5C93A6;
+  --border: rgba(34, 211, 238, 0.24);
+  --border-strong: rgba(34, 211, 238, 0.45);
+  --danger: #FF5C7A;
 }
 
 * {
@@ -34,12 +54,20 @@ body {
   font-weight: 400;
   font-size: 15px;
   line-height: 1.45;
+  /* Layered, in paint order: a cold vignette at the edges so the visor's
+     glass has something to sit against, two cyan pools where the light is
+     nominally coming from, and a pair of low-angle sweeps that read as
+     out-of-focus geometry behind the HUD rather than as a gradient. */
   background:
-    radial-gradient(ellipse at 30% -10%, rgba(255, 107, 0, 0.10), transparent 55%),
-    radial-gradient(ellipse at 100% 100%, rgba(255, 107, 0, 0.06), transparent 50%),
-    var(--bg);
+    radial-gradient(ellipse at 50% 42%, rgba(34, 211, 238, 0.10), transparent 62%),
+    radial-gradient(ellipse at 8% 0%, rgba(56, 189, 248, 0.10), transparent 48%),
+    radial-gradient(ellipse at 96% 96%, rgba(34, 211, 238, 0.07), transparent 46%),
+    linear-gradient(104deg, transparent 38%, rgba(165, 243, 252, 0.045) 44%, transparent 50%),
+    linear-gradient(76deg, transparent 62%, rgba(165, 243, 252, 0.035) 68%, transparent 74%),
+    radial-gradient(ellipse at 50% 50%, #0A2733 0%, var(--bg) 72%);
   color: var(--text);
   display: flex;
+  flex-direction: column;
   letter-spacing: 0.02em;
   font-feature-settings: 'tnum' 1, 'ss01' 1;
   -webkit-font-smoothing: antialiased;
@@ -53,28 +81,41 @@ body::before {
   pointer-events: none;
   background: repeating-linear-gradient(
     180deg,
-    rgba(255, 107, 0, 0.035) 0px,
-    rgba(255, 107, 0, 0.035) 1px,
+    rgba(34, 211, 238, 0.035) 0px,
+    rgba(34, 211, 238, 0.035) 1px,
     transparent 1px,
     transparent 3px
   );
   z-index: 1;
 }
 
-/* ── Sidebar ───────────────────────────────────────────────────────────── */
+/* ── Settings drawer ───────────────────────────────────────────────────────
+   Off-canvas at every viewport width, opened from the settings button in
+   .topbar (see app.js openSidebar/closeSidebar). There is no permanent
+   sidebar column any more — Today is the homepage and this drawer is the
+   only way to the other pages. */
 
 .sidebar {
-  width: 220px;
-  flex-shrink: 0;
+  position: fixed;
+  top: 0; bottom: 0; left: 0;
+  width: 260px;
+  max-width: 82vw;
   background:
-    linear-gradient(180deg, rgba(255, 107, 0, 0.08), transparent 40%),
-    #0E0400;
-  border-right: 1px solid var(--border);
+    linear-gradient(180deg, rgba(34, 211, 238, 0.10), transparent 40%),
+    rgba(4, 20, 27, 0.82);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-right: 1px solid var(--border-strong);
   display: flex;
   flex-direction: column;
   padding: 24px 0;
-  z-index: 2;
+  padding-top: calc(24px + env(safe-area-inset-top));
+  transform: translateX(-100%);
+  transition: transform 0.22s ease;
+  z-index: 170;
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.5), 1px 0 14px rgba(34, 211, 238, 0.20);
 }
+.sidebar.open { transform: translateX(0); }
 
 .logo {
   font-family: 'Orbitron', sans-serif;
@@ -83,7 +124,7 @@ body::before {
   color: var(--text);
   letter-spacing: 0.15em;
   padding: 0 22px 4px;
-  text-shadow: 0 0 10px rgba(255, 107, 0, 0.45);
+  text-shadow: 0 0 10px rgba(34, 211, 238, 0.45);
   border-bottom: 1px dashed var(--border);
   margin: 0 16px 0;
   padding-left: 6px;
@@ -122,14 +163,14 @@ nav {
 
 .nav-item:hover {
   color: var(--orange-bright);
-  background: rgba(255, 107, 0, 0.06);
+  background: rgba(34, 211, 238, 0.06);
 }
 
 .nav-item.active {
   color: var(--text);
-  background: rgba(255, 107, 0, 0.10);
+  background: rgba(34, 211, 238, 0.10);
   border-left-color: var(--teal);
-  text-shadow: 0 0 8px rgba(255, 107, 0, 0.4);
+  text-shadow: 0 0 8px rgba(34, 211, 238, 0.4);
 }
 
 .sidebar-footer {
@@ -167,6 +208,7 @@ main {
   overflow-y: auto;
   overflow-x: hidden;
   padding: 32px 40px 48px;
+  padding-top: calc(52px + env(safe-area-inset-top) + 32px);
   z-index: 2;
   animation: fade 0.18s ease;
 }
@@ -200,7 +242,7 @@ main {
   font-size: 24px;
   letter-spacing: 0.3em;
   color: var(--orange);
-  text-shadow: 0 0 12px rgba(255, 107, 0, 0.35);
+  text-shadow: 0 0 12px rgba(34, 211, 238, 0.35);
   display: flex;
   align-items: center;
   gap: 14px;
@@ -214,17 +256,28 @@ main {
   box-shadow: 0 0 8px var(--orange);
 }
 
+/* Glass, not a filled box. The fill is a 22%-alpha cyan wash and the depth
+   comes from `backdrop-filter` blurring whatever is behind it; the border is
+   a single hairline carrying an outer glow and a matching inner one, so the
+   edge reads as a lit structural line rather than a drawn frame.
+
+   -webkit-backdrop-filter is not optional here — it is the only spelling
+   Safari and every iOS browser accept, and the dashboard is installed as a
+   home-screen app on a phone. */
 .panel {
   background: var(--panel);
-  border: 1px solid var(--border);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--border-strong);
   border-radius: 4px;
   padding: 24px 26px;
   margin-bottom: 20px;
   position: relative;
+  box-shadow: var(--glow-sm), inset 0 0 24px rgba(34, 211, 238, 0.05);
   background-image: repeating-linear-gradient(
     0deg,
-    rgba(255, 107, 0, 0.025) 0px,
-    rgba(255, 107, 0, 0.025) 1px,
+    rgba(34, 211, 238, 0.025) 0px,
+    rgba(34, 211, 238, 0.025) 1px,
     transparent 1px,
     transparent 4px
   );
@@ -241,13 +294,15 @@ main {
 }
 .panel::before {
   top: -1px; left: -1px;
-  border-top: 2px solid var(--orange);
-  border-left: 2px solid var(--orange);
+  border-top: 2px solid var(--cy);
+  border-left: 2px solid var(--cy);
+  filter: drop-shadow(0 0 5px var(--cy));
 }
 .panel::after {
   bottom: -1px; right: -1px;
-  border-bottom: 2px solid var(--orange);
-  border-right: 2px solid var(--orange);
+  border-bottom: 2px solid var(--cy);
+  border-right: 2px solid var(--cy);
+  filter: drop-shadow(0 0 5px var(--cy));
 }
 
 .panel h2 {
@@ -316,17 +371,17 @@ main {
 
 .pulse.online {
   opacity: 1;
-  filter: drop-shadow(0 0 6px rgba(255, 107, 0, 0.6));
+  filter: drop-shadow(0 0 6px rgba(34, 211, 238, 0.6));
 }
 .pulse.online::after {
   animation: pulse-glow 2.4s ease-out infinite;
-  box-shadow: 0 0 0 0 rgba(255, 107, 0, 0.55);
+  box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.55);
 }
 
 @keyframes pulse-glow {
-  0%   { box-shadow: 0 0 0 0 rgba(255, 107, 0, 0.55); }
-  70%  { box-shadow: 0 0 0 22px rgba(255, 107, 0, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(255, 107, 0, 0); }
+  0%   { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.55); }
+  70%  { box-shadow: 0 0 0 22px rgba(34, 211, 238, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0); }
 }
 
 .pulse.paused { opacity: 0.55; }
@@ -346,10 +401,10 @@ main {
   font-size: 42px;
   letter-spacing: 0.32em;
   color: var(--orange);
-  text-shadow: 0 0 16px rgba(255, 107, 0, 0.55);
+  text-shadow: 0 0 16px rgba(34, 211, 238, 0.55);
 }
 
-.hero-text.paused { color: var(--orange-soft); text-shadow: 0 0 8px rgba(255, 169, 104, 0.3); }
+.hero-text.paused { color: var(--orange-soft); text-shadow: 0 0 8px rgba(165, 243, 252, 0.3); }
 .hero-text.offline { color: #888; text-shadow: none; }
 
 .hero-actions {
@@ -396,7 +451,7 @@ main {
   font-size: 24px;
   font-weight: 500;
   color: var(--text);
-  text-shadow: 0 0 12px rgba(255, 138, 51, 0.3);
+  text-shadow: 0 0 12px rgba(103, 232, 249, 0.3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -433,7 +488,7 @@ main {
 .input:hover { border-color: var(--border-strong); }
 .input:focus {
   border-color: var(--orange);
-  box-shadow: 0 0 0 2px rgba(255, 107, 0, 0.25);
+  box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.25);
 }
 
 .input.small { width: auto; padding: 6px 10px; }
@@ -486,18 +541,24 @@ select.input {
 }
 
 .btn-primary {
-  background: var(--orange);
-  color: var(--bg);
-  border-color: var(--orange);
+  background: var(--cy);
+  color: #032027;
+  border-color: var(--cy);
+  box-shadow: var(--glow-sm);
 }
-.btn-primary:hover { background: var(--orange-bright); border-color: var(--orange-bright); }
+.btn-primary:hover {
+  background: var(--cy-bright);
+  border-color: var(--cy-bright);
+  box-shadow: 0 0 16px rgba(34, 211, 238, 0.55);
+}
 
 .btn-outline {
-  background: transparent;
-  color: var(--orange);
-  border-color: var(--orange);
+  background: rgba(34, 211, 238, 0.05);
+  color: var(--cy-bright);
+  border-color: var(--border-strong);
+  box-shadow: var(--glow-sm);
 }
-.btn-outline:hover { background: rgba(255, 107, 0, 0.1); }
+.btn-outline:hover { background: rgba(34, 211, 238, 0.14); border-color: var(--cy); }
 
 .btn-teal {
   background: var(--teal);
@@ -541,7 +602,7 @@ select.input {
   color: var(--bg);
 }
 
-.segmented button:not(.active):hover { background: rgba(255, 107, 0, 0.1); }
+.segmented button:not(.active):hover { background: rgba(34, 211, 238, 0.1); }
 
 /* ── Toggle switch ─────────────────────────────────────────────────────── */
 
@@ -609,7 +670,7 @@ select.input {
   border-radius: 50%;
   background: var(--orange);
   margin-top: -6px;
-  box-shadow: 0 0 6px rgba(255, 107, 0, 0.5);
+  box-shadow: 0 0 6px rgba(34, 211, 238, 0.5);
   cursor: pointer;
 }
 
@@ -634,7 +695,7 @@ select.input {
 .preset-card:hover { border-color: var(--border-strong); }
 .preset-card.active {
   border-color: var(--orange);
-  box-shadow: 0 0 0 1px var(--orange) inset, 0 0 12px rgba(255, 107, 0, 0.2);
+  box-shadow: 0 0 0 1px var(--orange) inset, 0 0 12px rgba(34, 211, 238, 0.2);
 }
 
 .preset-title {
@@ -771,7 +832,80 @@ select.input {
   transition: all 0.15s;
 }
 
-.icon-btn:hover { background: rgba(255, 107, 0, 0.1); border-color: var(--orange); }
+.icon-btn:hover { background: rgba(34, 211, 238, 0.1); border-color: var(--orange); }
+
+/* ── Wake schedule page ────────────────────────────────────────────────── */
+
+.power-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.power-stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.power-manual-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.power-manual-row .input.small { width: 80px; }
+
+.power-block-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px dashed var(--border);
+}
+
+.power-block-row:last-child { border-bottom: none; }
+
+.power-block-label { font-size: 14px; color: var(--text); }
+.power-block-time {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--muted-2);
+  letter-spacing: 0.05em;
+}
+
+.power-block-edit {
+  display: grid;
+  grid-template-columns: 1.3fr auto auto;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.power-block-edit .input.small { width: 90px; }
+
+.power-weekdays { display: flex; gap: 4px; margin-top: 6px; }
+.power-weekdays button {
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 3px;
+  font-size: 10px;
+  cursor: pointer;
+  font-family: 'JetBrains Mono', monospace;
+}
+.power-weekdays button.active {
+  background: var(--orange);
+  border-color: var(--orange);
+  color: var(--bg);
+  font-weight: 600;
+}
 
 /* ── Notifications page ────────────────────────────────────────────────── */
 
@@ -878,8 +1012,11 @@ select.input {
 .modal-backdrop.hidden { display: none; }
 
 .modal {
-  background: var(--panel);
-  border: 1px solid var(--orange);
+  background: rgba(6, 32, 42, 0.88);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--glow-md);
   border-radius: 4px;
   width: 80%;
   max-width: 1000px;
@@ -1015,10 +1152,10 @@ select.input {
   align-items: center;
   gap: 12px;
   padding: 9px 6px;
-  border-bottom: 1px solid rgba(255, 107, 0, 0.12);
+  border-bottom: 1px solid rgba(34, 211, 238, 0.12);
 }
 .feed-row.expandable { cursor: pointer; }
-.feed-row.expandable:hover { background: rgba(255, 107, 0, 0.05); }
+.feed-row.expandable:hover { background: rgba(34, 211, 238, 0.05); }
 .feed-time { color: var(--muted-2); font-size: 12px; }
 .feed-kind {
   font-family: 'JetBrains Mono', monospace;
@@ -1082,7 +1219,7 @@ select.input {
   align-items: center;
   gap: 12px;
   padding: 6px 4px;
-  border-bottom: 1px solid rgba(255, 107, 0, 0.1);
+  border-bottom: 1px solid rgba(34, 211, 238, 0.1);
 }
 .wn-time { color: var(--orange-soft); font-size: 13px; min-width: 64px; }
 .wn-title { flex: 1; }
@@ -1174,18 +1311,238 @@ select.input {
   color: var(--orange-soft);
 }
 
+/* ── The stage ─────────────────────────────────────────────────────────────
+   The homepage: an instrument on each flank, the hub and the conversation
+   between them. Nothing is transformed and nothing is framed: no
+   `perspective`, no `rotateY`, and no outline around the whole thing. The
+   structure the eye follows is the panels' own corner brackets and the hub
+   in the middle; .hud-stage itself is just the positioning context the
+   ONLINE strip anchors to.                                                 */
+
+.hud-stage {
+  position: relative;
+  padding-bottom: 34px;
+}
+
+/* ONLINE / PAUSED / OFFLINE, bottom-left of the visor. The same value the
+   drawer footer shows; both are written by updateSidebar. */
+.hud-status {
+  position: absolute;
+  left: 4px;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.28em;
+  color: var(--muted);
+}
+
+/* ── Homepage split: schedule / hub + chat / to-do ─────────────────────────
+   Three columns. The two flanks are fixed and narrow and angled inward; the
+   centre — the wordmark and the conversation under it — is what the page is
+   actually about, and it stays square to the viewer so the text never
+   distorts. */
+
+.home-grid {
+  display: flex;
+  align-items: flex-start;
+  gap: 30px;
+}
+
+.home-todo,
+.home-side {
+  flex: 0 0 300px;
+}
+
+.home-center {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 360px);
+  min-height: 340px;
+}
+
+/* The flanks are framed by corner brackets rather than enclosed by a box —
+   four marks that imply the rectangle instead of drawing it. The panel's own
+   border drops to a faint inner wash so the brackets are the only hard edge.
+
+   The brackets are drawn on each .panel rather than on the flank wrapper, and
+   that is deliberate: #period-card and #pending-panel are each independently
+   `hidden`, so a frame owned by the wrapper would either float around empty
+   space or, when both are hidden, collapse into a single stack of marks with
+   nothing inside it. Per-panel, every frame has an instrument in it. */
+.hud-flank { position: relative; }
+
+.hud-flank > .panel {
+  border-color: rgba(34, 211, 238, 0.14);
+  box-shadow: inset 0 0 30px rgba(34, 211, 238, 0.05);
+  /* Square, because the brackets are square. A 4px radius under a hard 2px L
+     leaves a hairline of border curving out from under each mark, which is
+     exactly the "not quite seated" look this is fixing. */
+  border-radius: 0;
+}
+.hud-flank > .panel:last-child { margin-bottom: 0; }
+
+/* Overrides the two 12px L-marks .panel draws at its TL and BR corners: this
+   is a different construction (one pseudo-element per EDGE, drawing both of
+   that edge's corners), so width, height and the borders all have to be
+   reset rather than adjusted. */
+.hud-flank > .panel::before,
+.hud-flank > .panel::after {
+  /* -1px on every side, so the 2px mark sits ON the panel's own 1px border
+     and the bracket reads as that corner rather than as a separate object
+     floating near it. Same offset .panel's stock TL/BR marks already use. */
+  left: -1px;
+  right: -1px;
+  width: auto;
+  height: 20px;
+  border: none;
+  /* One element draws both corners of one edge: a left-hand L from layers 1
+     and 3, a right-hand L from layers 2 and 4, and nothing in between. Two
+     pseudo-elements, four brackets, no extra markup. */
+  background:
+    linear-gradient(var(--cy), var(--cy)) left  top / 20px 2px no-repeat,
+    linear-gradient(var(--cy), var(--cy)) right top / 20px 2px no-repeat,
+    linear-gradient(var(--cy), var(--cy)) left  top / 2px 20px no-repeat,
+    linear-gradient(var(--cy), var(--cy)) right top / 2px 20px no-repeat;
+  filter: drop-shadow(0 0 6px rgba(34, 211, 238, 0.7));
+}
+.hud-flank > .panel::before { top: -1px; bottom: auto; }
+.hud-flank > .panel::after {
+  bottom: -1px;
+  top: auto;
+  background-position: left bottom, right bottom, left bottom, right bottom;
+}
+
+@media (max-width: 900px) {
+  .home-grid { flex-direction: column; }
+  .home-todo, .home-center, .home-side { flex: 1 1 auto; width: 100%; }
+  /* Chat is the reason anyone opens this page on a phone — it goes first,
+     ahead of the flanking widgets it sits between on desktop. */
+  .home-center { order: -1; }
+  .hud-status { position: static; margin-top: 22px; }
+}
+
+/* ── The hub ───────────────────────────────────────────────────────────────
+   Dead centre: the wordmark, with a soundwave visualiser rippling out from
+   behind it. The rings are wider than the text is, so what actually reads on
+   screen is a pair of arcs flanking the name — the middle of every ring is
+   covered by the wordmark itself.                                          */
+
+.hub {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 210px;
+  /* The ripple is decoration and it must not travel. A fixed height plus
+     overflow:hidden is the hard stop; the mask below is what keeps that stop
+     from reading as a cut line. */
+  overflow: hidden;
+  /* The chat starts here, clear of the wordmark's glow rather than tucked
+     under it. */
+  margin-bottom: 46px;
+}
+
+.hub-rings {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  /* Fades every ring out well before it reaches the edge of .hub, so the
+     ripple dies inside its own box instead of being sliced off at one. A
+     hard `overflow` clip alone puts a visible straight edge across a circle
+     — which is worse than the bleed it fixes. */
+  -webkit-mask-image: radial-gradient(ellipse at 50% 50%, #000 34%, transparent 72%);
+  mask-image: radial-gradient(ellipse at 50% 50%, #000 34%, transparent 72%);
+}
+
+.hub-ring {
+  position: absolute;
+  width: 170px;
+  height: 170px;
+  border-radius: 50%;
+  border: 1.5px solid var(--cy);
+  opacity: 0;
+  animation: hub-ripple 3.6s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
+  box-shadow: 0 0 14px rgba(34, 211, 238, 0.35);
+}
+
+/* Staggered by a fifth of the cycle each, so the five rings read as one
+   continuous emission rather than five things blinking together. */
+.hub-ring:nth-child(1) { animation-delay: 0s; }
+.hub-ring:nth-child(2) { animation-delay: 0.72s; }
+.hub-ring:nth-child(3) { animation-delay: 1.44s; }
+.hub-ring:nth-child(4) { animation-delay: 2.16s; }
+.hub-ring:nth-child(5) { animation-delay: 2.88s; }
+
+@keyframes hub-ripple {
+  0%   { transform: scale(0.4);  opacity: 0; }
+  14%  { opacity: 0.6; }
+  100% { transform: scale(1.7);  opacity: 0; }
+}
+
+.hub-word {
+  position: relative;
+  font-family: 'Orbitron', sans-serif;
+  font-weight: 700;
+  font-size: clamp(26px, 4vw, 46px);
+  letter-spacing: 0.06em;
+  color: var(--cy-soft);
+  text-shadow:
+    0 0 10px rgba(34, 211, 238, 0.85),
+    0 0 34px rgba(34, 211, 238, 0.45);
+  white-space: nowrap;
+  /* The rings pass behind the middle of the word. Without a ground behind the
+     glyphs a ring crosses the letterforms and the name stops being readable
+     for the frames it takes to pass. Translucent rather than a flat --bg
+     fill: the page is lightest at exactly this point, so an opaque patch here
+     reads as a dark rectangle sitting behind the name. */
+  padding: 6px 18px;
+  background: radial-gradient(ellipse at 50% 50%, rgba(4, 20, 27, 0.88) 40%, transparent 76%);
+}
+
+/* The ripple is decoration and it never stops. Anyone who has asked the OS
+   for less motion gets one static ring instead. */
+@media (prefers-reduced-motion: reduce) {
+  .hub-ring { animation: none; opacity: 0.22; }
+  .hub-ring:not(:first-child) { display: none; }
+}
+
 /* ── Chat ─────────────────────────────────────────────────────────────────
    The dashboard's own conversation surface. Same transcript as Telegram —
-   messages from either surface render here, and the `via` tag says which.  */
+   messages from either surface render here, and the `via` tag says which.
+
+   No bubbles anywhere. A turn is identified by position and by one lit rule:
+   Friday's lines carry a glowing left border and sit left; the user's are
+   right-aligned with no rule at all. Two containers per line was always one
+   too many for a surface this narrow.                                      */
 
 .chat-panel {
   display: flex;
   flex-direction: column;
-  /* Fills the viewport minus the header and the panel's own margins, so the
-     composer sits at the bottom of the window rather than at the bottom of a
-     transcript that may be three lines long. */
-  height: calc(100vh - 190px);
+  /* Fills the viewport minus the topbar, the ticker banner, the page header
+     and the panel's own margins, so the composer sits at the bottom of the
+     window rather than at the bottom of a transcript that may be three lines
+     long. Same budget on every viewport width now that the topbar (and its
+     reserved space in `main`) is no longer mobile-only. */
+  height: calc(100vh - 360px);
   min-height: 340px;
+}
+
+/* Under the hub the chat has no chrome at all — no border, no HUD corners,
+   no scanline fill. It fills whatever height the wordmark above it didn't
+   take, inside .home-center's own fixed budget. */
+.home-chat-panel {
+  flex: 1;
+  min-height: 0;
+  height: auto;
 }
 
 .chat-log {
@@ -1197,25 +1554,30 @@ select.input {
   gap: 14px;
 }
 
-.chat-line { display: flex; flex-direction: column; max-width: 78%; }
+.chat-line { display: flex; flex-direction: column; max-width: 82%; }
 .chat-line.chat-user   { align-self: flex-end;   align-items: flex-end; }
 .chat-line.chat-friday { align-self: flex-start; align-items: flex-start; }
 
 .chat-bubble {
-  background: var(--panel-2);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 10px 14px;
+  background: none;
+  border: none;
+  padding: 0;
   color: var(--text-2);
   font-size: 15px;
-  line-height: 1.5;
+  line-height: 1.55;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
+.chat-friday .chat-bubble {
+  border-left: 2px solid var(--cy);
+  box-shadow: -1px 0 10px rgba(34, 211, 238, 0.45);
+  padding-left: 12px;
+  color: var(--cy-soft);
+}
+
 .chat-user .chat-bubble {
-  background: #FF6B0018;
-  border-color: var(--border-strong);
+  text-align: right;
   color: var(--text);
 }
 
@@ -1246,15 +1608,33 @@ select.input {
 
 @keyframes chat-pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
 
+/* One lit underline, no box. The SEND button keeps its outline because it is
+   the only thing on the row that has to look pressable. */
 .chat-composer {
   display: flex;
-  gap: 10px;
+  align-items: center;
+  gap: 14px;
   margin-top: 18px;
-  padding-top: 18px;
-  border-top: 1px solid var(--border);
+  padding-top: 4px;
 }
 
-.chat-composer .input { flex: 1; }
+.chat-composer .input {
+  flex: 1;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border-strong);
+  border-radius: 0;
+  padding: 10px 2px;
+  box-shadow: 0 1px 8px -4px rgba(34, 211, 238, 0.9);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.chat-composer .input:hover { border-bottom-color: var(--cy); }
+.chat-composer .input:focus {
+  outline: none;
+  border-bottom-color: var(--cy-bright);
+  box-shadow: 0 2px 12px -3px rgba(34, 211, 238, 1);
+}
+
 .chat-composer .btn { flex: 0 0 auto; }
 
 /* Permission cards, in the chat. The text is the server's, verbatim; the only
@@ -1262,12 +1642,18 @@ select.input {
 
 .chat-card-line { max-width: 88%; }
 
+/* Now that a reply is a bare line with a lit rule, the card is the only
+   thing in the log that is still a box — which is the distinction doing the
+   work, and it is stronger than it was against bubbles. */
 .chat-card {
   background: var(--panel-2);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--border-strong);
-  border-left: 3px solid var(--orange);
+  border-left: 3px solid var(--cy);
   border-radius: 4px;
   padding: 14px 16px;
+  box-shadow: var(--glow-sm);
 }
 
 .chat-card-text {
@@ -1298,11 +1684,11 @@ select.input {
 }
 
 /* Installed as an app: no browser chrome, so the page owns the notch and the
-   home indicator. viewport-fit=cover is set in index.html; without these the
-   sidebar sits under the status bar on a phone. */
+   home indicator. viewport-fit=cover is set in index.html; without this the
+   page sits under the status bar on a phone. .sidebar already carries its
+   own safe-area top padding (see the drawer rule above). */
 @supports (padding: env(safe-area-inset-top)) {
-  .sidebar { padding-top: calc(24px + env(safe-area-inset-top)); }
-  #page    { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+  #page { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
 }
 
 /* ── Schedule page ──────────────────────────────────────────────────────── */
@@ -1568,6 +1954,17 @@ select.input {
   font-family: 'JetBrains Mono', monospace;
 }
 
+/* Data age, not an error — stale is this card's expected mode when the
+   daemon is unreachable. Shown whenever the payload came from the offline
+   cache (dashboard/static/sw.js stamps it), so a week-old cache and a
+   minute-old one read differently even though both render fine. */
+.pc-updated {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--muted-2);
+  font-family: 'JetBrains Mono', monospace;
+}
+
 /* ── After-school card ──────────────────────────────────────────────────── */
 
 /* The headline. This number is the reason the card exists, so it is the
@@ -1619,13 +2016,514 @@ select.input {
   font-size: 12px;
 }
 
-.quick-add {
-  display: grid;
-  grid-template-columns: 1fr 140px 110px 110px auto;
+/* ── Ticker tape ────────────────────────────────────────────────────────────
+   Full-bleed against main's own padding (32px 40px — see the `main` rule) so
+   the strip runs edge-to-edge under the sidebar, the way a real ticker tape
+   does. A scrolling strip boxed inside a bordered panel with visible corners
+   reads as a broken widget, not a ticker — this is the one element on the
+   page that deliberately does NOT keep .panel's grain and brackets.
+
+   The loop is two identical copies of the same item list back to back,
+   translated by exactly -50% of the track's own width — .ticker-track is
+   `width: max-content`, so that width is always "twice one copy" and the
+   seam is invisible regardless of how many tickers are configured. Duration
+   scales with item count (see loadTickerMarquee) so the scroll speed reads
+   the same whether there are three tickers or twelve.                      */
+
+.ticker-marquee {
+  position: relative;
+  margin: -32px -40px 24px;
+  padding: 10px 0;
+  overflow: hidden;
+  background: var(--panel);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-bottom: 1px solid var(--border-strong);
+  box-shadow: 0 1px 10px rgba(34, 211, 238, 0.16);
+  /* Fades the strip at both edges so an item is never seen being cut off
+     mid-character — it reads as scrolling past the edge of the screen
+     rather than being clipped by one. */
+  mask-image: linear-gradient(to right, transparent, black 48px, black calc(100% - 48px), transparent);
+  -webkit-mask-image: linear-gradient(to right, transparent, black 48px, black calc(100% - 48px), transparent);
+}
+
+.ticker-track {
+  display: flex;
+  width: max-content;
+  animation: ticker-scroll linear infinite;
+}
+
+/* Read it, don't chase it. */
+.ticker-marquee:hover .ticker-track { animation-play-state: paused; }
+
+@keyframes ticker-scroll {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+.ticker-set { display: flex; }
+
+.ticker-item {
+  display: flex;
+  align-items: baseline;
   gap: 8px;
+  padding: 0 22px;
+  white-space: nowrap;
+  border-right: 1px solid var(--border);
+}
+
+.ticker-sym {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text);
+}
+
+.ticker-price {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.ticker-chg {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+}
+
+.ticker-chg.up::before { content: '▲ '; }
+.ticker-chg.down::before { content: '▼ '; }
+.ticker-chg.up { color: var(--teal); }
+.ticker-chg.down { color: var(--danger); }
+
+/* A last-known price, dimmed — same convention (opacity, same threshold)
+   as a stale weather reading. */
+.ticker-item.stale { opacity: 0.45; }
+
+.ticker-note {
+  padding: 0 22px;
+  font-size: 12px;
+  color: var(--muted-2);
+  white-space: nowrap;
+}
+
+/* prefers-reduced-motion: the data still matters even when the motion
+   shouldn't run. Swap the animated loop for a plain scrollable strip rather
+   than a static first-screen's-worth — a reduced-motion user should not lose
+   access to tickers past whatever fits above the fold. */
+@media (prefers-reduced-motion: reduce) {
+  .ticker-track { animation: none; }
+  .ticker-marquee { overflow-x: auto; }
+  .ticker-set:last-child { display: none; }  /* the loop's second copy is now dead weight */
+}
+
+/* ── Weather (floating, top-right) ────────────────────────────────────────
+   Fixed to the viewport rather than stacked with the other panels — a HUD
+   readout, not a panel in the flow. Positioned just under the topbar, inside
+   the ticker's own right fade (see .ticker-marquee's mask-image), so a
+   visible ticker doesn't collide with it. Right-anchored, so the expanded
+   state grows leftward into the page instead of off the screen edge. Collapsed shows only
+   .wx-compact; hover (desktop) or .pinned (click/tap, both surfaces) swaps
+   in .wx-expanded, which is the same markup loadWeather() has always
+   rendered into #weather-body. */
+
+/* Both states are fixed pixel boxes and .wx-widget itself is what resizes —
+   .wx-compact and .wx-expanded are absolutely positioned over the same
+   inset:0 and cross-fade via opacity instead of one being swapped out with
+   `display:none`. A `display:none` swap is instant while the size change is
+   not, so for the frames between them the box had already dropped its
+   compact content but hadn't grown the expanded content in yet — an empty
+   outline where the widget briefly seemed to vanish. Sizing and content both
+   animate now, and the small opacity overlap between them means there's
+   never a frame with neither visible. */
+.wx-widget {
+  position: fixed;
+  top: calc(52px + env(safe-area-inset-top) + 10px);
+  right: 12px;
+  z-index: 45;
+  display: grid;
+  grid-template-rows: 0fr;
+  width: 116px;
+  min-height: 40px;
+  background: var(--panel);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  cursor: pointer;
+  overflow: hidden;
+  background-image: repeating-linear-gradient(
+    0deg,
+    rgba(34, 211, 238, 0.025) 0px,
+    rgba(34, 211, 238, 0.025) 1px,
+    transparent 1px,
+    transparent 4px
+  );
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35), var(--glow-sm);
+  /* grid-template-rows animating 0fr -> 1fr is what makes the box hug
+     .wx-expanded's real content height instead of a guessed fixed number —
+     a fixed height was either clipping a slow-network day's stale-reading
+     line or leaving a dead gap under a short one. width still animates as a
+     plain pixel value; there's nothing to guess there since the expanded
+     content is written for exactly 380px. */
+  transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1), grid-template-rows 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .wx-widget:hover { width: 380px; grid-template-rows: 1fr; }
+}
+.wx-widget.pinned { width: 380px; grid-template-rows: 1fr; }
+
+/* Same corner-bracket treatment as .panel, sized down for the compact state. */
+.wx-widget::before,
+.wx-widget::after {
+  content: '';
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  pointer-events: none;
+}
+.wx-widget::before { top: -1px; left: -1px; border-top: 2px solid var(--orange); border-left: 2px solid var(--orange); }
+.wx-widget::after { bottom: -1px; right: -1px; border-bottom: 2px solid var(--orange); border-right: 2px solid var(--orange); }
+
+.wx-compact {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  white-space: nowrap;
+  opacity: 1;
+  transition: opacity 0.15s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .wx-widget:hover .wx-compact { opacity: 0; pointer-events: none; }
+}
+.wx-widget.pinned .wx-compact { opacity: 0; pointer-events: none; }
+
+.wx-compact-icon {
+  font-size: 19px;
+  line-height: 1;
+  color: var(--orange);
+  text-shadow: 0 0 10px var(--orange-dim);
+}
+
+.wx-compact-temp {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.wx-expanded {
+  /* min-height: 0 overrides the automatic minimum grid items otherwise take
+     from their own content, which is what lets the 0fr row above actually
+     reach zero instead of stalling at content height. overflow-y: auto is a
+     safety net, not the normal case — the row is sized to content, so it
+     only engages if a reading is unusually tall. */
+  min-height: 0;
+  max-height: 70vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 22px;
+  opacity: 0;
+  pointer-events: none;
+  /* Slight delay so the fade-in starts once the box has already begun
+     growing, rather than racing it from a standing start. */
+  transition: opacity 0.2s ease 0.05s;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .wx-widget:hover .wx-expanded { opacity: 1; pointer-events: auto; }
+}
+.wx-widget.pinned .wx-expanded { opacity: 1; pointer-events: auto; }
+
+.wx-expanded h2 {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  color: var(--orange);
+  margin-bottom: 16px;
+  padding-left: 14px;
+}
+
+.wx-now {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 14px;
   align-items: center;
 }
 
-@media (max-width: 720px) {
-  .quick-add { grid-template-columns: 1fr 1fr; }
+.wx-icon {
+  font-size: 38px;
+  line-height: 1;
+  color: var(--orange);
+  text-shadow: 0 0 14px var(--orange-dim);
+}
+
+.wx-main { min-width: 0; }
+
+.wx-temp {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 38px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text);
+}
+
+.wx-desc {
+  font-size: 13px;
+  color: var(--orange-soft);
+  letter-spacing: 0.04em;
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wx-meta {
+  text-align: right;
+  font-size: 12px;
+  color: var(--muted-2);
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.wx-place {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.wx-hilo { font-family: 'JetBrains Mono', monospace; }
+
+.wx-strip {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.wx-slot { text-align: center; }
+
+.wx-slot-time {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--muted-2);
+}
+
+.wx-slot-icon {
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--orange-soft);
+}
+
+.wx-slot-temp {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+  color: var(--text-2);
+}
+
+.wx-slot-pop {
+  font-size: 10px;
+  color: var(--muted-2);
+}
+
+/* A rain chance worth acting on is the only number here anyone changes plans
+   over, so it is the only one that gets a colour of its own. */
+.wx-slot-pop.wet { color: var(--teal); }
+
+.wx-stale {
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--muted-2);
+  font-style: italic;
+}
+
+/* ── The ticker editor, on Integrations ─────────────────────────────────── */
+
+.ticker-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.ticker-chip {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--orange-soft);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 3px 8px;
+  background: var(--panel-2);
+}
+
+.wx-src {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: var(--teal);
+  border: 1px solid var(--teal-dim);
+  border-radius: 2px;
+  padding: 1px 4px;
+  vertical-align: middle;
+}
+
+/* ── Topbar & settings drawer trigger ────────────────────────────────────
+   Today is the homepage on every viewport width; the drawer holding every
+   other page (AI Model, Persona, Integrations, Schedule, Calendar,
+   Notifications, Voice, About) is reached only from the settings button
+   here (app.js: openSidebar/closeSidebar). This bar and the drawer used to
+   be mobile-only, with a permanent 220px sidebar column standing in for
+   both on desktop; that column is gone, so this is now the one way in on
+   every width. */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 52px;
+  padding: 0 14px;
+  padding-top: env(safe-area-inset-top);
+  background: rgba(4, 20, 27, 0.55);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 12px rgba(34, 211, 238, 0.18);
+  z-index: 150;
+}
+
+.settings-btn {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  cursor: pointer;
+}
+.settings-btn span {
+  display: block;
+  width: 18px;
+  height: 2px;
+  background: var(--orange);
+}
+
+.topbar-title {
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: 'Orbitron', sans-serif;
+  font-weight: 900;
+  font-size: 15px;
+  letter-spacing: 0.15em;
+  color: var(--text);
+  text-shadow: 0 0 10px rgba(34, 211, 238, 0.45);
+}
+
+/* Dims the page behind the open drawer and gives it something to tap to
+   close — a drawer with no backdrop reads as stuck open. */
+.sidebar-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 160;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.sidebar-backdrop.show { display: block; opacity: 1; }
+
+@media (max-width: 860px) {
+  main {
+    padding: 20px 16px 40px;
+    padding-top: calc(52px + env(safe-area-inset-top) + 20px);
+    width: 100%;
+  }
+
+  .ticker-marquee {
+    margin: -20px -16px 20px;
+    mask-image: linear-gradient(to right, transparent, black 24px, black calc(100% - 24px), transparent);
+    -webkit-mask-image: linear-gradient(to right, transparent, black 24px, black calc(100% - 24px), transparent);
+  }
+
+  /* Fixed pinned-open width elsewhere (380px) would run off the right edge
+     of a phone, so it's capped to the viewport below this breakpoint. */
+  .wx-widget.pinned { width: min(340px, calc(100vw - 24px)); }
+
+  .today-hero { padding: 20px; }
+  .today-hero .hero-text { font-size: 26px; }
+  .hero-text { font-size: 30px; letter-spacing: 0.2em; }
+
+  .modal { width: 94%; }
+
+  .row, .sched-row { flex-wrap: wrap; }
+  .checkbox-row { flex-wrap: wrap; gap: 16px; }
+
+  .group-cards { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+}
+
+@media (max-width: 640px) {
+  .preset-cards { grid-template-columns: 1fr 1fr; }
+  .pending-edit-grid { grid-template-columns: 1fr; }
+
+  /* Fixed pixel column widths (times, labels) that read fine as a desktop
+     table overflow a phone screen — each of these switches from one wide
+     row to a small named-area grid using the same child elements, so no
+     markup changes anywhere. */
+  .course-row {
+    grid-template-columns: 1fr auto;
+    grid-template-areas: "name name" "code id";
+    row-gap: 4px;
+  }
+  .course-row .course-name { grid-area: name; }
+  .course-row .course-code { grid-area: code; }
+  .course-row .course-id { grid-area: id; justify-self: end; }
+
+  .period-row {
+    grid-template-columns: 32px 1fr 12px 1fr;
+    grid-template-areas: "n start dash end" "courses courses courses courses";
+    row-gap: 8px;
+  }
+  .period-row .period-n { grid-area: n; }
+  .period-row .period-start { grid-area: start; }
+  .period-row .period-dash { grid-area: dash; text-align: center; }
+  .period-row .period-end { grid-area: end; }
+  .period-row .period-courses { grid-area: courses; }
+
+  .gcal-row {
+    grid-template-columns: 1fr auto;
+    grid-template-areas: "name name" "url url" "meta remove";
+    row-gap: 8px;
+  }
+  .gcal-row > input.input:first-child { grid-area: name; }
+  .gcal-row > .gcal-url { grid-area: url; }
+  .gcal-row > .last-sync { grid-area: meta; align-self: center; }
+  .gcal-row > button.icon-btn { grid-area: remove; justify-self: end; }
+
+  .feed-row { grid-template-columns: 46px 56px 1fr 16px; gap: 8px; }
+  .feed-kind { font-size: 9px; padding: 2px 3px; }
+}
+
+@media (max-width: 420px) {
+  .preset-cards { grid-template-columns: 1fr; }
+  .wx-strip { grid-template-columns: repeat(3, 1fr); row-gap: 10px; }
 }
