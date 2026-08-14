@@ -98,13 +98,37 @@
           <!-- The hub. The wordmark sits dead centre with the ripple rings
                behind it; the rings are wider than the text, so what actually
                shows is a pair of arcs flanking it. -->
-          <div class="hub">
+          <!-- Four concentric arc pairs, in a 400-unit square centred on
+               (200, 200). Each pair spans 110 degrees above and 110 below,
+               leaving a gap at three and nine o'clock that the wordmark
+               sits in — so the arcs frame the name rather than crossing
+               it. One <g> per radius, because a state animation scales the
+               top and bottom halves of a ring as one thing.
+
+               data-state is written by hubState() in app.js and is the
+               whole of the animation: idle breathes, thinking ripples
+               outward, speaking pulses. Pure CSS from there — no canvas,
+               no library, no requestAnimationFrame. -->
+          <div class="hub" id="hub" data-state="idle">
             <div class="hub-rings" aria-hidden="true">
-              <span class="hub-ring"></span>
-              <span class="hub-ring"></span>
-              <span class="hub-ring"></span>
-              <span class="hub-ring"></span>
-              <span class="hub-ring"></span>
+              <svg class="hub-arcs" viewBox="0 0 400 400" preserveAspectRatio="xMidYMid meet" focusable="false">
+                <g class="hub-arc">
+                  <path d="M 278.64 144.93 A 96 96 0 0 0 121.36 144.93"/>
+                  <path d="M 121.36 255.07 A 96 96 0 0 0 278.64 255.07"/>
+                </g>
+                <g class="hub-arc">
+                  <path d="M 301.58 128.87 A 124 124 0 0 0 98.42 128.87"/>
+                  <path d="M 98.42 271.13 A 124 124 0 0 0 301.58 271.13"/>
+                </g>
+                <g class="hub-arc">
+                  <path d="M 324.52 112.81 A 152 152 0 0 0 75.48 112.81"/>
+                  <path d="M 75.48 287.19 A 152 152 0 0 0 324.52 287.19"/>
+                </g>
+                <g class="hub-arc">
+                  <path d="M 347.46 96.75 A 180 180 0 0 0 52.54 96.75"/>
+                  <path d="M 52.54 303.25 A 180 180 0 0 0 347.46 303.25"/>
+                </g>
+              </svg>
             </div>
             <div class="hub-word">F.R.I.D.A.Y.</div>
           </div>

@@ -2394,6 +2394,57 @@ function openStream() {
   };
 }
 
+// ── The hub ────────────────────────────────────────────────────────────
+//
+// Three states on one data attribute, and every transition is driven by
+// something that already happens. There are no new endpoints and no new
+// stream events: `thinking` starts when this browser posts a message,
+// `speaking` starts when a message/card/notify event renders — whether it
+// came back on the POST response or arrived on the SSE stream from a turn
+// that happened in Telegram — and `idle` is what the absence of both looks
+// like.
+//
+// The settle is a timer rather than a completion event because a reply is
+// not streamed: it arrives whole, so there is no "done" to listen for. Each
+// event pushes the timer out, which means a turn that emits a card and then
+// a message reads as one continuous pulse rather than two flickers.
+//
+// Everything below is a class swap. No requestAnimationFrame, no canvas, and
+// nothing that keeps running when the page is on a settings route — the
+// element is not in the DOM there, and hubState() is a no-op when it is
+// missing rather than an error.
+
+const HUB_SPEAK_SETTLE_MS = 1600;
+let HUB_SETTLE_TIMER = null;
+
+function hubState(state) {
+  const hub = document.getElementById('hub');
+  if (!hub) return;                 // not on the homepage; nothing to drive
+  hub.dataset.state = state;
+}
+
+// `thinking` has no timer: it ends when a reply renders, or when chatSend's
+// finally-block gives up. A spinner that times out on its own would go quiet
+// while the turn was still running — CHAT's deadline is 120s and a
+// tool-calling turn on Gemma routinely takes 14.
+function hubThinking() {
+  if (HUB_SETTLE_TIMER) { clearTimeout(HUB_SETTLE_TIMER); HUB_SETTLE_TIMER = null; }
+  hubState('thinking');
+}
+
+function hubSpeaking() {
+  hubState('speaking');
+  if (HUB_SETTLE_TIMER) clearTimeout(HUB_SETTLE_TIMER);
+  HUB_SETTLE_TIMER = setTimeout(() => { HUB_SETTLE_TIMER = null; hubState('idle'); },
+                                HUB_SPEAK_SETTLE_MS);
+}
+
+function hubIdle() {
+  if (HUB_SETTLE_TIMER) { clearTimeout(HUB_SETTLE_TIMER); HUB_SETTLE_TIMER = null; }
+  hubState('idle');
+}
+
+
 // ── Chat ───────────────────────────────────────────────────────────────
 //
 // A rendering surface and nothing else. Every message goes to POST /api/chat,
@@ -2436,6 +2487,10 @@ function chatAppend(node) {
 // because a typo here would silently drop a message.
 function chatRenderEvent(ev) {
   if (chatAlreadyRendered(ev)) return;
+  // Every rendered turn passes through here — this browser's own POST
+  // response and anything arriving on the stream from Telegram alike — which
+  // is why the hub's speaking pulse hangs off this and not off either caller.
+  hubSpeaking();
   if (ev.kind === 'card') { chatAppend(chatCard(ev.key, ev.text)); return; }
   const text = ev.kind === 'notify'
     ? [ev.title, ev.text].filter(Boolean).join(' — ') : (ev.text || '');
@@ -2467,6 +2522,7 @@ async function chatSend(text) {
   const input = document.getElementById('chat-input');
   const send = document.getElementById('chat-send');
   input.disabled = true; send.disabled = true;
+  hubThinking();
   chatAppend(chatLine('user', text, 'dashboard', new Date().toISOString()));
   const thinking = document.createElement('div');
   thinking.className = 'chat-line chat-friday chat-thinking';
@@ -2489,6 +2545,11 @@ async function chatSend(text) {
                         'dashboard', new Date().toISOString()));
   } finally {
     input.disabled = false; send.disabled = false; input.focus();
+    // A turn that rendered nothing — paused, or a transport failure — never
+    // reached chatRenderEvent, so nothing has settled the arcs. Without this
+    // the ripple runs forever on a turn that already ended.
+    if (document.getElementById('hub') &&
+        document.getElementById('hub').dataset.state === 'thinking') hubIdle();
   }
 }
 
