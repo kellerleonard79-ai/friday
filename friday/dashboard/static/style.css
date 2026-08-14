@@ -107,6 +107,22 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* ── Focus ─────────────────────────────────────────────────────────────────
+   Keyboard focus is visible on everything, and this is the floor rather than
+   the only rule — .input and #chat-send each replace it with something that
+   suits their own shape. `:focus-visible` rather than `:focus`, so a pointer
+   click does not leave a ring behind on a button it just pressed.
+
+   Nothing in this stylesheet may set `outline: none` without putting a
+   visible indicator back in the same rule. Two places do (.input, and the
+   composer's underline); both trade the outline for a lit border plus a ring
+   and are legible without it. */
+:where(button, a, [tabindex], input, select, textarea):focus-visible {
+  outline: 2px solid var(--az-bright);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
 body::before {
   /* scan-line texture overlay */
   content: '';
@@ -1786,16 +1802,46 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
 
 .chat-log {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding-right: 6px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  /* Fills from the BOTTOM. Two things fall out of this and both matter in a
+     full-height column: a three-line transcript sits just above the composer
+     where the eye already is, instead of stranded at the top of a 900px box;
+     and the top fade below never touches the first message until there is
+     actually something scrolled off above it. */
+  justify-content: flex-end;
+  gap: 18px;
+  /* The transcript recedes rather than being cut off. A hard edge at the top
+     of a scroll area reads as a clipping bug; a fade reads as depth, and it
+     says "there is more up there" without a scrollbar having to. */
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 56px, #000 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 56px, #000 100%);
 }
 
-.chat-line { display: flex; flex-direction: column; max-width: 82%; }
+.chat-line {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  max-width: 82%;
+}
 .chat-line.chat-user   { align-self: flex-end;   align-items: flex-end; }
 .chat-line.chat-friday { align-self: flex-start; align-items: flex-start; }
+
+/* On arrival only — see chatAppend. Short and small: a message should look
+   like it landed, not like it flew in. */
+.chat-line.chat-enter { animation: chat-enter 200ms cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+
+@keyframes chat-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-line.chat-enter { animation: none; }
+}
 
 .chat-bubble {
   background: none;
@@ -1809,23 +1855,50 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
 }
 
 .chat-friday .chat-bubble {
-  border-left: 2px solid var(--cy);
-  box-shadow: -1px 0 10px rgba(var(--az-rgb), 0.45);
+  border-left: 2px solid var(--az);
+  box-shadow: -1px 0 8px rgba(var(--az-rgb), 0.28);
   padding-left: 12px;
-  color: var(--cy-soft);
+  color: var(--az-soft);
 }
 
 .chat-user .chat-bubble {
   text-align: right;
-  color: var(--text);
+  /* Dimmer than Friday's. The user already knows what they said — their own
+     lines are there to anchor the reply, not to be re-read. */
+  color: var(--muted);
 }
 
+/* Only ever holds the `via` tag now; the timestamp moved out of the flow. */
 .chat-meta {
   font-size: 11px;
   color: var(--muted-2);
   margin-top: 5px;
   letter-spacing: 0.04em;
 }
+
+/* Absolutely positioned into the 18px gap under the line, so revealing it
+   moves nothing. Shown on hover, or unconditionally on a line carrying
+   .show-time — the first line of the transcript, and any line more than ten
+   minutes after the one above it (see chatApplyGap). */
+.chat-time {
+  position: absolute;
+  bottom: -15px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--muted-2);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.chat-friday .chat-time { left: 14px; }   /* clear of the accent rule */
+.chat-user   .chat-time { right: 0; }
+
+.chat-line:hover .chat-time,
+.chat-line.show-time .chat-time { opacity: 1; }
+
+/* A keyboard user gets the same reveal a pointer does. */
+.chat-line:focus-within .chat-time { opacity: 1; }
 
 /* Which surface a line came from. Only rendered when it is NOT this one —
    "via telegram" is information; "via dashboard" on the dashboard is noise. */
@@ -1857,24 +1930,51 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
   padding-top: 4px;
 }
 
+/* Quiet at rest — one dim rule and no glow at all — and lit only while it
+   has focus. An input that glows permanently is asking to be typed in, which
+   is the wrong emphasis on a page whose subject is what is already there. */
 .chat-composer .input {
   flex: 1;
   background: none;
   border: none;
-  border-bottom: 1px solid var(--border-strong);
+  border-bottom: 1px solid rgba(var(--az-rgb), 0.22);
   border-radius: 0;
   padding: 10px 2px;
-  box-shadow: 0 1px 8px -4px rgba(var(--az-rgb), 0.9);
+  box-shadow: none;
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
-.chat-composer .input:hover { border-bottom-color: var(--cy); }
+.chat-composer .input::placeholder { color: var(--muted-2); }
+.chat-composer .input:hover { border-bottom-color: rgba(var(--az-rgb), 0.5); }
 .chat-composer .input:focus {
   outline: none;
-  border-bottom-color: var(--cy-bright);
-  box-shadow: 0 2px 12px -3px rgba(var(--az-rgb), 1);
+  border-bottom-color: var(--az-bright);
+  box-shadow: 0 2px 12px -4px rgba(var(--az-rgb), 0.95);
 }
 
+/* SEND is a fallback for the Enter key, not the point of the page. It reads
+   as an outline until it is hovered or focused, at which point it fills —
+   so it is still obviously pressable without being the brightest object on
+   screen. The focus ring is REPLACED, never removed: this is the one control
+   in the composer a keyboard user has to be able to find. */
 .chat-composer .btn { flex: 0 0 auto; }
+
+#chat-send {
+  background: none;
+  color: var(--az);
+  border-color: rgba(var(--az-rgb), 0.42);
+  box-shadow: none;
+}
+#chat-send:hover {
+  background: rgba(var(--az-rgb), 0.14);
+  border-color: var(--az);
+  color: var(--az-bright);
+  box-shadow: none;
+}
+#chat-send:focus-visible {
+  outline: 2px solid var(--az-bright);
+  outline-offset: 2px;
+}
+#chat-send:disabled { opacity: 0.4; }
 
 /* Permission cards, in the chat. The text is the server's, verbatim; the only
    thing this styling decides is that it does not look like a reply. */

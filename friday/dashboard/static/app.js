@@ -2452,15 +2452,47 @@ function hubIdle() {
 // runs — same gate, same history, same effects. Nothing here decides what
 // Friday says, and nothing here talks to the model.
 
+// A timestamp on every line is noise: in a back-and-forth typed over ninety
+// seconds, thirty of them say the same thing thirty times. It is worth
+// showing at exactly two moments — when the reader asks for it by pointing at
+// a line, and when enough time passed that the next line is a new
+// conversation rather than a continuation. Both are below; nothing else
+// reveals it.
+//
+// The time is an absolute overlay rather than a row in the flow, so
+// revealing it on hover moves nothing. A transcript whose lines shift as the
+// pointer crosses them is worse than one with no timestamps at all.
+const CHAT_GAP_MS = 10 * 60 * 1000;
+
 function chatLine(role, text, channel, at) {
   const div = document.createElement('div');
   div.className = `chat-line chat-${role === 'user' ? 'user' : 'friday'}`;
+  if (at) div.dataset.at = at;
+  // Which surface a line came from stays visible unconditionally — "via
+  // telegram" is information about the message, not a detail about when it
+  // happened, and it is only ever rendered when it is NOT this surface.
   const from = channel && channel !== 'dashboard'
-    ? `<span class="chat-via mono">${escapeHtml(channel)}</span>` : '';
+    ? `<div class="chat-meta mono"><span class="chat-via">${escapeHtml(channel)}</span></div>` : '';
+  const when = chatTime(at);
   div.innerHTML =
     `<div class="chat-bubble">${escapeHtml(text).replace(/\n/g, '<br>')}</div>` +
-    `<div class="chat-meta mono">${escapeHtml(chatTime(at))}${from}</div>`;
+    (when ? `<time class="chat-time mono">${escapeHtml(when)}</time>` : '') +
+    from;
   return div;
+}
+
+// Marks a line whose timestamp should be visible without being hovered:
+// either it opens the transcript, or enough time passed since the line above
+// it that the reader has lost the thread of when they are.
+function chatApplyGap(node, prev) {
+  if (!node.dataset || !node.dataset.at) return;
+  const prevAt = prev && prev.dataset ? prev.dataset.at : null;
+  if (!prevAt) { node.classList.add('show-time'); return; }
+  const delta = new Date(node.dataset.at) - new Date(prevAt);
+  // A NaN delta means one of the two timestamps did not parse. Showing the
+  // time is the safe answer there — the point of the rule is to orient the
+  // reader, and refusing to orient them on bad data helps nobody.
+  if (!(Math.abs(delta) < CHAT_GAP_MS)) node.classList.add('show-time');
 }
 
 function chatTime(at) {
@@ -2478,6 +2510,11 @@ function chatScroll() {
 function chatAppend(node) {
   const log = document.getElementById('chat-log');
   if (!log) return;
+  chatApplyGap(node, log.lastElementChild);
+  // Only lines that ARRIVE animate. Applying this in the history loop below
+  // would fade in forty rows at once on every page load, which reads as the
+  // page failing to render rather than as a message coming in.
+  node.classList.add('chat-enter');
   log.appendChild(node);
   chatScroll();
 }
@@ -2654,8 +2691,12 @@ async function startChat() {
     if (!(r.messages || []).length) {
       log.innerHTML = '<div class="hint">Nothing yet. Say something.</div>';
     }
+    let prev = null;
     (r.messages || []).forEach((m) => {
-      log.appendChild(chatLine(m.role, m.content, m.channel, m.at));
+      const line = chatLine(m.role, m.content, m.channel, m.at);
+      chatApplyGap(line, prev);
+      log.appendChild(line);
+      prev = line;
     });
     chatScroll();
   } catch (e) {
