@@ -2699,6 +2699,19 @@ async function startChat() {
       prev = line;
     });
     chatScroll();
+    // Orbitron and Rajdhani land AFTER the transcript first renders and
+    // reflow every line in it, which grows scrollHeight by more than the
+    // scroll position that was just computed against the old one — measured
+    // at 32px, which left the newest message clipped by 17 under the
+    // composer. Re-pin once the fonts are actually in.
+    // Two frames after, not just `.then()`: if the fonts were already loaded
+    // the promise resolves in the same task, before the reflow it is meant to
+    // wait for has been laid out, and the re-pin is computed against the old
+    // height all over again — measured, that left the same 17px clipped.
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(() => requestAnimationFrame(
+        () => requestAnimationFrame(chatScroll)));
+    }
   } catch (e) {
     log.innerHTML = `<div class="hint">Couldn't load the transcript: ${escapeHtml(e.message)}</div>`;
   }
