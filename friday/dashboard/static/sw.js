@@ -23,7 +23,14 @@
 //     everything else not named above — live state, not a shell
 //   - /api/stream — an SSE connection; caching it would break it outright
 
-const CACHE_VERSION = 'friday-shell-v2';
+// Bumped whenever the shell's own files change shape together. `activate`
+// deletes every cache that is not this name, so a browser holding the old
+// index.html cannot serve it alongside the new style.css — which is exactly
+// how a half-styled page happens: the markup and the stylesheet are cached
+// independently and revalidated independently, so without a version bump a
+// tab can hold one of each from either side of the change for as long as it
+// takes both background fetches to land.
+const CACHE_VERSION = 'friday-shell-v3';
 const NETWORK_TIMEOUT_MS = 2500;
 
 const SHELL_URLS = [
@@ -46,7 +53,7 @@ const DATA_URLS = ['/api/schedule', '/api/after-school'];
 const OFFLINE_SHELL_FALLBACK = `<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>F.R.I.D.A.Y.</title></head>
-<body style="background:#1A0800;color:#EADFC8;font-family:sans-serif;padding:2rem;">
+<body style="background:#060E1C;color:#E9F4FF;font-family:sans-serif;padding:2rem;">
 <h2>F.R.I.D.A.Y.</h2>
 <p>Offline, and nothing is cached yet. Open this page once while the Mac is
 reachable — after that it works offline too.</p>
