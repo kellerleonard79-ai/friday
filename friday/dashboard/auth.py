@@ -62,6 +62,17 @@ COOKIE_MAX_AGE = 365 * 24 * 60 * 60
 # prompt fetches them from the OS's own installer context, which carries no
 # cookie at all. A 401 there means no home-screen icon and no error message
 # anywhere. None of these files contain anything.
+#
+# /sw.js joined this list after Safari was observed — in a real browser, not
+# a claim from the spec — never sending the session cookie on the service
+# worker's own registration fetch. A 401 there means no worker installs at
+# all: no offline cache, ever, on that browser, with nothing in the console
+# to explain why. Exempting the SCRIPT is safe because it exempts nothing
+# else: the script contains no secret and no user data, and every route it
+# fetches from inside its own cache logic (/api/schedule, /api/after-school,
+# the shell files) still goes through this same middleware on ITS OWN
+# request — an unauthenticated browser gets 401s from those exactly as
+# before, so nothing protected becomes reachable that wasn't already.
 _OPEN_PATHS = frozenset({
     "/static/favicon.png",
     "/static/manifest.webmanifest",
@@ -69,6 +80,7 @@ _OPEN_PATHS = frozenset({
     "/static/icon-512.png",
     "/static/icon-maskable-192.png",
     "/static/icon-maskable-512.png",
+    "/sw.js",
 })
 
 
