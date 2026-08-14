@@ -735,7 +735,12 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
         return FileResponse(str(_STATIC_DIR / "index.html"),
                             headers={"Cache-Control": _NO_CACHE})
 
-    @app.get("/sw.js")
+    # GET and HEAD. FastAPI's @app.get registers GET alone — Starlette's own
+    # Route adds HEAD, FastAPI's APIRoute does not — so a HEAD here answered
+    # 405 while GET answered 200. No browser noticed (registration is a GET),
+    # but `curl -sI /sw.js` is how this endpoint gets checked by hand, and an
+    # endpoint whose by-hand check reports 405 will be read as still broken.
+    @app.api_route("/sw.js", methods=["GET", "HEAD"])
     def service_worker() -> FileResponse:
         # Served from the origin root rather than under /static/ so its
         # default scope is "/" — a script registered from /static/sw.js would
