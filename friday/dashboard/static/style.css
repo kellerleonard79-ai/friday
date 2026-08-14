@@ -1346,58 +1346,123 @@ select.input {
 }
 
 /* ── The stage ─────────────────────────────────────────────────────────────
-   The homepage: an instrument on each flank, the hub and the conversation
-   between them. Nothing is transformed and nothing is framed: no
-   `perspective`, no `rotateY`, and no outline around the whole thing. The
-   structure the eye follows is the panels' own corner brackets and the hub
-   in the middle; .hud-stage itself is just the positioning context the
-   ONLINE strip anchors to.                                                 */
+   The homepage fills the window and nothing below it scrolls. Three rows —
+   ticker, content, status — with the content row taking every pixel the
+   other two do not, and three columns inside it: an instrument on each
+   flank, the hub and the conversation between them.
+
+   This used to be a normal scrolling document whose children were sized in
+   `calc(100vh - 360px)` — a number tuned against roughly a 900px viewport.
+   In a 1500px one the content stopped a little past halfway and the bottom
+   40% of the screen was empty navy. Nothing here carries a viewport
+   calculation any more: the rows are `auto / 1fr / auto` and the panels are
+   flex children that stretch, so the same rules fill any height.
+
+   Only the homepage does this. Settings pages are ordinary scrolling
+   documents and `main` keeps its overflow there — see the
+   `body[data-route="today"]` scoping, written by navigate() in app.js.     */
+
+body[data-route="today"] main {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  /* The status strip IS the last row; the stock 48px of page padding would
+     push it below the fold. The inset keeps it clear of a phone's home
+     indicator when this is installed to the home screen. */
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Row 1. `hidden` until the first fetch answers, at which point it takes its
+   own height out of the content row rather than overlaying it. */
+body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
 
 .hud-stage {
   position: relative;
-  padding-bottom: 34px;
+  display: flex;
+  flex-direction: column;
+  /* min-height:0 on every flex ancestor of the scroll area, or the transcript
+     refuses to shrink below its content and pushes the composer off-screen
+     instead of scrolling. This is the whole trick and it has to hold all the
+     way down the chain. */
+  min-height: 0;
+  flex: 1;
 }
 
-/* ONLINE / PAUSED / OFFLINE, bottom-left of the visor. The same value the
-   drawer footer shows; both are written by updateSidebar. */
+/* Row 3. In the flow now rather than absolutely positioned against the
+   bottom of a stage whose height was whatever its contents happened to be. */
 .hud-status {
-  position: absolute;
-  left: 4px;
-  bottom: 0;
+  flex: 0 0 auto;
+  height: 32px;
   display: flex;
   align-items: center;
   gap: 9px;
+  padding-left: 4px;
   font-family: 'Orbitron', sans-serif;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 500;
   letter-spacing: 0.28em;
   color: var(--muted);
 }
 
-/* ── Homepage split: schedule / hub + chat / to-do ─────────────────────────
-   Three columns. The two flanks are fixed and narrow and angled inward; the
-   centre — the wordmark and the conversation under it — is what the page is
-   actually about, and it stays square to the viewer so the text never
-   distorts. */
+/* ── Row 2: schedule / hub + chat / to-do ──────────────────────────────────
+   The centre is widest because it is what the page is about. The flanks are
+   equal to each other so the stage stays symmetric about the wordmark.     */
 
 .home-grid {
-  display: flex;
-  align-items: flex-start;
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1.4fr 1fr;
+  align-items: stretch;
   gap: 30px;
 }
 
-.home-todo,
-.home-side {
-  flex: 0 0 300px;
-}
-
-.home-center {
-  flex: 1;
-  min-width: 0;
+/* Each column is itself a flex column so its cards can stretch. */
+.home-side,
+.home-center,
+.home-todo {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 360px);
-  min-height: 340px;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* Cards fill their column instead of sitting at natural height with dead
+   space beneath. Where a flank holds two (the period card and a pending
+   approval) they share the height; where the approval is hidden — which is
+   most of the time — the remaining card takes all of it. `min-height: 0`
+   plus the internal scroll below is what keeps a long list from growing the
+   column rather than scrolling inside it. */
+.hud-flank > .panel {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* A stretched panel with three lines in it should not read as broken. The
+   heading stays at the top and the body takes the rest, so short content
+   sits under its label rather than being spread down the card. */
+.hud-flank > .panel > h2 { flex: 0 0 auto; }
+.hud-flank > .panel > div:last-child { flex: 1 1 auto; min-height: 0; }
+
+/* The to-do list has no producer yet (step 8). An empty box under a heading
+   reads as a failed fetch, so it says so itself and centres in whatever
+   height the column gives it. Rendered from CSS rather than markup so the
+   moment app.js puts a single node in there, the message disappears with no
+   code anywhere having to remember to remove it. */
+#todo-list:empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 80px;
+}
+#todo-list:empty::before {
+  content: 'Nothing tracked yet';
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  color: var(--muted-2);
 }
 
 /* The flanks are framed by corner brackets rather than enclosed by a box —
@@ -1412,8 +1477,8 @@ select.input {
 .hud-flank { position: relative; }
 
 .hud-flank > .panel {
-  border-color: rgba(var(--az-rgb), 0.14);
-  box-shadow: inset 0 0 30px rgba(var(--az-rgb), 0.05);
+  border-color: rgba(var(--az-rgb), 0.12);
+  box-shadow: inset 0 0 30px rgba(var(--az-rgb), 0.04);
   /* Square, because the brackets are square. A 4px radius under a hard 2px L
      leaves a hairline of border curving out from under each mark, which is
      exactly the "not quite seated" look this is fixing. */
@@ -1424,9 +1489,14 @@ select.input {
 /* Overrides the two 12px L-marks .panel draws at its TL and BR corners: this
    is a different construction (one pseudo-element per EDGE, drawing both of
    that edge's corners), so width, height and the borders all have to be
-   reset rather than adjusted. */
+   reset rather than adjusted.
+
+   `position: sticky` rather than absolute: the panel is a scroll container
+   now, and an absolutely-positioned bracket scrolls away with the content,
+   which strands the bottom pair somewhere in the middle of a long list. */
 .hud-flank > .panel::before,
 .hud-flank > .panel::after {
+  position: sticky;
   /* -1px on every side, so the 2px mark sits ON the panel's own 1px border
      and the bracket reads as that corner rather than as a separate object
      floating near it. Same offset .panel's stock TL/BR marks already use. */
@@ -1435,30 +1505,69 @@ select.input {
   width: auto;
   height: 20px;
   border: none;
+  flex: 0 0 auto;
   /* One element draws both corners of one edge: a left-hand L from layers 1
      and 3, a right-hand L from layers 2 and 4, and nothing in between. Two
      pseudo-elements, four brackets, no extra markup. */
   background:
-    linear-gradient(var(--cy), var(--cy)) left  top / 20px 2px no-repeat,
-    linear-gradient(var(--cy), var(--cy)) right top / 20px 2px no-repeat,
-    linear-gradient(var(--cy), var(--cy)) left  top / 2px 20px no-repeat,
-    linear-gradient(var(--cy), var(--cy)) right top / 2px 20px no-repeat;
+    linear-gradient(var(--az), var(--az)) left  top / 20px 2px no-repeat,
+    linear-gradient(var(--az), var(--az)) right top / 20px 2px no-repeat,
+    linear-gradient(var(--az), var(--az)) left  top / 2px 20px no-repeat,
+    linear-gradient(var(--az), var(--az)) right top / 2px 20px no-repeat;
   filter: drop-shadow(0 0 4px rgba(var(--az-rgb), 0.42));
 }
-.hud-flank > .panel::before { top: -1px; bottom: auto; }
+.hud-flank > .panel::before {
+  top: -1px; bottom: auto;
+  margin: -1px -1px calc(-20px + 1px);   /* out of flow, visually */
+}
 .hud-flank > .panel::after {
   bottom: -1px;
   top: auto;
+  margin: calc(-20px + 1px) -1px -1px;
   background-position: left bottom, right bottom, left bottom, right bottom;
 }
 
-@media (max-width: 900px) {
-  .home-grid { flex-direction: column; }
-  .home-todo, .home-center, .home-side { flex: 1 1 auto; width: 100%; }
-  /* Chat is the reason anyone opens this page on a phone — it goes first,
-     ahead of the flanking widgets it sits between on desktop. */
-  .home-center { order: -1; }
-  .hud-status { position: static; margin-top: 22px; }
+/* ── Narrow ────────────────────────────────────────────────────────────────
+   Below 1000px the fixed-height stage stops being an asset: three columns in
+   under a thousand pixels gives the transcript ~40 characters a line. The
+   rails move under the centre and the page becomes an ordinary scrolling
+   document again — which also means `main` gets its overflow back and the
+   chat needs a height of its own, since there is no longer a 1fr row handing
+   it one. */
+@media (max-width: 1000px) {
+  body[data-route="today"] main {
+    overflow-y: auto;
+    padding-bottom: 40px;
+  }
+  body[data-route="today"] .hud-stage { display: block; flex: 0 0 auto; }
+
+  .home-grid {
+    grid-template-columns: 1fr 1fr;
+    /* Chat is the reason anyone opens this page on a narrow screen — it goes
+       first, ahead of the flanking widgets it sits between on desktop. */
+    grid-template-areas: "center center" "side todo";
+  }
+  .home-center { grid-area: center; }
+  .home-side   { grid-area: side; }
+  .home-todo   { grid-area: todo; }
+
+  .hud-flank > .panel { overflow-y: visible; }
+  .hud-flank > .panel::before,
+  .hud-flank > .panel::after { position: absolute; margin: 0; }
+  .hud-flank > .panel::before { top: -1px; }
+  .hud-flank > .panel::after { bottom: -1px; }
+
+  .home-chat-panel { height: 62vh; min-height: 340px; }
+  .hud-status { margin-top: 22px; }
+}
+
+@media (max-width: 700px) {
+  .home-grid {
+    grid-template-columns: 1fr;
+    grid-template-areas: "center" "side" "todo";
+    gap: 22px;
+  }
+  .home-chat-panel { height: 66vh; min-height: 300px; }
 }
 
 /* ── The hub ───────────────────────────────────────────────────────────────
@@ -1472,14 +1581,19 @@ select.input {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 210px;
-  /* The ripple is decoration and it must not travel. A fixed height plus
+  /* Scales with the window instead of being a fixed 210px block: on a tall
+     screen the hub grows into the room it has, and on a short one it yields
+     that room to the transcript rather than pushing the composer out of the
+     column. Never a flex 1fr — the chat is what should absorb the slack. */
+  flex: 0 0 auto;
+  height: clamp(150px, 21vh, 240px);
+  /* The ripple is decoration and it must not travel. A bounded height plus
      overflow:hidden is the hard stop; the mask below is what keeps that stop
      from reading as a cut line. */
   overflow: hidden;
   /* The chat starts here, clear of the wordmark's glow rather than tucked
      under it. */
-  margin-bottom: 46px;
+  margin-bottom: clamp(18px, 3vh, 40px);
 }
 
 .hub-rings {
@@ -1561,23 +1675,24 @@ select.input {
 .chat-panel {
   display: flex;
   flex-direction: column;
-  /* Fills the viewport minus the topbar, the ticker banner, the page header
-     and the panel's own margins, so the composer sits at the bottom of the
-     window rather than at the bottom of a transcript that may be three lines
-     long. Same budget on every viewport width now that the topbar (and its
-     reserved space in `main`) is no longer mobile-only. */
-  height: calc(100vh - 360px);
-  min-height: 340px;
+  min-height: 0;
 }
 
 /* Under the hub the chat has no chrome at all — no border, no HUD corners,
-   no scanline fill. It fills whatever height the wordmark above it didn't
-   take, inside .home-center's own fixed budget. */
+   no scanline fill. It takes every pixel of the centre column the wordmark
+   above it did not, which is what pins the composer to the bottom of the
+   column rather than leaving it floating under a three-line transcript.
+   Above ~1000px it has no height of its own at all; below that breakpoint
+   the media query gives it one, because there is no 1fr row left to fill. */
 .home-chat-panel {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
   height: auto;
 }
+
+/* The composer is the bottom row of the centre column and never scrolls with
+   the transcript. */
+.chat-composer { flex: 0 0 auto; }
 
 .chat-log {
   flex: 1;

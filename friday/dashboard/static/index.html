@@ -516,6 +516,32 @@
     </section>
 
     <section class="panel">
+      <div class="notif-row">
+        <div>
+          <div class="notif-label">WAKE FOR BRIEFINGS</div>
+          <div class="hint">Wakes the Mac a few minutes before each briefing so
+            it is not asleep when one is due, then lets it sleep again as soon
+            as the briefing sends. This is the main reason to schedule wakes at
+            all; it works whether or not the passing-period schedule below is on.</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="power-briefing-wakes"><span class="slider-sw"></span></label>
+      </div>
+      <div id="power-briefing-list"></div>
+      <div class="notif-row">
+        <div class="notif-label">WAKE THIS MANY MINUTES BEFORE</div>
+        <input type="number" class="input small" id="power-briefing-lead" min="0" max="30">
+      </div>
+      <div class="notif-row" style="border-bottom:none;">
+        <div>
+          <div class="notif-label">GIVE UP AFTER</div>
+          <div class="hint">How long to keep holding if the briefing never
+            sends. The hold normally ends the moment it does.</div>
+        </div>
+        <input type="number" class="input small" id="power-briefing-grace" min="1" max="120">
+      </div>
+    </section>
+
+    <section class="panel">
       <h2>MANUAL HOLD</h2>
       <div class="hint">Force the machine awake regardless of the schedule
         below, for a set duration. Overrides the schedule; does not disable it.</div>
@@ -531,8 +557,9 @@
       <h2>DERIVED FROM THE BELL SCHEDULE</h2>
       <div class="hint">Computed from the Schedule page's period times — the
         gap between one period's end and the next one's start, when that gap
-        is short enough to be a passing period rather than lunch. Edit period
-        times on the Schedule page; these follow automatically.</div>
+        is short enough to be a passing period rather than lunch. Read-only —
+        edit period times on the Schedule page and these follow automatically;
+        the switch above turns the whole set on and off.</div>
       <div id="power-derived-list"></div>
     </section>
 

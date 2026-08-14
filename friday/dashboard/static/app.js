@@ -139,9 +139,14 @@ const set = (obj, path, val) => {
 function bindInput(el, path, opts = {}) {
   const { onChange = () => {}, transform = (v) => v } = opts;
   const cur = get(CONFIG, path);
-  if (cur != null) {
-    if (el.type === 'checkbox') el.checked = !!cur;
-    else el.value = cur;
+  // `default` is what the SERVER falls back to when the key is absent. An
+  // unset key otherwise renders as the control's HTML default, which for a
+  // checkbox is unchecked — so a setting the server treats as on by default
+  // would display as off until it happened to be toggled once.
+  const shown = cur != null ? cur : opts.default;
+  if (shown != null) {
+    if (el.type === 'checkbox') el.checked = !!shown;
+    else el.value = shown;
   }
   const evt = (el.type === 'checkbox' || el.tagName === 'SELECT') ? 'change' : 'blur';
   el.addEventListener(evt, async () => {
@@ -191,6 +196,11 @@ function navigate(route) {
     location.reload();
     return;
   }
+  // The homepage is a fixed 100vh stage that does not scroll; every settings
+  // page is an ordinary scrolling document. That is a difference in `main`
+  // itself, so it cannot be expressed by a class on the page content — CSS
+  // scopes it off body[data-route], and this is the one line that writes it.
+  document.body.dataset.route = route;
   PAGE.innerHTML = '';
   PAGE.appendChild(tpl.content.cloneNode(true));
   // Force reflow so fade-in animation replays
@@ -1917,6 +1927,23 @@ function renderPower() {
   w.derived_overrides = w.derived_overrides || {};
 
   bindInput(document.getElementById('power-enabled'), 'wake_schedule.enabled');
+  bindInput(document.getElementById('power-briefing-wakes'), 'wake_schedule.briefing_wakes', { default: true });
+
+  const bLeadEl = document.getElementById('power-briefing-lead');
+  const bGraceEl = document.getElementById('power-briefing-grace');
+  bLeadEl.value = w.briefing_lead_minutes ?? w.lead_minutes ?? 2;
+  bGraceEl.value = w.briefing_hold_grace_minutes ?? 10;
+  bLeadEl.onchange = async () => {
+    w.briefing_lead_minutes = Math.max(0, parseInt(bLeadEl.value, 10) || 0);
+    await saveConfig();
+    loadPowerStatus();
+  };
+  bGraceEl.onchange = async () => {
+    w.briefing_hold_grace_minutes = Math.max(1, parseInt(bGraceEl.value, 10) || 1);
+    await saveConfig();
+    loadPowerStatus();
+  };
+
   const leadEl = document.getElementById('power-lead-minutes');
   const daysEl = document.getElementById('power-days-ahead');
   leadEl.value = w.lead_minutes ?? 2;
@@ -2016,6 +2043,39 @@ function renderCustomBlocks() {
   });
 }
 
+// Times come from GET /api/power/status (power.py::briefing_wake_times), not
+// from CONFIG — the server resolves one-shot overrides against system_state,
+// which the browser cannot see. Read-only for the same reason: the briefing
+// times themselves belong to the Notifications page.
+function renderBriefingWakes(status) {
+  const container = document.getElementById('power-briefing-list');
+  if (!container) return;
+  const slots = status.briefings_today || [];
+  if (!status.briefing_wakes) {
+    container.innerHTML = '<div class="pc-empty">Briefing wakes are off — the Mac will stay asleep through a briefing if it happens to be sleeping.</div>';
+    return;
+  }
+  if (!slots.length) {
+    container.innerHTML = '<div class="pc-empty">No briefing times configured.</div>';
+    return;
+  }
+  container.innerHTML = '';
+  slots.forEach((b) => {
+    const holding = status.reason === `briefing:${b.slot}`;
+    const row = document.createElement('div');
+    row.className = 'power-block-row';
+    row.innerHTML = `
+      <span class="dot${holding ? ' online' : ''}"></span>
+      <div>
+        <div class="power-block-label">${escapeHtml(b.label)}</div>
+        <div class="power-block-time">due ${escapeHtml(b.at)} · wakes at ${escapeHtml(b.wake_at)}</div>
+      </div>
+      <span class="power-block-time">${holding ? 'holding' : ''}</span>
+    `;
+    container.appendChild(row);
+  });
+}
+
 function renderDerivedBlocks(blocks) {
   const container = document.getElementById('power-derived-list');
   if (!container) return;
@@ -2024,26 +2084,23 @@ function renderDerivedBlocks(blocks) {
     container.innerHTML = '<div class="pc-empty">No passing periods for this day — a weekend, or no bell schedule set on the Schedule page.</div>';
     return;
   }
-  const w = (CONFIG.wake_schedule = CONFIG.wake_schedule || {});
-  w.derived_overrides = w.derived_overrides || {};
+  // READ-ONLY. These are a view of the bell schedule, not a second place to
+  // edit it: the times come from the Schedule page and the whole set is
+  // governed by the master switch. A per-block toggle here would be a third
+  // source of truth for whether a given passing period is live, and the one
+  // most likely to be stale.
   container.innerHTML = '';
   derived.forEach((b) => {
-    const key = `${b.start}-${b.end}`;
     const row = document.createElement('div');
     row.className = 'power-block-row';
     row.innerHTML = `
-      <label class="switch"><input type="checkbox" ${b.enabled ? 'checked' : ''}><span class="slider-sw"></span></label>
+      <span class="dot${b.enabled ? '' : ' error'}"></span>
       <div>
         <div class="power-block-label">${escapeHtml(b.label)}</div>
         <div class="power-block-time">${escapeHtml(b.start)}–${escapeHtml(b.end)} · wakes at ${escapeHtml(b.wake_at)}</div>
       </div>
       <span></span>
     `;
-    row.querySelector('input[type="checkbox"]').onchange = async (e) => {
-      w.derived_overrides[key] = e.target.checked;
-      await saveConfig();
-      loadPowerStatus();
-    };
     container.appendChild(row);
   });
 }
@@ -2058,9 +2115,16 @@ async function loadPowerStatus() {
   const dot = document.getElementById('power-dot');
   const text = document.getElementById('power-status-text');
   if (dot && text) {
-    dot.className = 'dot' + (s.active ? ' online' : (s.enabled ? ' offline' : ' error'));
-    if (!s.enabled) text.textContent = 'Disabled';
+    // "Armed" is either switch being on, not the master alone — the master
+    // governs the passing-period blocks only and defaults off, so reading it
+    // as the whole feature would report a machine that is faithfully waking
+    // for its briefings as Disabled.
+    const armed = s.enabled || s.briefing_wakes;
+    dot.className = 'dot' + (s.active ? ' online' : (armed ? ' offline' : ' error'));
+    if (!armed) text.textContent = 'Disabled';
     else if (s.active && s.manual) text.textContent = `Holding awake — manual hold, until ${clockLabel(s.manual.until)}`;
+    else if (s.active && s.reason && s.reason.startsWith('briefing:'))
+      text.textContent = `Holding awake — ${s.block ? s.block.label : 'briefing'} due ${s.block ? s.block.end : ''}, until it sends`;
     else if (s.active && s.block) text.textContent = `Holding awake — ${s.block.label}, until ${s.block.end}`;
     else if (s.active) text.textContent = 'Holding awake';
     else text.textContent = 'Free to sleep';
@@ -2075,9 +2139,13 @@ async function loadPowerStatus() {
 
   const nextWake = document.getElementById('power-next-wake');
   if (nextWake) {
-    nextWake.textContent = s.next_wake
-      ? `${clockLabel(s.next_wake)} · ${new Date(s.next_wake).toLocaleDateString([], { month: 'short', day: 'numeric' })}`
-      : 'none scheduled';
+    if (s.next_wake) {
+      const day = new Date(s.next_wake).toLocaleDateString([], { month: 'short', day: 'numeric' });
+      nextWake.textContent = `${clockLabel(s.next_wake)} · ${day}`
+        + (s.next_wake_label ? ` · ${s.next_wake_label}` : '');
+    } else {
+      nextWake.textContent = 'none scheduled';
+    }
   }
 
   const manualClear = document.getElementById('power-manual-clear');
@@ -2086,19 +2154,33 @@ async function loadPowerStatus() {
   // Best-effort — see power.py::sudo_configured()'s docstring. Shown only
   // once this process has actually tried and failed, never guessed from a
   // read that could just be a quiet machine.
+  // Reported per half, because they fail independently and on this machine
+  // they do: `pmset schedule *` is granted and `pmset -a disablesleep` is
+  // not, so wakes work and the hold does not. Saying "sudo is broken" would
+  // send the user to re-add a rule that is already half right; saying
+  // nothing would leave a hold that silently never engages. null means this
+  // process has not tried that half yet — not a fault, so not a warning.
   const sudoHint = document.getElementById('power-sudo-hint');
   if (sudoHint) {
-    const missing = s.enabled && !s.sudo_configured;
-    sudoHint.classList.toggle('hidden', !missing);
-    if (missing) {
-      sudoHint.innerHTML = '<span class="warn">The sudoers rule below is missing or wrong — '
-        + 'the schedule cannot hold the machine awake or wake it until it is added.</span>';
+    const caps = s.sudo_capabilities || {};
+    const broken = [];
+    if (caps.wake === false) broken.push('wake the machine');
+    if (caps.hold === false) broken.push('hold it awake');
+    sudoHint.classList.toggle('hidden', !broken.length);
+    if (broken.length) {
+      sudoHint.innerHTML = `<span class="warn">Root is granting only part of this: `
+        + `Friday cannot ${broken.join(' or ')}. `
+        + (caps.wake && caps.hold === false
+            ? 'Scheduled wakes are working — it is the hold that is missing. '
+            : '')
+        + 'Add the line under ONE-TIME SETUP with <code>sudo visudo</code>.</span>';
     }
   }
 
   const sudoLine = document.getElementById('power-sudoers-line');
   if (sudoLine) sudoLine.value = s.sudoers_line || '';
 
+  renderBriefingWakes(s);
   renderDerivedBlocks((s.blocks_today && s.blocks_today.length) ? s.blocks_today : s.blocks_tomorrow);
 }
 
