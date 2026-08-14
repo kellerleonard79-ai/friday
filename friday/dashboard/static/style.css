@@ -1,40 +1,70 @@
 /* ── Palette ───────────────────────────────────────────────────────────────
-   Monochromatic cyan. The dash used to be high-contrast orange on near-black
-   brown; it is now one hue — cyan — carried at four brightnesses, over a
-   near-black blue-teal ground.
+   Azure on deep navy. Six source values — four accent brightnesses and two
+   grounds — and every other colour in this file is derived from them, either
+   by name or through the `-rgb` triplets below.
 
-   The `--orange-*` names are kept as aliases rather than renamed across ~200
-   usages in this file: a rename touching every rule is a diff nobody can read
-   for a change that is one hue. New rules should use the `--cy-*` names. */
+   The triplets exist so a glow can pick its own alpha without restating the
+   colour: `rgba(var(--az-rgb), 0.3)`. Before this pass the same three
+   numbers were typed out sixty times across the stylesheet, which meant the
+   palette was only nominally a palette — retuning the hue meant a
+   find-and-replace, and any rule that got missed stayed the old colour.
+   There are no literal accent values below this block.
+
+   The `--cy-*` and `--orange-*` names are kept as aliases rather than
+   renamed across ~200 usages: a rename touching every rule is a diff nobody
+   can read for a change that is one hue. New rules should use `--az-*`. */
 :root {
-  --cy: #22D3EE;             /* cyan-400 — the structural line colour */
-  --cy-bright: #67E8F9;      /* cyan-300 — emphasis, live values */
-  --cy-soft: #A5F3FC;        /* cyan-200 — secondary readouts */
-  --cy-deep: #0891B2;        /* cyan-600 — receding edges */
-  --cy-rgb: 34, 211, 238;    /* for rgba() glows without a second literal */
+  /* The source. Everything else in this file resolves back to these six. */
+  --az: #38B6FF;             /* the structural line colour                */
+  --az-bright: #7FD1FF;      /* emphasis, live values, focus              */
+  --az-soft: #BEE6FF;        /* secondary readouts, body copy on the HUD  */
+  --az-deep: #1C6DA6;        /* receding edges, disabled                  */
+  --bg: #060E1C;             /* deep navy — the corners                   */
+  --bg-glow: #10233F;        /* the lit centre                            */
 
-  --bg: #04141B;
-  --bg-glow: #0A2733;
+  --az-rgb: 56, 182, 255;
+  --az-soft-rgb: 190, 230, 255;
+  --ink-rgb: 6, 14, 28;        /* --bg, for translucent overlays          */
+  --surface-rgb: 22, 58, 104;  /* glass fill, a lift off --bg not a wash  */
+  --ink-deep: #04101F;         /* text ON an azure fill                   */
+
+  /* The secondary accent. Deliberately greener than --az so the two are
+     told apart at a glance: it marks data (a rising ticker, the surface a
+     message came from), never structure. */
+  --az2: #35D6E8;
+  --az2-rgb: 53, 214, 232;
+
   /* Glass, not a solid fill. Every surface using this also sets
      backdrop-filter — the alpha is what the blur shows through. */
-  --panel: rgba(8, 51, 68, 0.22);
-  --panel-2: rgba(8, 51, 68, 0.38);
+  --panel: rgba(var(--surface-rgb), 0.26);
+  --panel-2: rgba(var(--surface-rgb), 0.42);
   --glass-blur: blur(14px) saturate(1.2);
-  --glow-sm: 0 0 10px rgba(34, 211, 238, 0.30);
-  --glow-md: 0 0 18px rgba(34, 211, 238, 0.22);
 
-  --orange: var(--cy);
-  --orange-bright: var(--cy-bright);
-  --orange-soft: var(--cy-soft);
-  --orange-dim: rgba(34, 211, 238, 0.55);
-  --teal: #38BDF8;
-  --teal-dim: rgba(56, 189, 248, 0.55);
-  --text: #E8FBFF;
-  --text-2: #C6E9F2;
-  --muted: #7FD6E8;
-  --muted-2: #5C93A6;
-  --border: rgba(34, 211, 238, 0.24);
-  --border-strong: rgba(34, 211, 238, 0.45);
+  /* Bloom budget. The logo spends far more than this (see .hub-word); these
+     two are what everything else gets, and they are deliberately quiet — a
+     page where every edge glows equally has no depth, because nothing is
+     nearer than anything else. */
+  --glow-sm: 0 0 8px rgba(var(--az-rgb), 0.20);
+  --glow-md: 0 0 14px rgba(var(--az-rgb), 0.15);
+
+  --cy: var(--az);
+  --cy-bright: var(--az-bright);
+  --cy-soft: var(--az-soft);
+  --cy-deep: var(--az-deep);
+  --cy-rgb: var(--az-rgb);
+  --orange: var(--az);
+  --orange-bright: var(--az-bright);
+  --orange-soft: var(--az-soft);
+  --orange-dim: rgba(var(--az-rgb), 0.55);
+  --teal: var(--az2);
+  --teal-dim: rgba(var(--az2-rgb), 0.55);
+
+  --text: #E9F4FF;
+  --text-2: #C4DCF2;
+  --muted: #86B9DE;
+  --muted-2: #5D82A2;
+  --border: rgba(var(--az-rgb), 0.20);
+  --border-strong: rgba(var(--az-rgb), 0.38);
   --danger: #FF5C7A;
 }
 
@@ -54,17 +84,21 @@ body {
   font-weight: 400;
   font-size: 15px;
   line-height: 1.45;
-  /* Layered, in paint order: a cold vignette at the edges so the visor's
-     glass has something to sit against, two cyan pools where the light is
-     nominally coming from, and a pair of low-angle sweeps that read as
-     out-of-focus geometry behind the HUD rather than as a gradient. */
+  /* Depth, not decoration. Two layers: one broad pool of light behind the
+     centre of the stage, and the navy ground itself falling off toward the
+     corners. The impression to aim for is a lit room — you should not be
+     able to point at the gradient, only notice that the corners are further
+     away than the middle.
+
+     This replaced a six-layer stack (two off-centre pools and a pair of
+     low-angle sweeps meant to read as out-of-focus geometry). At 1500px the
+     sweeps were plainly visible as diagonal bands, and every extra pool
+     flattened the centre by competing with it — the centre reads as lit
+     because it is the ONLY thing lit. */
   background:
-    radial-gradient(ellipse at 50% 42%, rgba(34, 211, 238, 0.10), transparent 62%),
-    radial-gradient(ellipse at 8% 0%, rgba(56, 189, 248, 0.10), transparent 48%),
-    radial-gradient(ellipse at 96% 96%, rgba(34, 211, 238, 0.07), transparent 46%),
-    linear-gradient(104deg, transparent 38%, rgba(165, 243, 252, 0.045) 44%, transparent 50%),
-    linear-gradient(76deg, transparent 62%, rgba(165, 243, 252, 0.035) 68%, transparent 74%),
-    radial-gradient(ellipse at 50% 50%, #0A2733 0%, var(--bg) 72%);
+    radial-gradient(ellipse 90% 70% at 50% 38%, rgba(var(--az-rgb), 0.11), transparent 70%),
+    radial-gradient(ellipse 120% 100% at 50% 45%, var(--bg-glow) 0%, var(--bg) 68%);
+  background-attachment: fixed;
   color: var(--text);
   display: flex;
   flex-direction: column;
@@ -81,8 +115,8 @@ body::before {
   pointer-events: none;
   background: repeating-linear-gradient(
     180deg,
-    rgba(34, 211, 238, 0.035) 0px,
-    rgba(34, 211, 238, 0.035) 1px,
+    rgba(var(--az-rgb), 0.020) 0px,
+    rgba(var(--az-rgb), 0.020) 1px,
     transparent 1px,
     transparent 3px
   );
@@ -101,8 +135,8 @@ body::before {
   width: 260px;
   max-width: 82vw;
   background:
-    linear-gradient(180deg, rgba(34, 211, 238, 0.10), transparent 40%),
-    rgba(4, 20, 27, 0.82);
+    linear-gradient(180deg, rgba(var(--az-rgb), 0.10), transparent 40%),
+    rgba(var(--ink-rgb), 0.82);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   border-right: 1px solid var(--border-strong);
@@ -113,7 +147,7 @@ body::before {
   transform: translateX(-100%);
   transition: transform 0.22s ease;
   z-index: 170;
-  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.5), 1px 0 14px rgba(34, 211, 238, 0.20);
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.5), 1px 0 14px rgba(var(--az-rgb), 0.20);
 }
 .sidebar.open { transform: translateX(0); }
 
@@ -124,7 +158,7 @@ body::before {
   color: var(--text);
   letter-spacing: 0.15em;
   padding: 0 22px 4px;
-  text-shadow: 0 0 10px rgba(34, 211, 238, 0.45);
+  text-shadow: 0 0 10px rgba(var(--az-rgb), 0.45);
   border-bottom: 1px dashed var(--border);
   margin: 0 16px 0;
   padding-left: 6px;
@@ -163,14 +197,14 @@ nav {
 
 .nav-item:hover {
   color: var(--orange-bright);
-  background: rgba(34, 211, 238, 0.06);
+  background: rgba(var(--az-rgb), 0.06);
 }
 
 .nav-item.active {
   color: var(--text);
-  background: rgba(34, 211, 238, 0.10);
+  background: rgba(var(--az-rgb), 0.10);
   border-left-color: var(--teal);
-  text-shadow: 0 0 8px rgba(34, 211, 238, 0.4);
+  text-shadow: 0 0 8px rgba(var(--az-rgb), 0.4);
 }
 
 .sidebar-footer {
@@ -238,11 +272,11 @@ main {
 
 .page-header h1 {
   font-family: 'Orbitron', sans-serif;
-  font-weight: 700;
-  font-size: 24px;
-  letter-spacing: 0.3em;
-  color: var(--orange);
-  text-shadow: 0 0 12px rgba(34, 211, 238, 0.35);
+  font-weight: 600;
+  font-size: 20px;
+  letter-spacing: 0.28em;
+  color: var(--az);
+  text-shadow: 0 0 10px rgba(var(--az-rgb), 0.28);
   display: flex;
   align-items: center;
   gap: 14px;
@@ -273,11 +307,11 @@ main {
   padding: 24px 26px;
   margin-bottom: 20px;
   position: relative;
-  box-shadow: var(--glow-sm), inset 0 0 24px rgba(34, 211, 238, 0.05);
+  box-shadow: var(--glow-sm), inset 0 0 30px rgba(var(--az-rgb), 0.045);
   background-image: repeating-linear-gradient(
     0deg,
-    rgba(34, 211, 238, 0.025) 0px,
-    rgba(34, 211, 238, 0.025) 1px,
+    rgba(var(--az-rgb), 0.025) 0px,
+    rgba(var(--az-rgb), 0.025) 1px,
     transparent 1px,
     transparent 4px
   );
@@ -294,23 +328,23 @@ main {
 }
 .panel::before {
   top: -1px; left: -1px;
-  border-top: 2px solid var(--cy);
-  border-left: 2px solid var(--cy);
-  filter: drop-shadow(0 0 5px var(--cy));
+  border-top: 2px solid var(--az);
+  border-left: 2px solid var(--az);
+  filter: drop-shadow(0 0 3px rgba(var(--az-rgb), 0.45));
 }
 .panel::after {
   bottom: -1px; right: -1px;
-  border-bottom: 2px solid var(--cy);
-  border-right: 2px solid var(--cy);
-  filter: drop-shadow(0 0 5px var(--cy));
+  border-bottom: 2px solid var(--az);
+  border-right: 2px solid var(--az);
+  filter: drop-shadow(0 0 3px rgba(var(--az-rgb), 0.45));
 }
 
 .panel h2 {
   font-family: 'Orbitron', sans-serif;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.3em;
-  color: var(--orange);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.34em;
+  color: var(--az);
   margin-bottom: 16px;
   padding-left: 14px;
   position: relative;
@@ -371,17 +405,17 @@ main {
 
 .pulse.online {
   opacity: 1;
-  filter: drop-shadow(0 0 6px rgba(34, 211, 238, 0.6));
+  filter: drop-shadow(0 0 6px rgba(var(--az-rgb), 0.6));
 }
 .pulse.online::after {
   animation: pulse-glow 2.4s ease-out infinite;
-  box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.55);
+  box-shadow: 0 0 0 0 rgba(var(--az-rgb), 0.55);
 }
 
 @keyframes pulse-glow {
-  0%   { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.55); }
-  70%  { box-shadow: 0 0 0 22px rgba(34, 211, 238, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0); }
+  0%   { box-shadow: 0 0 0 0 rgba(var(--az-rgb), 0.55); }
+  70%  { box-shadow: 0 0 0 22px rgba(var(--az-rgb), 0); }
+  100% { box-shadow: 0 0 0 0 rgba(var(--az-rgb), 0); }
 }
 
 .pulse.paused { opacity: 0.55; }
@@ -401,10 +435,10 @@ main {
   font-size: 42px;
   letter-spacing: 0.32em;
   color: var(--orange);
-  text-shadow: 0 0 16px rgba(34, 211, 238, 0.55);
+  text-shadow: 0 0 16px rgba(var(--az-rgb), 0.55);
 }
 
-.hero-text.paused { color: var(--orange-soft); text-shadow: 0 0 8px rgba(165, 243, 252, 0.3); }
+.hero-text.paused { color: var(--orange-soft); text-shadow: 0 0 8px rgba(var(--az-soft-rgb), 0.3); }
 .hero-text.offline { color: #888; text-shadow: none; }
 
 .hero-actions {
@@ -488,7 +522,7 @@ main {
 .input:hover { border-color: var(--border-strong); }
 .input:focus {
   border-color: var(--orange);
-  box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.25);
+  box-shadow: 0 0 0 2px rgba(var(--az-rgb), 0.25);
 }
 
 .input.small { width: auto; padding: 6px 10px; }
@@ -542,23 +576,23 @@ select.input {
 
 .btn-primary {
   background: var(--cy);
-  color: #032027;
+  color: var(--ink-deep);
   border-color: var(--cy);
   box-shadow: var(--glow-sm);
 }
 .btn-primary:hover {
   background: var(--cy-bright);
   border-color: var(--cy-bright);
-  box-shadow: 0 0 16px rgba(34, 211, 238, 0.55);
+  box-shadow: 0 0 16px rgba(var(--az-rgb), 0.55);
 }
 
 .btn-outline {
-  background: rgba(34, 211, 238, 0.05);
+  background: rgba(var(--az-rgb), 0.05);
   color: var(--cy-bright);
   border-color: var(--border-strong);
   box-shadow: var(--glow-sm);
 }
-.btn-outline:hover { background: rgba(34, 211, 238, 0.14); border-color: var(--cy); }
+.btn-outline:hover { background: rgba(var(--az-rgb), 0.14); border-color: var(--cy); }
 
 .btn-teal {
   background: var(--teal);
@@ -602,7 +636,7 @@ select.input {
   color: var(--bg);
 }
 
-.segmented button:not(.active):hover { background: rgba(34, 211, 238, 0.1); }
+.segmented button:not(.active):hover { background: rgba(var(--az-rgb), 0.1); }
 
 /* ── Toggle switch ─────────────────────────────────────────────────────── */
 
@@ -619,7 +653,7 @@ select.input {
   position: absolute;
   cursor: pointer;
   inset: 0;
-  background: #341500;
+  background: rgba(var(--ink-rgb), 0.85);
   border: 1px solid var(--border-strong);
   border-radius: 24px;
   transition: 0.2s;
@@ -670,7 +704,7 @@ select.input {
   border-radius: 50%;
   background: var(--orange);
   margin-top: -6px;
-  box-shadow: 0 0 6px rgba(34, 211, 238, 0.5);
+  box-shadow: 0 0 6px rgba(var(--az-rgb), 0.5);
   cursor: pointer;
 }
 
@@ -695,7 +729,7 @@ select.input {
 .preset-card:hover { border-color: var(--border-strong); }
 .preset-card.active {
   border-color: var(--orange);
-  box-shadow: 0 0 0 1px var(--orange) inset, 0 0 12px rgba(34, 211, 238, 0.2);
+  box-shadow: 0 0 0 1px var(--orange) inset, 0 0 12px rgba(var(--az-rgb), 0.2);
 }
 
 .preset-title {
@@ -832,7 +866,7 @@ select.input {
   transition: all 0.15s;
 }
 
-.icon-btn:hover { background: rgba(34, 211, 238, 0.1); border-color: var(--orange); }
+.icon-btn:hover { background: rgba(var(--az-rgb), 0.1); border-color: var(--orange); }
 
 /* ── Wake schedule page ────────────────────────────────────────────────── */
 
@@ -1152,10 +1186,10 @@ select.input {
   align-items: center;
   gap: 12px;
   padding: 9px 6px;
-  border-bottom: 1px solid rgba(34, 211, 238, 0.12);
+  border-bottom: 1px solid rgba(var(--az-rgb), 0.12);
 }
 .feed-row.expandable { cursor: pointer; }
-.feed-row.expandable:hover { background: rgba(34, 211, 238, 0.05); }
+.feed-row.expandable:hover { background: rgba(var(--az-rgb), 0.05); }
 .feed-time { color: var(--muted-2); font-size: 12px; }
 .feed-kind {
   font-family: 'JetBrains Mono', monospace;
@@ -1219,7 +1253,7 @@ select.input {
   align-items: center;
   gap: 12px;
   padding: 6px 4px;
-  border-bottom: 1px solid rgba(34, 211, 238, 0.1);
+  border-bottom: 1px solid rgba(var(--az-rgb), 0.1);
 }
 .wn-time { color: var(--orange-soft); font-size: 13px; min-width: 64px; }
 .wn-title { flex: 1; }
@@ -1378,8 +1412,8 @@ select.input {
 .hud-flank { position: relative; }
 
 .hud-flank > .panel {
-  border-color: rgba(34, 211, 238, 0.14);
-  box-shadow: inset 0 0 30px rgba(34, 211, 238, 0.05);
+  border-color: rgba(var(--az-rgb), 0.14);
+  box-shadow: inset 0 0 30px rgba(var(--az-rgb), 0.05);
   /* Square, because the brackets are square. A 4px radius under a hard 2px L
      leaves a hairline of border curving out from under each mark, which is
      exactly the "not quite seated" look this is fixing. */
@@ -1409,7 +1443,7 @@ select.input {
     linear-gradient(var(--cy), var(--cy)) right top / 20px 2px no-repeat,
     linear-gradient(var(--cy), var(--cy)) left  top / 2px 20px no-repeat,
     linear-gradient(var(--cy), var(--cy)) right top / 2px 20px no-repeat;
-  filter: drop-shadow(0 0 6px rgba(34, 211, 238, 0.7));
+  filter: drop-shadow(0 0 4px rgba(var(--az-rgb), 0.42));
 }
 .hud-flank > .panel::before { top: -1px; bottom: auto; }
 .hud-flank > .panel::after {
@@ -1471,7 +1505,7 @@ select.input {
   border: 1.5px solid var(--cy);
   opacity: 0;
   animation: hub-ripple 3.6s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
-  box-shadow: 0 0 14px rgba(34, 211, 238, 0.35);
+  box-shadow: 0 0 14px rgba(var(--az-rgb), 0.35);
 }
 
 /* Staggered by a fifth of the cycle each, so the five rings read as one
@@ -1496,8 +1530,8 @@ select.input {
   letter-spacing: 0.06em;
   color: var(--cy-soft);
   text-shadow:
-    0 0 10px rgba(34, 211, 238, 0.85),
-    0 0 34px rgba(34, 211, 238, 0.45);
+    0 0 10px rgba(var(--az-rgb), 0.85),
+    0 0 34px rgba(var(--az-rgb), 0.45);
   white-space: nowrap;
   /* The rings pass behind the middle of the word. Without a ground behind the
      glyphs a ring crosses the letterforms and the name stops being readable
@@ -1505,7 +1539,7 @@ select.input {
      fill: the page is lightest at exactly this point, so an opaque patch here
      reads as a dark rectangle sitting behind the name. */
   padding: 6px 18px;
-  background: radial-gradient(ellipse at 50% 50%, rgba(4, 20, 27, 0.88) 40%, transparent 76%);
+  background: radial-gradient(ellipse at 50% 50%, rgba(var(--ink-rgb), 0.88) 40%, transparent 76%);
 }
 
 /* The ripple is decoration and it never stops. Anyone who has asked the OS
@@ -1571,7 +1605,7 @@ select.input {
 
 .chat-friday .chat-bubble {
   border-left: 2px solid var(--cy);
-  box-shadow: -1px 0 10px rgba(34, 211, 238, 0.45);
+  box-shadow: -1px 0 10px rgba(var(--az-rgb), 0.45);
   padding-left: 12px;
   color: var(--cy-soft);
 }
@@ -1625,14 +1659,14 @@ select.input {
   border-bottom: 1px solid var(--border-strong);
   border-radius: 0;
   padding: 10px 2px;
-  box-shadow: 0 1px 8px -4px rgba(34, 211, 238, 0.9);
+  box-shadow: 0 1px 8px -4px rgba(var(--az-rgb), 0.9);
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 .chat-composer .input:hover { border-bottom-color: var(--cy); }
 .chat-composer .input:focus {
   outline: none;
   border-bottom-color: var(--cy-bright);
-  box-shadow: 0 2px 12px -3px rgba(34, 211, 238, 1);
+  box-shadow: 0 2px 12px -3px rgba(var(--az-rgb), 1);
 }
 
 .chat-composer .btn { flex: 0 0 auto; }
@@ -2039,7 +2073,7 @@ select.input {
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   border-bottom: 1px solid var(--border-strong);
-  box-shadow: 0 1px 10px rgba(34, 211, 238, 0.16);
+  box-shadow: 0 1px 10px rgba(var(--az-rgb), 0.16);
   /* Fades the strip at both edges so an item is never seen being cut off
      mid-character — it reads as scrolling past the edge of the screen
      rather than being clipped by one. */
@@ -2154,8 +2188,8 @@ select.input {
   overflow: hidden;
   background-image: repeating-linear-gradient(
     0deg,
-    rgba(34, 211, 238, 0.025) 0px,
-    rgba(34, 211, 238, 0.025) 1px,
+    rgba(var(--az-rgb), 0.025) 0px,
+    rgba(var(--az-rgb), 0.025) 1px,
     transparent 1px,
     transparent 4px
   );
@@ -2397,11 +2431,11 @@ select.input {
   height: 52px;
   padding: 0 14px;
   padding-top: env(safe-area-inset-top);
-  background: rgba(4, 20, 27, 0.55);
+  background: rgba(var(--ink-rgb), 0.55);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   border-bottom: 1px solid var(--border);
-  box-shadow: 0 1px 12px rgba(34, 211, 238, 0.18);
+  box-shadow: 0 1px 10px rgba(var(--ink-rgb), 0.55);
   z-index: 150;
 }
 
@@ -2432,11 +2466,11 @@ select.input {
   padding: 0;
   cursor: pointer;
   font-family: 'Orbitron', sans-serif;
-  font-weight: 900;
-  font-size: 15px;
-  letter-spacing: 0.15em;
-  color: var(--text);
-  text-shadow: 0 0 10px rgba(34, 211, 238, 0.45);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.26em;
+  color: var(--text-2);
+  text-shadow: 0 0 8px rgba(var(--az-rgb), 0.28);
 }
 
 /* Dims the page behind the open drawer and gives it something to tap to
