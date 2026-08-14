@@ -2728,7 +2728,13 @@ async function startChat() {
     if (hint) hint.remove();
     chatSend(text);
   });
-  input.focus();
+  // preventScroll matters below the 1000px breakpoint, where the page is an
+  // ordinary scrolling document again and the composer sits ~1000px down:
+  // a plain focus() scrolls it into view, so a phone opened the dashboard
+  // and landed mid-transcript with the wordmark and the ticker already
+  // above the fold. The caret still lands in the box; the page just does
+  // not move to meet it.
+  input.focus({ preventScroll: true });
 }
 
 // ── Boot ───────────────────────────────────────────────────────────────

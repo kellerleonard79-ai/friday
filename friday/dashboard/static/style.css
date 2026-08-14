@@ -1457,11 +1457,21 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
   flex-direction: column;
 }
 
-/* A stretched panel with three lines in it should not read as broken. The
-   heading stays at the top and the body takes the rest, so short content
-   sits under its label rather than being spread down the card. */
-.hud-flank > .panel > h2 { flex: 0 0 auto; }
-.hud-flank > .panel > div:last-child { flex: 1 1 auto; min-height: 0; }
+/* A stretched panel with three lines in it should not read as broken.
+   Content stacks from the top under its heading, and the card's own footer
+   row — the refresh and period controls — is pushed to the bottom edge, so
+   the empty height reads as a HUD panel with room in it rather than as
+   content that failed to load in the middle. */
+.hud-flank > .panel > * { flex: 0 0 auto; }
+.hud-flank > .panel > .pc-nav { margin-top: auto; }
+
+/* The one genuinely unbounded list on a flank. It takes the slack and
+   scrolls inside itself; everything above and below it stays put. */
+#todo-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
 
 /* The to-do list has no producer yet (step 8). An empty box under a heading
    reads as a failed fetch, so it says so itself and centres in whatever
@@ -1490,7 +1500,17 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
    `hidden`, so a frame owned by the wrapper would either float around empty
    space or, when both are hidden, collapse into a single stack of marks with
    nothing inside it. Per-panel, every frame has an instrument in it. */
-.hud-flank { position: relative; }
+/* Spacing between the two flank panels comes from `gap`, not from the
+   panels' own margin-bottom. #pending-panel is hidden most of the time via a
+   display:none class rather than being removed, so it is still the last
+   child — which meant `.panel:last-child { margin-bottom: 0 }` never matched
+   the period card and left 20px of dead space under it. A gap is not paid
+   for by a display:none item at all. */
+.hud-flank {
+  position: relative;
+  gap: 20px;
+}
+.hud-flank > .panel { margin-bottom: 0; }
 
 .hud-flank > .panel {
   border-color: rgba(var(--az-rgb), 0.12);
@@ -1502,46 +1522,48 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
 }
 .hud-flank > .panel:last-child { margin-bottom: 0; }
 
-/* Overrides the two 12px L-marks .panel draws at its TL and BR corners: this
-   is a different construction (one pseudo-element per EDGE, drawing both of
-   that edge's corners), so width, height and the borders all have to be
-   reset rather than adjusted.
+/* The brackets are painted as BACKGROUND LAYERS on the panel rather than as
+   pseudo-elements inside it, and that is the whole reason they survive the
+   panel becoming a scroll container. An absolutely-positioned child of a
+   scroller is placed against the padding box and scrolls away with the
+   content, stranding the bottom pair mid-list; `position: sticky` does not
+   fix it either, because on a sticky box `left`/`right` are OFFSETS, not
+   insets — they shift the element by a pixel instead of stretching it to the
+   panel's edges, which is exactly what put every bracket a padding-width in
+   from the corner. A background is painted against the element's own box and
+   does not scroll at all.
 
-   `position: sticky` rather than absolute: the panel is a scroll container
-   now, and an absolutely-positioned bracket scrolls away with the content,
-   which strands the bottom pair somewhere in the middle of a long list. */
+   Eight layers: two arms per corner, four corners. `border-box` origin so
+   each mark sits ON the panel's own hairline border rather than a padding
+   width inside it. The stock .panel::before/::after L-marks are switched off
+   below — this construction replaces them, it does not add to them. */
+.hud-flank > .panel {
+  background-image:
+    linear-gradient(var(--az), var(--az)),
+    linear-gradient(var(--az), var(--az)),
+    linear-gradient(var(--az), var(--az)),
+    linear-gradient(var(--az), var(--az)),
+    linear-gradient(var(--az), var(--az)),
+    linear-gradient(var(--az), var(--az)),
+    linear-gradient(var(--az), var(--az)),
+    linear-gradient(var(--az), var(--az));
+  background-repeat: no-repeat;
+  background-origin: border-box;
+  background-clip: border-box;
+  background-size:
+    20px 2px, 2px 20px,     /* top-left:     arm across, arm down   */
+    20px 2px, 2px 20px,     /* top-right                            */
+    20px 2px, 2px 20px,     /* bottom-left                          */
+    20px 2px, 2px 20px;     /* bottom-right                         */
+  background-position:
+    left top,     left top,
+    right top,    right top,
+    left bottom,  left bottom,
+    right bottom, right bottom;
+}
+
 .hud-flank > .panel::before,
-.hud-flank > .panel::after {
-  position: sticky;
-  /* -1px on every side, so the 2px mark sits ON the panel's own 1px border
-     and the bracket reads as that corner rather than as a separate object
-     floating near it. Same offset .panel's stock TL/BR marks already use. */
-  left: -1px;
-  right: -1px;
-  width: auto;
-  height: 20px;
-  border: none;
-  flex: 0 0 auto;
-  /* One element draws both corners of one edge: a left-hand L from layers 1
-     and 3, a right-hand L from layers 2 and 4, and nothing in between. Two
-     pseudo-elements, four brackets, no extra markup. */
-  background:
-    linear-gradient(var(--az), var(--az)) left  top / 20px 2px no-repeat,
-    linear-gradient(var(--az), var(--az)) right top / 20px 2px no-repeat,
-    linear-gradient(var(--az), var(--az)) left  top / 2px 20px no-repeat,
-    linear-gradient(var(--az), var(--az)) right top / 2px 20px no-repeat;
-  filter: drop-shadow(0 0 4px rgba(var(--az-rgb), 0.42));
-}
-.hud-flank > .panel::before {
-  top: -1px; bottom: auto;
-  margin: -1px -1px calc(-20px + 1px);   /* out of flow, visually */
-}
-.hud-flank > .panel::after {
-  bottom: -1px;
-  top: auto;
-  margin: calc(-20px + 1px) -1px -1px;
-  background-position: left bottom, right bottom, left bottom, right bottom;
-}
+.hud-flank > .panel::after { content: none; }
 
 /* ── Narrow ────────────────────────────────────────────────────────────────
    Below 1000px the fixed-height stage stops being an asset: three columns in
@@ -1567,13 +1589,11 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
   .home-side   { grid-area: side; }
   .home-todo   { grid-area: todo; }
 
-  .hud-flank > .panel { overflow-y: visible; }
-  .hud-flank > .panel::before,
-  .hud-flank > .panel::after { position: absolute; margin: 0; }
-  .hud-flank > .panel::before { top: -1px; }
-  .hud-flank > .panel::after { bottom: -1px; }
+  /* Panels size to their content again, so nothing needs to scroll inside
+     one. The brackets are background layers and follow the box either way. */
+  .hud-flank > .panel { overflow: visible; flex: 0 0 auto; }
+  #todo-list { overflow: visible; }
 
-  .home-chat-panel { height: 62vh; min-height: 340px; }
   .hud-status { margin-top: 22px; }
 }
 
@@ -1583,7 +1603,6 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
     grid-template-areas: "center" "side" "todo";
     gap: 22px;
   }
-  .home-chat-panel { height: 66vh; min-height: 300px; }
 }
 
 /* ── The hub ───────────────────────────────────────────────────────────────
@@ -1800,6 +1819,23 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
    the transcript. */
 .chat-composer { flex: 0 0 auto; }
 
+/* Below the breakpoint there is no 1fr row to fill, so the transcript needs a
+   height of its own or it grows to the length of the whole conversation and
+   takes the page with it.
+
+   These live HERE, after the rule they override, and not in the layout
+   block with the rest of the responsive work — a media query contributes no
+   specificity, so two `.home-chat-panel` rules are decided purely by source
+   order. The first version of this sat above the base rule and lost to it
+   without a warning anywhere. */
+@media (max-width: 1000px) {
+  .home-chat-panel { height: 62vh; min-height: 340px; }
+}
+
+@media (max-width: 700px) {
+  .home-chat-panel { height: 66vh; min-height: 300px; }
+}
+
 .chat-log {
   flex: 1;
   min-height: 0;
@@ -1807,12 +1843,6 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
   padding-right: 6px;
   display: flex;
   flex-direction: column;
-  /* Fills from the BOTTOM. Two things fall out of this and both matter in a
-     full-height column: a three-line transcript sits just above the composer
-     where the eye already is, instead of stranded at the top of a 900px box;
-     and the top fade below never touches the first message until there is
-     actually something scrolled off above it. */
-  justify-content: flex-end;
   gap: 18px;
   /* The transcript recedes rather than being cut off. A hard edge at the top
      of a scroll area reads as a clipping bug; a fade reads as depth, and it
@@ -1820,6 +1850,21 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
   -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 56px, #000 100%);
   mask-image: linear-gradient(to bottom, transparent 0, #000 56px, #000 100%);
 }
+
+/* Fills from the BOTTOM, so a three-line conversation sits just above the
+   composer where the eye already is rather than stranded at the top of a
+   900px box — and the top fade never touches the first message until there
+   is actually something scrolled off above it.
+
+   `margin-top: auto` on the first child, NOT `justify-content: flex-end` on
+   the container. They look identical until the transcript overflows: with
+   flex-end, the overflow goes off the START edge, which is not part of the
+   scrollable overflow region — measured, a 3,800px transcript reported
+   `scrollHeight` 760 against a 745px box and the history above simply could
+   not be scrolled to. An auto margin resolves to zero the moment there is no
+   free space, so a full transcript scrolls normally and a short one still
+   sits at the bottom. */
+.chat-log > *:first-child { margin-top: auto; }
 
 .chat-line {
   position: relative;
@@ -2382,8 +2427,8 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
   /* Fades the strip at both edges so an item is never seen being cut off
      mid-character — it reads as scrolling past the edge of the screen
      rather than being clipped by one. */
-  mask-image: linear-gradient(to right, transparent, black 48px, black calc(100% - 48px), transparent);
-  -webkit-mask-image: linear-gradient(to right, transparent, black 48px, black calc(100% - 48px), transparent);
+  mask-image: linear-gradient(to right, transparent, black 48px, black calc(100% - 172px), transparent);
+  -webkit-mask-image: linear-gradient(to right, transparent, black 48px, black calc(100% - 172px), transparent);
 }
 
 .ticker-track {
@@ -2477,7 +2522,7 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
    never a frame with neither visible. */
 .wx-widget {
   position: fixed;
-  top: calc(52px + env(safe-area-inset-top) + 10px);
+  top: calc(52px + env(safe-area-inset-top) + 2px);
   right: 12px;
   z-index: 45;
   display: grid;
