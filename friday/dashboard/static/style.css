@@ -59,6 +59,13 @@
   --teal: var(--az2);
   --teal-dim: rgba(var(--az2-rgb), 0.55);
 
+  /* Semantic, not decorative: these two say good/bad and must not track the
+     accent hue when it changes. --danger-rgb is the same colour as --danger,
+     restated as a triplet so a glow can pick its own alpha. */
+  --ok: #00B5A3;
+  --ok-rgb: 0, 181, 163;
+  --danger-rgb: 255, 92, 122;
+
   --text: #E9F4FF;
   --text-2: #C4DCF2;
   --muted: #86B9DE;
@@ -501,7 +508,7 @@ main {
   font-size: 24px;
   font-weight: 500;
   color: var(--text);
-  text-shadow: 0 0 12px rgba(103, 232, 249, 0.3);
+  text-shadow: 0 0 12px rgba(var(--az-rgb), 0.3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1062,7 +1069,7 @@ select.input {
 .modal-backdrop.hidden { display: none; }
 
 .modal {
-  background: rgba(6, 32, 42, 0.88);
+  background: rgba(var(--ink-rgb), 0.9);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--border-strong);
@@ -1128,7 +1135,7 @@ select.input {
   transform: translateY(-8px);
   z-index: 200;
   pointer-events: none;
-  box-shadow: 0 0 12px rgba(0, 181, 163, 0.4);
+  box-shadow: 0 0 12px rgba(var(--ok-rgb), 0.4);
 }
 
 #saved-flash.show {
@@ -1138,7 +1145,7 @@ select.input {
 
 #saved-flash.error {
   background: var(--danger);
-  box-shadow: 0 0 12px rgba(255, 59, 48, 0.4);
+  box-shadow: 0 0 12px rgba(var(--danger-rgb), 0.4);
 }
 
 /* ── Misc ──────────────────────────────────────────────────────────────── */
@@ -2361,7 +2368,7 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
   margin-bottom: 14px;
   border: 1px solid var(--teal-dim);
   border-radius: 5px;
-  background: rgba(0, 181, 163, 0.07);
+  background: rgba(var(--ok-rgb), 0.07);
 }
 
 .pc-free-n {
@@ -2377,7 +2384,7 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
    the one worth interrupting for. */
 .pc-free.over {
   border-color: var(--danger);
-  background: rgba(255, 59, 48, 0.09);
+  background: rgba(var(--danger-rgb), 0.09);
 }
 
 .pc-free.over .pc-free-n { color: var(--danger); }
