@@ -224,6 +224,15 @@ def _migrate_config(cfg: dict) -> dict:
     ws.setdefault("wake_days_ahead", 3)
     ws.setdefault("derived_overrides", {})
     ws.setdefault("custom_blocks", [])
+    # Briefing wakes default ON while the block schedule above defaults OFF,
+    # and the asymmetry is deliberate: waking for a briefing is the reason
+    # this feature exists, and it is self-limiting (two wakes a day, each
+    # released the moment the briefing sends). Holding the machine awake
+    # through every passing period is the speculative half and the one that
+    # costs battery, so it stays opt-in.
+    ws.setdefault("briefing_wakes", True)
+    ws.setdefault("briefing_lead_minutes", ws.get("lead_minutes", 2))
+    ws.setdefault("briefing_hold_grace_minutes", 10)
 
     gm = cfg.get("groupme") or {}
     groups = gm.get("groups") or []
@@ -1625,6 +1634,7 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
         cfg = _load_config(config_path)
         now = datetime.now()
         hold = power.active_hold(cfg, conn, now)
+        next_wake = power.next_scheduled_wake_detail(cfg, conn, now)
         return {
             "enabled": bool((cfg.get("wake_schedule") or {}).get("enabled", False)),
             "active": hold["active"],
@@ -1632,10 +1642,21 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
             "block": hold.get("block"),
             "manual": power.manual_hold_status(conn, now),
             "battery": power.battery_status(),
-            "next_wake": power.next_scheduled_wake(conn, now),
+            "next_wake": next_wake["at"] if next_wake else None,
+            # What that wake is for, when it can be matched to a producer.
+            # Separate from next_wake so a label that cannot be resolved
+            # leaves the timestamp intact rather than hiding it.
+            "next_wake_label": next_wake["label"] if next_wake else None,
+            "briefing_wakes": power.briefing_wakes_enabled(cfg),
+            "briefings_today": power.briefing_wake_times(cfg, now.date(), conn),
             "blocks_today": power.combined_blocks(cfg, now.date()),
             "blocks_tomorrow": power.combined_blocks(cfg, now.date() + timedelta(days=1)),
             "sudoers_line": power.sudoers_line(),
+            # Per-half, because on this machine they genuinely differ: the
+            # installed rule grants `pmset schedule *` but not
+            # `pmset -a disablesleep`, so wakes work and the hold does not.
+            # A flat "sudo is broken" would be wrong in both directions.
+            "sudo_capabilities": power.sudo_capabilities(),
             # Best-effort only — see read_disablesleep()'s docstring on why
             # this is informational and never what reconcile() acts on.
             "disablesleep_reported": power.read_disablesleep(),

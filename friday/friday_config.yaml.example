@@ -275,3 +275,69 @@ stocks:
     - GOOGL
     - TSLA
     - SPY
+
+# ── Wake schedule ────────────────────────────────────────────────────────────
+# Scheduling the Mac awake so it is not asleep when Friday has something to do.
+# macOS makes this two separate mechanisms, and they need two separate sudoers
+# permissions — see the ONE-TIME SETUP panel on the dashboard's Wake Schedule
+# page for the exact line, which Friday reports but never installs:
+#
+#   waking a sleeping Mac   →  pmset schedule wakeorpoweron / cancel
+#   holding it awake        →  pmset -a disablesleep 0 / 1
+#
+# THEY FAIL INDEPENDENTLY. Granting only the first is a real and useful state:
+# scheduled wakes fire, the machine comes up, and it sleeps again on its own
+# idle timer instead of being held. The dashboard reports the two halves
+# separately for that reason.
+wake_schedule:
+
+  # ── Briefing wakes: the primary use, on by default ──
+  # For each scheduled briefing time (agent.morning_briefing_time and
+  # agent.briefing_time), wake the machine a few minutes early. The hold is
+  # released the moment the briefing actually sends — Friday reads the same
+  # `last_<slot>_briefing_sent` flag the missed-briefing catch-up net reads,
+  # so there is one source of truth and the Mac goes straight back to sleep
+  # rather than staying up for a fixed window.
+  #
+  # A briefing delivered by one of these wakes will NOT also fire as a
+  # catch-up when the lid is opened later: the on-time run claims that same
+  # flag before it starts composing, and catch-up skips any slot already
+  # marked sent for today.
+  briefing_wakes: true
+  briefing_lead_minutes: 2
+
+  # How long to keep holding if the briefing never sends (Telegram down, a
+  # compose that throws). The hold normally ends when it sends; this is the
+  # upper bound so a failed briefing cannot hold the machine awake all day.
+  briefing_hold_grace_minutes: 10
+
+  # ── Passing-period blocks: opt-in, off by default ──
+  # Keeps the Mac reachable with the lid shut during the gaps between class
+  # periods, derived from the `schedule:` block above. Off by default because
+  # it is the half that costs real battery — seven holds a day rather than
+  # two. Turning it off does not affect briefing wakes.
+  enabled: false
+
+  # Wake this many minutes before a block starts, so the hold is already in
+  # effect by the time the machine is up.
+  lead_minutes: 2
+
+  # A gap longer than this is lunch or a free period, not a passing period.
+  max_passing_minutes: 15
+
+  # pmset has no repeating multi-event schedule, so wakes are materialized as
+  # one-off entries by a daily job. This is how far ahead it works.
+  wake_days_ahead: 3
+
+  # Per-derived-block opt-outs, keyed "HH:MM-HH:MM" (the block's own start and
+  # end). Read-only on the dashboard — the blocks follow the bell schedule.
+  derived_overrides: {}
+
+  # Anything beyond the derived passing periods. `weekdays` is a list of
+  # Python weekday numbers (Monday=0); null or absent means every day.
+  #   - label: After school
+  #     start: '15:05'
+  #     end: '15:20'
+  #     enabled: true
+  #     weekdays: [0, 1, 2, 3, 4]
+  custom_blocks: []

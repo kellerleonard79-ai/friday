@@ -22,7 +22,16 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import power                                                      # noqa: E402
 import schedule                                                   # noqa: E402
+import memory.state as state                                      # noqa: E402
 from memory.db import Database                                    # noqa: E402
+
+
+def _briefing_stamps(c, now):
+    """The briefing half of _desired_stamps, for asserting the block half is
+    empty without hardcoding timestamps that move with the config."""
+    return power._desired_stamps(
+        {**c, "schedule": {}, "wake_schedule": {**(c.get("wake_schedule") or {}),
+                                               "custom_blocks": []}}, now)
 
 failures = []
 
@@ -100,12 +109,62 @@ check("inside a block's [wake_at, end) is active",
 check("before wake_at is not active",
       power.active_hold(c_on, conn2, outside)["active"] is False)
 
-print("\n-- materialize_wakes: master off collapses desired to nothing --")
+print("\n-- materialize_wakes: master off collapses BLOCK wakes to nothing --")
+# The master switch governs the passing-period block schedule only. Briefing
+# wakes are the primary use and have their own switch, so this asserts the
+# block half is empty rather than the whole set — turning the speculative
+# feature off must not stop the machine waking for its briefings.
 conn3 = fresh_conn()
 c_disabled = cfg(enabled=False)
-desired = power._desired_stamps(c_disabled, datetime(2026, 8, 13, 7, 0))
-check("desired stamps are empty when the master switch is off",
-      desired == set())
+start3 = datetime(2026, 8, 13, 7, 0)
+desired = power._desired_stamps(c_disabled, start3)
+briefing_only = power._desired_stamps(
+    {**c_disabled, "wake_schedule": {**c_disabled["wake_schedule"],
+                                    "briefing_wakes": False}}, start3)
+check("no wakes at all when both switches are off", briefing_only == set())
+check("block-derived stamps are gone when the master switch is off",
+      desired == _briefing_stamps(c_disabled, start3))
+check("briefing wakes survive the master switch being off", len(desired) > 0)
+
+
+print("\n-- briefing wakes: the hold releases the moment the briefing sends --")
+conn_b = fresh_conn()
+c_b = {"agent": {"morning_briefing_time": "07:00", "briefing_time": "20:00"},
+      "schedule": schedule.DEFAULT_SCHEDULE, "wake_schedule": {"enabled": False}}
+day = date(2026, 8, 13)
+slots = power.briefing_wake_times(c_b, day)
+check("one wake per briefing slot, defaulting to 2 minutes early",
+      [(b["slot"], b["at"], b["wake_at"]) for b in slots]
+      == [("morning", "07:00", "06:58"), ("evening", "20:00", "19:58")])
+check("the lead window holds, even with the master switch off",
+      power.active_hold(c_b, conn_b, datetime(2026, 8, 13, 6, 58))["reason"]
+      == "briefing:morning")
+check("still holding after the due time while the briefing has not sent",
+      power.active_hold(c_b, conn_b, datetime(2026, 8, 13, 7, 5))["reason"]
+      == "briefing:morning")
+state.set(conn_b, "last_morning_briefing_sent", day.isoformat())
+check("the hold releases the instant the briefing's own lock is set "
+     "(the same key the catch-up net reads — one source of truth)",
+      power.active_hold(c_b, conn_b, datetime(2026, 8, 13, 6, 58))["active"]
+      is False)
+check("the grace window bounds a briefing that never sends",
+      power.active_hold(c_b, conn_b, datetime(2026, 8, 13, 19, 58))["reason"]
+      == "briefing:evening"
+      and power.active_hold(c_b, conn_b,
+                            datetime(2026, 8, 13, 20, 11))["active"] is False)
+check("briefing_wakes=False turns them off entirely",
+      power.active_hold({**c_b, "wake_schedule": {"briefing_wakes": False}},
+                        conn_b, datetime(2026, 8, 13, 19, 58))["active"] is False)
+
+print("\n-- briefing wakes: a one-shot override moves that day's wake --")
+conn_o = fresh_conn()
+state.set(conn_o, "evening_briefing_override", "2026-08-13T21:30:00")
+check("the override replaces the configured time for the day it names",
+      [b["at"] for b in power.briefing_wake_times(c_b, day, conn_o)]
+      == ["07:00", "21:30"])
+check("and leaves other days alone",
+      [b["at"] for b in power.briefing_wake_times(c_b, date(2026, 8, 14), conn_o)]
+      == ["07:00", "20:00"])
 
 print("\n-- materialize_wakes: idempotent on a second run with no config change --")
 conn4 = fresh_conn()

@@ -40,7 +40,8 @@
   --panel-2: rgba(var(--surface-rgb), 0.42);
   --glass-blur: blur(14px) saturate(1.2);
 
-  /* Bloom budget. The logo spends far more than this (see .hub-word); these
+  /* Bloom budget. The logo outshines all of this and spends none of it — its
+     halo is painted into the PNG (see .hub-mark), not applied in CSS. These
      two are what everything else gets, and they are deliberately quiet — a
      page where every edge glows equally has no depth, because nothing is
      nearer than anything else. */
@@ -1630,186 +1631,377 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
 }
 
 /* ── The hub ───────────────────────────────────────────────────────────────
-   Dead centre: the wordmark, with four concentric arc pairs around it. This
-   is where the page's whole bloom budget goes — everything else on screen is
-   deliberately quiet so that this reads as the one lit object.
+   Dead centre: the J.A.R.V.I.S. mark, drawn as inline SVG in six layers that
+   move independently. It is the one lit object on the page, and everything
+   else is deliberately quiet so that reads.
 
-   Three states, written to `data-state` on .hub by hubState() in app.js and
-   animated entirely in CSS:
+   ── Why it stopped being a PNG ──
 
-     idle       a slow ~4s breathe at low amplitude — the resting state
-     thinking   a faster ripple outward, staggered per radius, from the
-                moment a message is sent until something comes back
-     speaking   a stronger, quicker pulse while a response arrives, which
-                settles back to idle when the traffic stops
+   A raster mark has exactly one handle: the whole image. Scale it, rotate it,
+   filter it. That is why the previous version's entire animation vocabulary
+   was a hue shift and a 1% scale — there was nothing inside the file to move,
+   so "thinking" and "speaking" had to be told apart by colour temperature
+   alone. Vector layers give the mark an inside: the collar can turn against
+   the ring, the arcs can beat while the lettering holds still, and a ripple
+   can leave the core and travel out through all of it.
 
-   There is no fourth state and no amplitude input. The TTS audio plays on
-   the Mac and this page cannot hear it; a visualiser driven by nothing is a
-   lie told at 60fps, so the animation is honest about being a state
-   indicator instead.                                                       */
+   ── The bloom is stroked, not filtered ──
+
+   No `filter:` anywhere in this block, and that is a performance decision, not
+   a taste one. An SVG blur filter over a group re-runs on every frame its
+   children transform, and this mark has four groups rotating continuously at
+   400px. The halo is a radial-gradient disc and the ring glow is a set of
+   wide, low-opacity twins of the same circles (.hub-bloom) — both are ordinary
+   paint, and the only thing that animates about them is opacity, which is the
+   cheapest property there is.
+
+   ── Colour ──
+
+   Structure in --az, emphasis in --az-bright, the single accent arc in --az2.
+   The original artwork had an amber arc on the left flank; the page owns no
+   amber, and a logo carrying a colour nothing else on screen uses reads as a
+   broken asset rather than as an accent. --az2 is the same gesture in a
+   colour the palette already has.
+
+   ── The three states ──
+
+   Written to `data-state` on .hub by hubState() in app.js:
+
+     idle       rings counter-rotate, a slow breath, a slow outward tide
+     thinking   ripple three times the rate and reaching further out, from
+                the moment a message is sent until something comes back
+     speaking   the ripple at its fastest and the bloom at its brightest,
+                while a response arrives; settles back to idle when the
+                traffic stops
+
+   ── and the one thing a state cannot express ──
+
+   `.hub-beat` is a one-shot class app.js re-applies per arriving event, so
+   the arcs strike once per message or card rather than cycling on a timer.
+   A reply is not token-streamed — it arrives whole — so a continuous "typing"
+   shimmer would be a loop pretending to be throughput. One beat per thing
+   that actually arrived claims only what is true. Same reason there is no
+   waveform: the TTS audio plays on the Mac and this browser cannot hear it.
+
+   ── Rotation speed is not in here ──
+
+   The four rotations run at a fixed rate and app.js changes their
+   playbackRate instead (see hubState). Restating `animation-duration` per
+   state re-maps elapsed time onto the new duration, which makes a ring with
+   four-fold symmetry visibly jump on every send. playbackRate is the one
+   handle that changes speed without moving the current frame.             */
 
 .hub {
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  /* Scales with the window instead of being a fixed 210px block: on a tall
-     screen the hub grows into the room it has, and on a short one it yields
-     that room to the transcript rather than pushing the composer out of the
-     column. Never a flex 1fr — the chat is what should absorb the slack. */
+  /* No height of its own: the mark sets it. Still never a flex 1fr — the
+     chat is what should absorb the slack in the column. */
   flex: 0 0 auto;
-  height: clamp(150px, 21vh, 240px);
-  /* The ripple is decoration and it must not travel. A bounded height plus
-     overflow:hidden is the hard stop; the mask below is what keeps that stop
-     from reading as a cut line. */
-  overflow: hidden;
-  /* The chat starts here, clear of the wordmark's glow rather than tucked
-     under it. */
-  margin-bottom: clamp(18px, 3vh, 40px);
+  /* ~400px, not the ~750px the PNG grew to. The mark is the anchor of the
+     page, not the page. Three caps rather than one: a pixel ceiling so it
+     never dominates a wide monitor, a vh cap so a short viewport does not
+     leave the transcript a two-line slot, and 100% so it fits the column on a
+     phone. Bounding the width bounds the height too — the mark is square. */
+  width: min(100%, 400px, 46vh);
+  align-self: center;
+  margin-bottom: clamp(14px, 2.2vh, 30px);
+
+  /* Every duration and amplitude the layers below read. Collected here so a
+     state is one block of numbers rather than a rule per layer. */
+  --hub-breathe-dur: 6s;
+  --hub-ripple-dur: 6.5s;
+  --hub-bloom-dur: 6s;
 }
 
-.hub-rings {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-  /* Fades every arc out well before it reaches the edge of .hub, so the
-     ripple dies inside its own box instead of being sliced off at one. A
-     hard `overflow` clip alone puts a visible straight edge across a curve
-     — which is worse than the bleed it fixes. */
-  -webkit-mask-image: radial-gradient(ellipse at 50% 50%, #000 40%, transparent 78%);
-  mask-image: radial-gradient(ellipse at 50% 50%, #000 40%, transparent 78%);
+.hub[data-state="thinking"] {
+  --hub-breathe-dur: 2.4s;
+  --hub-ripple-dur: 1.9s;
+  --hub-bloom-dur: 2s;
 }
 
-.hub-arcs {
-  height: 100%;
-  aspect-ratio: 1 / 1;
-  /* The ripple scales past the 400-unit viewBox; the mask above is what ends
-     it, not a clip. */
-  overflow: visible;
-  filter: drop-shadow(0 0 10px rgba(var(--az-rgb), 0.55));
+.hub[data-state="speaking"] {
+  --hub-breathe-dur: 1.05s;
+  --hub-ripple-dur: 1.1s;
+  --hub-bloom-dur: 1.05s;
 }
 
-.hub-arc path {
-  fill: none;
-  stroke: var(--az-bright);
-  stroke-width: 2;
-  stroke-linecap: round;
-  vector-effect: non-scaling-stroke;
+.hub-mark {
+  width: 100%;
+  height: auto;
+  display: block;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
-/* Every state animation scales about the centre of the viewBox. `view-box`
-   rather than `fill-box`: a <g>'s fill box is its own bounding box, which
-   for the outer arcs is not the same square as the inner ones, so the rings
-   would each scale about a slightly different point and drift apart. */
-.hub-arc {
+/* Every rotating or scaling group resolves its origin against the viewBox
+   rather than its own bounding box. `fill-box` would be right for the full
+   rings and wrong for the accent arc and the notch, which are not centred on
+   anything — and a partial arc pivoting about its own middle is the bug that
+   looks like the whole mark is broken. One rule, no exceptions. */
+.hub-mark [class^="hub-"],
+.hub-mark [class*=" hub-"] {
   transform-box: view-box;
-  transform-origin: 200px 200px;
-  opacity: 0.3;
-  animation-iteration-count: infinite;
-  animation-fill-mode: both;
+  transform-origin: 50% 50%;
 }
 
-/* ── idle ── a shallow breathe, all four arcs together. Together rather than
-   staggered on purpose: a resting state should read as one object at rest,
-   and a stagger reads as activity. */
-.hub[data-state="idle"] .hub-arc {
-  animation-name: hub-breathe;
-  animation-duration: 4s;
-  animation-timing-function: ease-in-out;
-}
-.hub[data-state="idle"] .hub-arc:nth-child(1) { animation-delay: 0s; }
-.hub[data-state="idle"] .hub-arc:nth-child(2) { animation-delay: 0.12s; }
-.hub[data-state="idle"] .hub-arc:nth-child(3) { animation-delay: 0.24s; }
-.hub[data-state="idle"] .hub-arc:nth-child(4) { animation-delay: 0.36s; }
 
-@keyframes hub-breathe {
-  0%, 100% { transform: scale(1);     opacity: 0.26; }
-  50%      { transform: scale(1.035); opacity: 0.46; }
-}
+/* ── Paint ────────────────────────────────────────────────────────────── */
 
-/* ── thinking ── each radius runs the same outward ripple a quarter-cycle
-   behind the one inside it, so the motion reads as travelling outward from
-   the wordmark rather than as four rings breathing out of phase. */
-.hub[data-state="thinking"] .hub-arc {
-  animation-name: hub-ripple;
-  animation-duration: 1.6s;
-  animation-timing-function: cubic-bezier(0.22, 0.61, 0.36, 1);
-}
-.hub[data-state="thinking"] .hub-arc:nth-child(1) { animation-delay: 0s; }
-.hub[data-state="thinking"] .hub-arc:nth-child(2) { animation-delay: 0.4s; }
-.hub[data-state="thinking"] .hub-arc:nth-child(3) { animation-delay: 0.8s; }
-.hub[data-state="thinking"] .hub-arc:nth-child(4) { animation-delay: 1.2s; }
+.hub-halo-in  { stop-color: rgba(var(--az-rgb), 0.10); }
+.hub-halo-mid { stop-color: rgba(var(--az-rgb), 0.05); }
+.hub-halo-out { stop-color: rgba(var(--az-rgb), 0);    }
 
-@keyframes hub-ripple {
-  0%   { transform: scale(0.82); opacity: 0; }
-  18%  { opacity: 0.9; }
-  100% { transform: scale(1.3);  opacity: 0; }
+.hub-core-in  { stop-color: rgba(var(--az2-rgb), 0.16); }
+.hub-core-out { stop-color: rgba(var(--az2-rgb), 0);    }
+
+.hub-plate-in  { stop-color: rgba(var(--ink-rgb), 0.86); }
+.hub-plate-mid { stop-color: rgba(var(--ink-rgb), 0.62); }
+.hub-plate-out { stop-color: rgba(var(--ink-rgb), 0);    }
+
+.hub-bloom circle {
+  stroke: rgba(var(--az-rgb), 0.16);
+  stroke-width: 26;
 }
 
-/* ── speaking ── the loud one. Bigger amplitude, shorter cycle, and a
-   brighter stroke, so a reply arriving is visible from across the room. */
-.hub[data-state="speaking"] .hub-arc {
-  animation-name: hub-speak;
-  animation-duration: 0.9s;
-  animation-timing-function: cubic-bezier(0.3, 0, 0.2, 1);
-}
-.hub[data-state="speaking"] .hub-arc:nth-child(1) { animation-delay: 0s; }
-.hub[data-state="speaking"] .hub-arc:nth-child(2) { animation-delay: 0.07s; }
-.hub[data-state="speaking"] .hub-arc:nth-child(3) { animation-delay: 0.14s; }
-.hub[data-state="speaking"] .hub-arc:nth-child(4) { animation-delay: 0.21s; }
-.hub[data-state="speaking"] .hub-arcs {
-  filter: drop-shadow(0 0 16px rgba(var(--az-rgb), 0.8));
+.hub-ring-heavy  { stroke: var(--az);        stroke-width: 7;   }
+.hub-ring-thin   { stroke: var(--az-deep);   stroke-width: 2;   }
+.hub-ring-bright { stroke: var(--az-bright); stroke-width: 2.5; }
+
+.hub-tick-fine { stroke: var(--az-soft); stroke-width: 20; opacity: 0.75; }
+.hub-tick-long { stroke: var(--az);      stroke-width: 26; opacity: 0.55; }
+
+.hub-band-fill { stroke: rgba(var(--az-rgb), 0.30); stroke-width: 22; }
+.hub-band-seg  { stroke: var(--az);                 stroke-width: 22; opacity: 0.55; }
+
+.hub-seg-block { stroke: var(--az);      stroke-width: 13;  opacity: 0.45; }
+.hub-seg-fine  { stroke: var(--az-soft); stroke-width: 1.5; opacity: 0.5;  }
+
+.hub-bead circle { fill: var(--az-soft);   }
+.hub-dot  circle { fill: var(--az-bright); }
+
+.hub-notch {
+  fill: none;
+  stroke: var(--az);
+  stroke-width: 5;
+  stroke-linejoin: round;
 }
 
-@keyframes hub-speak {
-  0%, 100% { transform: scale(1);     opacity: 0.32; }
-  45%      { transform: scale(1.085); opacity: 0.95; }
+.hub-arcs path {
+  stroke: var(--az-bright);
+  stroke-width: 5;
+  stroke-linecap: round;
+  opacity: 0.55;
 }
 
-.hub-word {
-  position: relative;
+.hub-accent {
+  stroke: var(--az2);
+  stroke-width: 6;
+  stroke-linecap: round;
+  opacity: 0.9;
+}
+
+.hub-ripple {
+  stroke: var(--az2);
+  stroke-width: 3;
+  opacity: 0;
+}
+
+.hub-wordmark {
   font-family: 'Orbitron', sans-serif;
   font-weight: 700;
-  /* Down from clamp(26px, 4vw, 46px). At 1500px the old scale resolved to
-     its 46px ceiling and the wordmark was the largest thing on a page whose
-     subject is the conversation underneath it. It is an identity mark, not a
-     headline; smaller, it leaves the arcs room to be the thing that moves. */
-  font-size: clamp(20px, 2.1vw, 30px);
-  letter-spacing: 0.16em;
-  color: var(--text);
-  /* The one place the glow budget is spent heavily — three layers, so the
-     falloff is smooth rather than a single hard halo. */
-  text-shadow:
-    0 0 6px rgba(var(--az-soft-rgb), 0.9),
-    0 0 22px rgba(var(--az-rgb), 0.65),
-    0 0 54px rgba(var(--az-rgb), 0.35);
-  white-space: nowrap;
-  /* The arcs leave a gap at three and nine o'clock for exactly this, but the
-     innermost pair still passes near the ends of a long word. A translucent
-     ground keeps the glyphs readable during that crossing without putting an
-     opaque patch at the brightest point on the page. */
-  padding: 6px 20px;
-  background: radial-gradient(ellipse at 50% 50%, rgba(var(--ink-rgb), 0.82) 38%, transparent 76%);
+  font-size: 34px;
+  fill: var(--text);
+  letter-spacing: 1px;
 }
 
+
+/* ── Rotation ─────────────────────────────────────────────────────────────
+   Counter-rotating pairs: the outer ring and the inner band turn one way, the
+   tick collar and the segmented track the other. Adjacent layers never share
+   a direction — two neighbours turning together read as one thicker ring.
+   The wordmark and the arcs are not in here at all.
+
+   Durations are the IDLE rate and never change. Speed is playbackRate, set in
+   app.js — see the note at the top of this section.                       */
+
+.hub-outer { animation: hub-spin-cw  74s linear infinite; }
+.hub-ticks { animation: hub-spin-ccw 96s linear infinite; }
+.hub-inner { animation: hub-spin-cw  52s linear infinite; }
+.hub-seg   { animation: hub-spin-ccw 38s linear infinite; }
+
+@keyframes hub-spin-cw  { to { transform: rotate(360deg);  } }
+@keyframes hub-spin-ccw { to { transform: rotate(-360deg); } }
+
+
+/* ── Breath ───────────────────────────────────────────────────────────────
+   The whole mark, on one group, so the breath is a property of the object
+   rather than six copies drifting out of phase.
+
+   The amplitude is deliberately tiny and gets smaller as the mark gets
+   bigger: 1.06 on the 240px arcs this replaced was 14px of travel; on a
+   400px mark 1.03 is already 12. Percentage motion has to shrink as the
+   object grows, or a logo breathing becomes a logo lurching.              */
+
+.hub-breathe {
+  animation: hub-breathe var(--hub-breathe-dur) ease-in-out infinite;
+}
+
+@keyframes hub-breathe {
+  0%, 100% { transform: scale(1);      }
+  50%      { transform: scale(1.012);  }
+}
+
+.hub[data-state="thinking"] .hub-breathe { animation-name: hub-breathe-think; }
+.hub[data-state="speaking"] .hub-breathe { animation-name: hub-breathe-speak; }
+
+@keyframes hub-breathe-think {
+  0%, 100% { transform: scale(1);      }
+  50%      { transform: scale(1.018);  }
+}
+
+@keyframes hub-breathe-speak {
+  0%, 100% { transform: scale(1);      }
+  45%      { transform: scale(1.026);  }
+}
+
+
+/* ── The ripple ───────────────────────────────────────────────────────────
+   Three rings leaving the core on a stagger, so the outward travel is
+   continuous rather than a single ring restarting.
+
+   Each state is its OWN keyframe name rather than one set of frames with the
+   duration swapped, and that is the point of the whole layer: changing the
+   name restarts the animation, so pressing send does not just speed the tide
+   up, it launches a ring from the centre on the same frame. A duration swap
+   would leave the current ring mid-flight and only look faster on the next
+   one, which is a beat and a half after the gesture that caused it.
+
+   Scale, not `r`. Scaling a stroked circle thickens the stroke as it grows,
+   which is backwards for a ripple, so stroke-width is walked down across the
+   same keyframes to cancel it.                                            */
+
+.hub-ripple {
+  animation: hub-ripple-idle var(--hub-ripple-dur) ease-out infinite;
+}
+.hub-ripple:nth-child(2) { animation-delay: calc(var(--hub-ripple-dur) / -3); }
+.hub-ripple:nth-child(3) { animation-delay: calc(var(--hub-ripple-dur) / -1.5); }
+
+.hub[data-state="thinking"] .hub-ripple { animation-name: hub-ripple-think; }
+.hub[data-state="speaking"] .hub-ripple { animation-name: hub-ripple-speak; }
+
+/* idle — a slow tide that never leaves the inner band. */
+@keyframes hub-ripple-idle {
+  0%   { transform: scale(0.55); opacity: 0;    stroke-width: 3;   }
+  22%  {                         opacity: 0.20;                    }
+  100% { transform: scale(1.55); opacity: 0;    stroke-width: 1.6; }
+}
+
+/* thinking — three times the rate, and out past the tick collar. */
+@keyframes hub-ripple-think {
+  0%   { transform: scale(0.45); opacity: 0;    stroke-width: 3.5; }
+  15%  {                         opacity: 0.55;                    }
+  100% { transform: scale(2.25); opacity: 0;    stroke-width: 1.2; }
+}
+
+/* speaking — fastest, brightest, and all the way to the outer ring. */
+@keyframes hub-ripple-speak {
+  0%   { transform: scale(0.45); opacity: 0;    stroke-width: 4;   }
+  12%  {                         opacity: 0.8;                     }
+  100% { transform: scale(2.45); opacity: 0;    stroke-width: 1.2; }
+}
+
+
+/* ── Bloom ────────────────────────────────────────────────────────────────
+   The brightness channel. Opacity on three wide strokes — no filter, no
+   repaint of anything else.                                               */
+
+.hub-bloom {
+  opacity: 0.5;
+  animation: hub-bloom var(--hub-bloom-dur) ease-in-out infinite;
+}
+
+@keyframes hub-bloom {
+  0%, 100% { opacity: 0.45; }
+  50%      { opacity: 0.62; }
+}
+
+.hub[data-state="thinking"] .hub-bloom { animation-name: hub-bloom-think; }
+.hub[data-state="speaking"] .hub-bloom { animation-name: hub-bloom-speak; }
+
+@keyframes hub-bloom-think {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 0.85; }
+}
+
+@keyframes hub-bloom-speak {
+  0%, 100% { opacity: 0.65; }
+  45%      { opacity: 1;    }
+}
+
+
+/* ── The beat ─────────────────────────────────────────────────────────────
+   One strike per arriving message or card, not a cycle. app.js removes and
+   re-adds .hub-beat per event, so the arcs restart from zero every time
+   something actually lands — the rhythm is the traffic's, not a timer's.
+
+   The accent arc rides the same beat a fraction later, which is what stops
+   four identical arcs flashing in unison from reading as a lightbulb.     */
+
+.hub-arcs.hub-beat path { animation: hub-arc-beat 620ms ease-out 1; }
+.hub-arcs.hub-beat path:nth-child(2) { animation-delay:  60ms; }
+.hub-arcs.hub-beat path:nth-child(3) { animation-delay: 120ms; }
+.hub-arcs.hub-beat path:nth-child(4) { animation-delay: 180ms; }
+
+@keyframes hub-arc-beat {
+  0%   { opacity: 0.55; stroke-width: 5;  }
+  18%  { opacity: 1;    stroke-width: 9;  }
+  100% { opacity: 0.55; stroke-width: 5;  }
+}
+
+/* A gentler standing pulse on the arcs while a turn is in flight, so the
+   thinking state is legible even in the gap between two events. */
+.hub[data-state="thinking"] .hub-arcs path,
+.hub[data-state="speaking"] .hub-arcs path {
+  animation: hub-arc-idle 1.6s ease-in-out infinite;
+}
+.hub[data-state="speaking"] .hub-arcs path { animation-duration: 1.05s; }
+
+@keyframes hub-arc-idle {
+  0%, 100% { opacity: 0.45; }
+  50%      { opacity: 0.85; }
+}
+
+/* The accent arc: always breathing a little, harder while speaking. */
+.hub-accent { animation: hub-accent-pulse 5s ease-in-out infinite; }
+.hub[data-state="thinking"] .hub-accent { animation-duration: 2s;    }
+.hub[data-state="speaking"] .hub-accent { animation-duration: 1.05s; }
+
+@keyframes hub-accent-pulse {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1;    }
+}
+
+
 /* Motion is decoration here and all three states are the same object. Anyone
-   who has asked the OS for less motion gets the arcs, still lit, holding
+   who has asked the OS for less motion gets the mark, still lit, holding
    still — the element stays, only the animation goes. A logo that vanishes
-   under a reduced-motion setting is a missing logo, not a calmer one. */
+   under a reduced-motion setting is a missing logo, not a calmer one.
+
+   The ripples are the exception: they are the only thing here that has no
+   still frame worth showing, because a ripple stopped mid-flight is just a
+   stray ring round the mark. They are hidden outright, and the three states
+   fall back to one static step of bloom — still three distinguishable
+   states, no animation at all.                                            */
 @media (prefers-reduced-motion: reduce) {
-  .hub[data-state] .hub-arc {
-    animation: none;
-    opacity: 0.34;
-    transform: none;
-  }
-  /* The state is still worth showing, so it becomes a brightness step
-     instead of a movement: nothing on screen moves, but a turn in flight
-     still looks different from a turn at rest. */
-  .hub[data-state="thinking"] .hub-arc { opacity: 0.6; }
-  .hub[data-state="speaking"] .hub-arc { opacity: 0.85; }
+  .hub-mark *, .hub-mark { animation: none !important; transform: none !important; }
+  .hub-ripples { display: none; }
+  .hub-bloom { opacity: 0.45; }
+  .hub[data-state="thinking"] .hub-bloom { opacity: 0.7; }
+  .hub[data-state="speaking"] .hub-bloom { opacity: 0.95; }
+  .hub[data-state="thinking"] .hub-arcs path { opacity: 0.8; }
+  .hub[data-state="speaking"] .hub-arcs path { opacity: 1;   }
 }
 
 /* ── Chat ─────────────────────────────────────────────────────────────────
@@ -1828,7 +2020,7 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
 }
 
 /* Under the hub the chat has no chrome at all — no border, no HUD corners,
-   no scanline fill. It takes every pixel of the centre column the wordmark
+   no scanline fill. It takes every pixel of the centre column the mark
    above it did not, which is what pins the composer to the bottom of the
    column rather than leaving it floating under a three-line transcript.
    Above ~1000px it has no height of its own at all; below that breakpoint
@@ -2457,9 +2649,15 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
      that corner and the button is transparent: a plain `transparent → black
      54px` ramp still painted a ghost of the scrolling text at 30% opacity
      underneath it, which reads as a collision rather than a fade. 46px
-     clears the button (10px + 28px + a hair) before the ramp starts. */
-  mask-image: linear-gradient(to right, transparent 0, transparent 46px, black 86px, black calc(100% - 172px), transparent);
-  -webkit-mask-image: linear-gradient(to right, transparent 0, transparent 46px, black 86px, black calc(100% - 172px), transparent);
+     clears the button (10px + 28px + a hair) before the ramp starts.
+
+     The right ramp reaches fully transparent at the weather widget's own
+     left edge (100% - 116px) rather than at 100%, for the same reason: the
+     widget is a translucent panel over a backdrop-filter, so a ticker item
+     still at 30% opacity where the widget starts smears behind the glass
+     instead of ending. It ends before the widget, not under it. */
+  mask-image: linear-gradient(to right, transparent 0, transparent 46px, black 86px, black calc(100% - 200px), transparent calc(100% - 116px));
+  -webkit-mask-image: linear-gradient(to right, transparent 0, transparent 46px, black 86px, black calc(100% - 200px), transparent calc(100% - 116px));
 }
 
 .ticker-track {
@@ -2532,41 +2730,58 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
   .ticker-set:last-child { display: none; }  /* the loop's second copy is now dead weight */
 }
 
-/* ── Weather (floating, top-right) ────────────────────────────────────────
-   Fixed to the viewport rather than stacked with the other panels — a HUD
-   readout, not a panel in the flow. Sits inside the ticker band itself, in
-   the ticker's own right fade (see .ticker-marquee's mask-image), so a
-   visible ticker doesn't collide with it. Right-anchored, so the expanded
-   state grows leftward into the page instead of off the screen edge. Collapsed shows only
-   .wx-compact; hover (desktop) or .pinned (click/tap, both surfaces) swaps
-   in .wx-expanded, which is the same markup loadWeather() has always
-   rendered into #weather-body. */
+/* ── Weather (the right-hand end of the ticker band) ─────────────────────
+   This never leaves the band. Collapsed it is a 116px readout seated into
+   the viewport's top-right corner, sharing the strip's height and its bottom
+   rule and carrying no top or right border because there is nothing on those
+   sides to be separated from. Open it sweeps left across the whole bar and
+   replaces the tickers with the full reading — and it is still exactly 40px
+   tall, because a panel that drops below the bar stops being the bar and
+   starts being a thing covering the page.
 
-/* Both states are fixed pixel boxes and .wx-widget itself is what resizes —
-   .wx-compact and .wx-expanded are absolutely positioned over the same
-   inset:0 and cross-fade via opacity instead of one being swapped out with
-   `display:none`. A `display:none` swap is instant while the size change is
-   not, so for the frames between them the box had already dropped its
-   compact content but hadn't grown the expanded content in yet — an empty
-   outline where the widget briefly seemed to vanish. Sizing and content both
-   animate now, and the small opacity overlap between them means there's
-   never a frame with neither visible. */
+   That height is the constraint every rule below answers to. The reading is
+   laid out as one line: current conditions, then the meta column, then the
+   hourly strip, all of it baseline-aligned rather than stacked. The card
+   layout this replaced was 138px tall and the same content.
+
+   It is fixed to the viewport rather than a child of the ticker, for the
+   same reason the settings button is: the ticker belongs to the Today
+   template and is hidden outright when no symbols are configured or the
+   quotes fetch dies, and a weather reading that disappears with the stock
+   strip is a reading lost to an unrelated failure.
+
+   Open, it stops 46px short of the left edge — the same constant the
+   ticker's own left fade holds transparent to clear the settings button —
+   and the button outranks it in z-order besides, so the two cannot collide
+   even if that arithmetic is ever wrong. (100vw counts a scrollbar gutter
+   where one exists; Today has none, and on a page that did the panel would
+   run those few pixels further left and *under* the button rather than over
+   it, which is why the z-order backstop is worth having.)
+
+   Both states are absolutely positioned over the same box and cross-fade
+   rather than one being display:none'd. A display swap is instant while the
+   width change is not, so for the frames between them the box had already
+   dropped its compact content but had not brought the reading in — an empty
+   outline where the widget seemed to vanish. */
+
 .wx-widget {
   position: fixed;
-  top: calc(env(safe-area-inset-top) + 2px);
-  right: 12px;
+  top: env(safe-area-inset-top);
+  right: 0;
   z-index: 45;
-  display: grid;
-  grid-template-rows: 0fr;
   width: 116px;
-  min-height: 40px;
+  /* Fixed, not min-height: the band's height is the whole point. Nothing
+     inside may grow it, so everything inside is absolutely positioned or
+     clipped. */
+  height: 40px;
+  overflow: hidden;
   background: var(--panel);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--border-strong);
-  border-radius: 4px;
-  cursor: pointer;
-  overflow: hidden;
+  border-top: 0;
+  border-right: 0;
+  border-radius: 0 0 0 4px;
   background-image: repeating-linear-gradient(
     0deg,
     rgba(var(--az-rgb), 0.025) 0px,
@@ -2575,21 +2790,52 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
     transparent 4px
   );
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35), var(--glow-sm);
-  /* grid-template-rows animating 0fr -> 1fr is what makes the box hug
-     .wx-expanded's real content height instead of a guessed fixed number —
-     a fixed height was either clipping a slow-network day's stale-reading
-     line or leaving a dead gap under a short one. width still animates as a
-     plain pixel value; there's nothing to guess there since the expanded
-     content is written for exactly 380px. */
-  transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1), grid-template-rows 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  /* Width is the only thing that animates now — the height is a constant, so
+     the old two-stage sweep-then-drop has nothing left to stage. */
+  transition: width 0.34s cubic-bezier(0.4, 0, 0.2, 1),
+              background-color 0.34s ease,
+              border-color 0.15s ease;
+}
+
+/* ── The three ways it opens ─────────────────────────────────────────────
+   Hover (desktop), a click or tap, and a keyboard Enter on the readout —
+   the last two both land on .open, which is a pin: it survives the pointer
+   leaving, which is what makes the reading legible on touch and what lets a
+   desktop user stop holding the mouse still to read it.
+
+   The hover trigger sits behind (hover: hover) so a touch device's sticky
+   hover cannot latch the panel open with no way to close it. A media query
+   cannot add a selector to a rule outside itself, which is why the same
+   declarations appear twice rather than once in a longer selector list. */
+
+.wx-widget.open {
+  width: calc(100vw - 46px);
+  /* --panel's 0.26 alpha is right for a 116px chip in the corner of the bar
+     and wrong for a panel spanning the screen: open, it crosses the hub,
+     which is the brightest object on the page, and the forecast was being
+     read through the glow. An ink base under the same scanlines and the same
+     backdrop blur keeps the material and stops the bleed. */
+  background-color: rgba(var(--ink-rgb), 0.92);
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .wx-widget:hover { width: 380px; grid-template-rows: 1fr; }
-}
-.wx-widget.pinned { width: 380px; grid-template-rows: 1fr; }
+  .wx-widget:hover {
+    width: calc(100vw - 46px);
+    background-color: rgba(var(--ink-rgb), 0.92);
+  }
 
-/* Same corner-bracket treatment as .panel, sized down for the compact state. */
+  /* An explicit dismiss — the ×, or Escape — has to beat the hover that is
+     still true underneath it, or the click appears to do nothing while the
+     pointer sits where it was. Cleared on mouseleave (app.js), so the next
+     hover opens it again. */
+  .wx-widget.dismissed:hover { width: 116px; background-color: var(--panel); }
+}
+
+.wx-widget:hover { border-color: var(--az-bright); }
+
+/* Same corner-bracket treatment as .panel, sized down. Inset to 0 rather
+   than -1px: with no top or right border there is nothing to sit on top of,
+   and -1px would put them outside the viewport. */
 .wx-widget::before,
 .wx-widget::after {
   content: '';
@@ -2597,26 +2843,54 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
   width: 10px;
   height: 10px;
   pointer-events: none;
+  z-index: 3;
 }
-.wx-widget::before { top: -1px; left: -1px; border-top: 2px solid var(--orange); border-left: 2px solid var(--orange); }
-.wx-widget::after { bottom: -1px; right: -1px; border-bottom: 2px solid var(--orange); border-right: 2px solid var(--orange); }
+.wx-widget::before { top: 0; left: 0; border-top: 2px solid var(--orange); border-left: 2px solid var(--orange); }
+.wx-widget::after { bottom: 0; right: 0; border-bottom: 2px solid var(--orange); border-right: 2px solid var(--orange); }
 
+/* ── Collapsed: the readout, and the control ─────────────────────────────
+   A real <button>, so the disclosure is operable from the keyboard at all —
+   it was a bare div with a click listener, which no amount of CSS fixes. */
 .wx-compact {
   position: absolute;
   inset: 0;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   padding: 0 16px;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
   white-space: nowrap;
+  cursor: pointer;
   opacity: 1;
   transition: opacity 0.15s ease;
 }
 
-@media (hover: hover) and (pointer: fine) {
-  .wx-widget:hover .wx-compact { opacity: 0; pointer-events: none; }
+/* The focus floor's +2px offset draws the ring outside the button, and this
+   button fills a box that is itself flush into the viewport's top-right
+   corner and clipped by the widget's overflow: hidden — so two of the ring's
+   four sides were being cut. Drawn inside instead. Restyled, never removed. */
+.wx-compact:focus-visible { outline-offset: -3px; }
+
+.wx-widget.open .wx-compact {
+  opacity: 0;
+  pointer-events: none;
+  /* visibility, not opacity alone: a button faded to nothing still takes Tab
+     focus, which is a control the user can operate and cannot see. Delayed
+     to the end of the fade so it is not yanked out mid-transition. app.js
+     moves focus to the × as this goes, so the keyboard is never left
+     standing on it. */
+  visibility: hidden;
+  transition: opacity 0.12s ease, visibility 0s linear 0.12s;
 }
-.wx-widget.pinned .wx-compact { opacity: 0; pointer-events: none; }
+
+@media (hover: hover) and (pointer: fine) {
+  .wx-widget:hover .wx-compact { opacity: 0; pointer-events: none; visibility: hidden; }
+  .wx-widget.dismissed:hover .wx-compact { opacity: 1; pointer-events: auto; visibility: visible; }
+}
 
 .wx-compact-icon {
   font-size: 19px;
@@ -2632,78 +2906,137 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
   color: var(--text);
 }
 
+/* ── Open: the full reading, on one line ─────────────────────────────────
+   Absolutely positioned over the same 40px box as the readout, so nothing
+   in here can push the band taller. Anything that will not fit is clipped
+   rather than wrapped — see .wx-strip, which scrolls instead. */
 .wx-expanded {
-  /* min-height: 0 overrides the automatic minimum grid items otherwise take
-     from their own content, which is what lets the 0fr row above actually
-     reach zero instead of stalling at content height. overflow-y: auto is a
-     safety net, not the normal case — the row is sized to content, so it
-     only engages if a reading is unusually tall. */
-  min-height: 0;
-  max-height: 70vh;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 22px;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  /* 44px on the right clears the ×. */
+  padding: 0 44px 0 18px;
   opacity: 0;
+  /* Same reasoning as .wx-compact above: the × inside here must not be
+     tabbable while the panel is shut. */
+  visibility: hidden;
   pointer-events: none;
-  /* Slight delay so the fade-in starts once the box has already begun
-     growing, rather than racing it from a standing start. */
-  transition: opacity 0.2s ease 0.05s;
+  transition: opacity 0.18s ease, visibility 0s linear 0.18s;
+}
+
+.wx-widget.open .wx-expanded {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  /* Slight delay so the reading arrives once the box has already swept out,
+     rather than racing it from a standing start. */
+  transition: opacity 0.2s ease 0.12s, visibility 0s;
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .wx-widget:hover .wx-expanded { opacity: 1; pointer-events: auto; }
+  .wx-widget:hover .wx-expanded {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition: opacity 0.2s ease 0.12s, visibility 0s;
+  }
+  .wx-widget.dismissed:hover .wx-expanded { opacity: 0; visibility: hidden; pointer-events: none; }
 }
-.wx-widget.pinned .wx-expanded { opacity: 1; pointer-events: auto; }
 
+/* The heading has no room in a 40px band and is not lost: it stays in the
+   accessibility tree, where it is what names the region. */
 .wx-expanded h2 {
-  font-family: 'Orbitron', sans-serif;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.3em;
-  color: var(--orange);
-  margin-bottom: 16px;
-  padding-left: 14px;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
+
+.wx-close {
+  position: absolute;
+  top: 7px;
+  right: 9px;
+  z-index: 2;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.wx-close:hover { border-color: var(--az-bright); color: var(--text); }
+
+.wx-body {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* ── The reading, flattened ──────────────────────────────────────────────
+   Every one of these was a stacked block in the 138px card. They are all
+   baseline-aligned rows now; the sizes below are what fits in 40px with the
+   descenders clear, not preferences. */
 
 .wx-now {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 14px;
-  align-items: center;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex: 0 0 auto;
 }
 
 .wx-icon {
-  font-size: 38px;
+  font-size: 20px;
   line-height: 1;
   color: var(--orange);
   text-shadow: 0 0 14px var(--orange-dim);
 }
 
-.wx-main { min-width: 0; }
+.wx-main {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
 
 .wx-temp {
   font-family: 'Orbitron', sans-serif;
-  font-size: 38px;
+  font-size: 22px;
   font-weight: 700;
   line-height: 1;
   color: var(--text);
 }
 
 .wx-desc {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--orange-soft);
   letter-spacing: 0.04em;
-  margin-top: 4px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .wx-meta {
-  text-align: right;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
   font-size: 12px;
   color: var(--muted-2);
-  line-height: 1.6;
+  line-height: 1;
   white-space: nowrap;
 }
 
@@ -2717,16 +3050,33 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
 
 .wx-hilo { font-family: 'JetBrains Mono', monospace; }
 
+/* The forecast takes whatever bar is left. It scrolls rather than wraps or
+   hides: on a narrow viewport there is not enough band for five slots, and
+   a strip you can push sideways is idiomatic in a ticker bar in a way that
+   a truncated forecast is not. The scrollbar itself is suppressed — a
+   scrollbar in a 40px band is most of the band. */
 .wx-strip {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 6px;
-  margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: baseline;
+  gap: 22px;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  padding: 0 0 0 22px;
+  border: 0;
+  border-left: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: none;
 }
+.wx-strip::-webkit-scrollbar { display: none; }
 
-.wx-slot { text-align: center; }
+.wx-slot {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex: 0 0 auto;
+  text-align: left;
+}
 
 .wx-slot-time {
   font-family: 'JetBrains Mono', monospace;
@@ -2736,14 +3086,14 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
 }
 
 .wx-slot-icon {
-  font-size: 17px;
-  line-height: 1.6;
+  font-size: 14px;
+  line-height: 1;
   color: var(--orange-soft);
 }
 
 .wx-slot-temp {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 14px;
+  font-size: 13px;
   color: var(--text-2);
 }
 
@@ -2757,10 +3107,32 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
 .wx-slot-pop.wet { color: var(--teal); }
 
 .wx-stale {
-  margin-top: 10px;
+  flex: 0 0 auto;
+  margin: 0;
   font-size: 11px;
   color: var(--muted-2);
   font-style: italic;
+  white-space: nowrap;
+}
+
+/* The sweep is the one motion here that crosses the whole screen, so it is
+   the one most worth switching off. The panel still opens; it just arrives
+   rather than travels.
+
+   Every state is listed, not just the base rule. A media query contributes
+   no specificity of its own, so a bare `.wx-widget` in here loses to
+   `.wx-widget.open` outside it and the sweep runs anyway — which is what
+   happened the first time this was written. */
+@media (prefers-reduced-motion: reduce) {
+  .wx-widget,
+  .wx-widget.open,
+  .wx-widget:hover,
+  .wx-compact,
+  .wx-widget.open .wx-compact,
+  .wx-widget:hover .wx-compact,
+  .wx-expanded,
+  .wx-widget.open .wx-expanded,
+  .wx-widget:hover .wx-expanded { transition: none; }
 }
 
 /* ── The ticker editor, on Integrations ─────────────────────────────────── */
@@ -2874,15 +3246,19 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
 
   .ticker-marquee {
     margin: -20px -16px 20px;
-    /* Left fade still has to clear the settings button, which does not
-       shrink with the viewport. */
-    mask-image: linear-gradient(to right, transparent 0, transparent 46px, black 78px, black calc(100% - 24px), transparent);
-    -webkit-mask-image: linear-gradient(to right, transparent 0, transparent 46px, black 78px, black calc(100% - 24px), transparent);
+    /* Both fades still have to clear the two fixed controls, neither of
+       which shrinks with the viewport: the settings button on the left and
+       the weather readout on the right. */
+    mask-image: linear-gradient(to right, transparent 0, transparent 46px, black 78px, black calc(100% - 152px), transparent calc(100% - 116px));
+    -webkit-mask-image: linear-gradient(to right, transparent 0, transparent 46px, black 78px, black calc(100% - 152px), transparent calc(100% - 116px));
   }
 
-  /* Fixed pinned-open width elsewhere (380px) would run off the right edge
-     of a phone, so it's capped to the viewport below this breakpoint. */
-  .wx-widget.pinned { width: min(340px, calc(100vw - 24px)); }
+  /* No width cap — the open width is calc(100vw - 46px) at every size, so it
+     cannot run off a phone. The band stays 40px here too, which means the
+     reading sheds content rather than growing: the meta column goes first
+     (its four readings are the ones the forecast strip already implies),
+     and the forecast keeps the space, scrolling sideways. */
+  .wx-meta { display: none; }
 
   .today-hero { padding: 20px; }
   .today-hero .hero-text { font-size: 26px; }
@@ -2940,5 +3316,6 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
 
 @media (max-width: 420px) {
   .preset-cards { grid-template-columns: 1fr; }
-  .wx-strip { grid-template-columns: repeat(3, 1fr); row-gap: 10px; }
+  /* Last thing to go before the temperature itself. */
+  .wx-desc { display: none; }
 }

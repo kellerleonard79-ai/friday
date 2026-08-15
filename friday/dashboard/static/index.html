@@ -42,7 +42,7 @@
        Today, and floats over the page everywhere else.
 
        The F.R.I.D.A.Y. wordmark that used to sit beside it is gone: the
-       hub in the middle of Today is the wordmark, at the size the name
+       hub in the middle of Today carries the name, at the size it
        deserves. Its other job — getting back to Today from a settings
        page — is now the first item in the drawer. -->
   <button class="settings-btn" id="hamburger-btn" aria-label="Open settings" aria-expanded="false">
@@ -103,42 +103,178 @@
         </div>
 
         <div class="home-center">
-          <!-- The hub. The wordmark sits dead centre with the ripple rings
-               behind it; the rings are wider than the text, so what actually
-               shows is a pair of arcs flanking it. -->
-          <!-- Four concentric arc pairs, in a 400-unit square centred on
-               (200, 200). Each pair spans 110 degrees above and 110 below,
-               leaving a gap at three and nine o'clock that the wordmark
-               sits in — so the arcs frame the name rather than crossing
-               it. One <g> per radius, because a state animation scales the
-               top and bottom halves of a ring as one thing.
+          <!-- The hub. The J.A.R.V.I.S. mark, drawn as inline SVG in
+               independently animatable layers rather than as one flat PNG.
 
-               data-state is written by hubState() in app.js and is the
-               whole of the animation: idle breathes, thinking ripples
-               outward, speaking pulses. Pure CSS from there — no canvas,
-               no library, no requestAnimationFrame. -->
+               A raster mark can only ever be scaled, rotated or filtered as a
+               whole, which is why the previous version's entire vocabulary was
+               a hue shift and a 1% scale: there was nothing inside it to move.
+               Here the outer ring, the tick collar, the inner band, the
+               segmented track, the arcs and the wordmark are separate groups,
+               so the rings can counter-rotate past each other and the arcs can
+               beat without the lettering turning with them.
+
+               Geometry only below — every colour, weight and animation lives
+               in style.css under "The hub". The dash arrays are computed
+               against each circle's own circumference (2*pi*r divided by the
+               tick count), which is what makes a stroked circle read as a ring
+               of radial ticks with one element instead of sixty.
+
+               data-state is written by hubState() in app.js. See the same
+               section there for the beat, which is the one thing a state
+               attribute cannot express: a discrete pulse per arriving event. -->
           <div class="hub" id="hub" data-state="idle">
-            <div class="hub-rings" aria-hidden="true">
-              <svg class="hub-arcs" viewBox="0 0 400 400" preserveAspectRatio="xMidYMid meet" focusable="false">
-                <g class="hub-arc">
-                  <path d="M 278.64 144.93 A 96 96 0 0 0 121.36 144.93"/>
-                  <path d="M 121.36 255.07 A 96 96 0 0 0 278.64 255.07"/>
+            <svg class="hub-mark" id="hub-svg" viewBox="0 0 512 512"
+                 role="img" aria-labelledby="hub-title" focusable="false">
+              <title id="hub-title">J.A.R.V.I.S.</title>
+
+              <defs>
+                <radialGradient id="hub-halo-grad" cx="50%" cy="50%" r="50%">
+                  <stop offset="45%" class="hub-halo-in"/>
+                  <stop offset="78%" class="hub-halo-mid"/>
+                  <stop offset="100%" class="hub-halo-out"/>
+                </radialGradient>
+                <radialGradient id="hub-core-grad" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%"  class="hub-core-in"/>
+                  <stop offset="100%" class="hub-core-out"/>
+                </radialGradient>
+                <!-- The plate is a vignette, not a shape. A hard-edged dark
+                     ellipse behind the lettering is a visible seam crossing
+                     four rings; a gradient that reaches zero at its own edge
+                     just makes the rings recede where the word is. -->
+                <radialGradient id="hub-plate-grad" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%"  class="hub-plate-in"/>
+                  <stop offset="62%" class="hub-plate-mid"/>
+                  <stop offset="100%" class="hub-plate-out"/>
+                </radialGradient>
+              </defs>
+
+              <!-- Halo. Static, and the only large soft-edged thing in the
+                   mark: the PNG's glow was baked into the pixels, and a
+                   gradient disc is the vector equivalent. Deliberately NOT an
+                   SVG filter — a blur filter over a group whose children are
+                   transforming re-runs the filter every frame, and this mark
+                   is 400px of continuously moving rings. -->
+              <circle cx="256" cy="256" r="256" fill="url(#hub-halo-grad)"/>
+
+              <!-- Bloom. Wide, low-opacity twins of the three structural
+                   radii, which is how the rings get their halo without a
+                   filter. Its opacity is the brightness channel of the whole
+                   mark and is the cheapest thing on the page to animate. -->
+              <g class="hub-bloom" fill="none">
+                <circle cx="256" cy="256" r="238"/>
+                <circle cx="256" cy="256" r="150"/>
+                <circle cx="256" cy="256" r="110"/>
+              </g>
+
+              <!-- Everything that breathes. One group, so the breath is a
+                   property of the object rather than something applied six
+                   times and drifting out of phase. -->
+              <g class="hub-breathe">
+
+                <!-- Ripples. Three staggered rings travelling outward from the
+                     core. At idle this is a slow tide; from the moment a
+                     message is sent it is fast and reaches further. -->
+                <g class="hub-ripples" fill="none">
+                  <circle class="hub-ripple" cx="256" cy="256" r="100"/>
+                  <circle class="hub-ripple" cx="256" cy="256" r="100"/>
+                  <circle class="hub-ripple" cx="256" cy="256" r="100"/>
                 </g>
-                <g class="hub-arc">
-                  <path d="M 301.58 128.87 A 124 124 0 0 0 98.42 128.87"/>
-                  <path d="M 98.42 271.13 A 124 124 0 0 0 301.58 271.13"/>
+
+                <!-- ── Layer 1: the outer ring. Turns clockwise. ── -->
+                <g class="hub-layer hub-outer" fill="none">
+                  <circle class="hub-ring-heavy" cx="256" cy="256" r="238"
+                          stroke-dasharray="340 33.85" stroke-linecap="butt"/>
+                  <circle class="hub-ring-thin" cx="256" cy="256" r="228"
+                          stroke-dasharray="430 47.5"/>
+                  <!-- The three beads on the left flank and the notch at the
+                       foot: the two asymmetries that stop the outer ring
+                       reading as a plain circle. -->
+                  <g class="hub-bead">
+                    <circle cx="36.2" cy="286.9" r="4"/>
+                    <circle cx="34.0" cy="256.0" r="4"/>
+                    <circle cx="36.2" cy="225.1" r="4"/>
+                  </g>
+                  <path class="hub-notch" d="M 214 489 L 232 471 L 280 471 L 298 489"/>
                 </g>
-                <g class="hub-arc">
-                  <path d="M 324.52 112.81 A 152 152 0 0 0 75.48 112.81"/>
-                  <path d="M 75.48 287.19 A 152 152 0 0 0 324.52 287.19"/>
+
+                <!-- ── Layer 2: the tick collar. Turns anticlockwise. ──
+                     Two rings of ticks at different pitches. The dense one is
+                     60 ticks at r=205 (2*pi*205 = 1288.05, so 21.47 per tick);
+                     the long one is 24 at r=180 (1130.97, 47.12 per tick). -->
+                <g class="hub-layer hub-ticks" fill="none">
+                  <circle class="hub-tick-fine" cx="256" cy="256" r="205"
+                          stroke-dasharray="6 15.47"/>
+                  <circle class="hub-tick-long" cx="256" cy="256" r="180"
+                          stroke-dasharray="5 42.12"/>
+                  <circle class="hub-ring-thin" cx="256" cy="256" r="192"/>
                 </g>
-                <g class="hub-arc">
-                  <path d="M 347.46 96.75 A 180 180 0 0 0 52.54 96.75"/>
-                  <path d="M 52.54 303.25 A 180 180 0 0 0 347.46 303.25"/>
+
+                <!-- ── Layer 3: the inner band. Turns clockwise, faster. ──
+                     The solid blue collar, its segment breaks, and the four
+                     status beads that sit on it. -->
+                <g class="hub-layer hub-inner" fill="none">
+                  <circle class="hub-band-fill" cx="256" cy="256" r="150"/>
+                  <circle class="hub-band-seg" cx="256" cy="256" r="150"
+                          stroke-dasharray="160 28.5"/>
+                  <circle class="hub-ring-bright" cx="256" cy="256" r="136"/>
+                  <g class="hub-dot">
+                    <circle cx="170.0" cy="133.1" r="5"/>
+                    <circle cx="204.7" cy="115.1" r="5"/>
+                    <circle cx="242.9" cy="106.6" r="5"/>
+                    <circle cx="282.0" cy="108.3" r="5"/>
+                  </g>
                 </g>
-              </svg>
-            </div>
-            <div class="hub-word">F.R.I.D.A.Y.</div>
+
+                <!-- ── Layer 4: the segmented track. Turns anticlockwise. ──
+                     The blocky detail ring from the original mark: 28 blocks
+                     at r=110 (2*pi*110 = 691.15, 24.68 per block). -->
+                <g class="hub-layer hub-seg" fill="none">
+                  <circle class="hub-seg-block" cx="256" cy="256" r="110"
+                          stroke-dasharray="14 10.68"/>
+                  <circle class="hub-ring-thin" cx="256" cy="256" r="118"/>
+                  <circle class="hub-seg-fine" cx="256" cy="256" r="95"
+                          stroke-dasharray="3 6"/>
+                </g>
+
+                <!-- ── Layer 5: the arcs that beat. ──
+                     Four 50-degree arcs at r=168, fixed in place. These are
+                     what pulses when text arrives; they do not rotate,
+                     because a beat that also travels reads as a spinner. -->
+                <g class="hub-arcs" fill="none">
+                  <path d="M 98.1 198.5 A 168 168 0 0 1 198.5 98.1"/>
+                  <path d="M 313.5 98.1 A 168 168 0 0 1 413.9 198.5"/>
+                  <path d="M 413.9 313.5 A 168 168 0 0 1 313.5 413.9"/>
+                  <path d="M 198.5 413.9 A 168 168 0 0 1 98.1 313.5"/>
+                </g>
+
+                <!-- The accent arc on the left flank, in the secondary accent.
+                     The original mark's was amber; the page owns no amber, and
+                     a logo lit in a colour nothing else on screen uses reads as
+                     a broken asset rather than an accent. --az2 is the same
+                     gesture in a colour the palette already has. -->
+                <path class="hub-accent" fill="none"
+                      d="M 78.4 338.8 A 196 196 0 0 1 78.4 173.2"/>
+
+                <!-- ── Layer 6: the wordmark. Never rotates. ──
+                     Lettering that turns is a logo being spun rather than a
+                     system at work. The dark plate under it is what keeps the
+                     segmented track from running through the glyphs.
+
+                     textLength pins the wordmark to 278px whatever font
+                     actually resolves, so the mark does not reflow when
+                     Orbitron lands a beat after first paint. -->
+                <g class="hub-word">
+                  <ellipse class="hub-plate" cx="256" cy="256" rx="168" ry="46"
+                           fill="url(#hub-plate-grad)"/>
+                  <circle class="hub-core" cx="256" cy="256" r="88"
+                          fill="url(#hub-core-grad)"/>
+                  <text class="hub-wordmark" x="256" y="269"
+                        text-anchor="middle" textLength="278"
+                        lengthAdjust="spacingAndGlyphs">J.A.R.V.I.S.</text>
+                </g>
+              </g>
+            </svg>
           </div>
 
           <!-- Chat. The same conversation as Telegram, over loopback, so it
@@ -180,21 +316,31 @@
       </div>
     </div>
 
-    <!-- Weather. Floats top-right, pinned to the viewport rather than stacked
-         with the other panels — its own clock (ten minutes), see
-         startWidgets. Collapsed to an icon and a temperature; hovering
-         (desktop only — see the (hover: hover) query) enlarges it to the
-         full reading, and a click/tap pins it open until a second click/tap,
-         since touch has no hover to fall back on. Fails soft: a dead network
+    <!-- Weather. Seated into the far-right end of the ticker band — same top
+         edge, same height, flush to the viewport corner — so at rest it reads
+         as the right-hand end of the bar rather than a card floating over it.
+         Its own clock (ten minutes), see startWidgets.
+
+         Clicking the readout sweeps it left across the whole bar and drops it
+         open with the full reading, covering the tickers. It stops short of
+         the settings button, which stays visible throughout. Closed by the
+         ×, by Escape, or by a click anywhere outside it.
+
+         The compact readout is a real <button> so the disclosure is reachable
+         from the keyboard at all — it was a bare div with a click listener,
+         which no amount of CSS makes operable. Fails soft: a dead network
          renders a line of text in the expanded body, never an empty page. -->
     <div class="wx-widget" id="weather-widget">
-      <div class="wx-compact" id="weather-compact">
+      <button class="wx-compact" id="weather-toggle"
+              aria-expanded="false" aria-controls="weather-panel"
+              aria-label="Weather — open the full reading">
         <span class="wx-compact-icon" id="wx-compact-icon">○</span>
         <span class="wx-compact-temp" id="wx-compact-temp">—°</span>
-      </div>
-      <div class="wx-expanded">
+      </button>
+      <div class="wx-expanded" id="weather-panel">
+        <button class="wx-close" id="weather-close" aria-label="Close weather">×</button>
         <h2>WEATHER</h2>
-        <div id="weather-body"><div class="hint">Loading…</div></div>
+        <div class="wx-body" id="weather-body"><div class="hint">Loading…</div></div>
       </div>
     </div>
   </template>

@@ -256,7 +256,7 @@ HAMBURGER_BTN.addEventListener('click', () => {
 });
 SIDEBAR_BACKDROP.addEventListener('click', closeSidebar);
 window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') closeSidebar();
+  if (e.key === 'Escape') { closeSidebar(); closeWeather(); }
 });
 
 // ── Sidebar status indicator ───────────────────────────────────────────
@@ -498,15 +498,89 @@ function startWidgets() {
   WIDGET_TIMER = setInterval(tick, 60000);
 }
 
-// Click/tap toggles .pinned, which keeps the widget enlarged independent of
-// hover — the only interaction touch has, and on desktop the second click
-// that shrinks it back down. Bound once per page load: navigate() clones a
-// fresh #page-today template on every visit, so there's never a stale
-// listener to double up.
+// The weather widget is the right-hand end of the ticker band; open, it
+// sweeps left across the whole bar and replaces the tickers with the full
+// reading, without ever leaving the band's 40px.
+//
+// Three ways in, and only one of them is here. Hover is pure CSS (see the
+// (hover: hover) block in style.css). What this file owns is .open — the
+// pin, set by a click, a tap, or Enter on the readout — which survives the
+// pointer leaving. Touch has no hover to rely on, and on desktop a pin is
+// what lets you stop holding the mouse still while you read.
+//
+// Closed by the ×, by Escape (see the keydown handler by the drawer), or by
+// a click anywhere outside. No backdrop: the panel covers the bar, not the
+// page, and dimming a homepage the user is still reading to close a weather
+// readout is a heavier gesture than the thing it guards.
+//
+// State lives in the DOM (the .open class) rather than a variable, and every
+// function here re-looks-up its elements, because navigate() clones a fresh
+// #page-today on every visit — a closure over the old nodes would be acting
+// on a widget that is no longer on the page.
+let WEATHER_DOC_BOUND = false;
+
+function setWeatherOpen(open) {
+  const widget = document.getElementById('weather-widget');
+  if (!widget) return;                     // navigated away
+  const toggle = document.getElementById('weather-toggle');
+  const closeBtn = document.getElementById('weather-close');
+  widget.classList.toggle('open', open);
+  if (toggle) toggle.setAttribute('aria-expanded', String(open));
+
+  // Closing while the pointer is still on the widget has to beat the :hover
+  // that would otherwise hold it open — without this the × appears to do
+  // nothing, because it does nothing. Only set when hover is actually what
+  // would keep it open: setting it on an outside click, with the pointer
+  // somewhere else entirely, would leave a flag that no mouseleave ever
+  // arrives to clear and the next hover would find the widget suppressed.
+  widget.classList.toggle('dismissed', !open && widget.matches(':hover'));
+
+  // Follow the disclosure with focus, but only when focus was already inside
+  // it. Opening always qualifies (the toggle is what was just activated, and
+  // it is about to go visibility:hidden, which would drop focus to the body).
+  // Closing often does not: an outside click closes the panel, and stealing
+  // focus back from the chat box the user just clicked into would be worse
+  // than the stale focus it fixes.
+  const next = open ? closeBtn : toggle;
+  if (next && (open || widget.contains(document.activeElement))) next.focus();
+}
+
+function closeWeather() {
+  const widget = document.getElementById('weather-widget');
+  if (widget && widget.classList.contains('open')) setWeatherOpen(false);
+}
+
 function initWeatherWidget() {
   const widget = document.getElementById('weather-widget');
   if (!widget) return;
-  widget.addEventListener('click', () => widget.classList.toggle('pinned'));
+  // These are on the cloned template, which navigate() replaces whole, so
+  // there is never a stale listener to double up.
+  //
+  // The pin is bound to the whole widget rather than to the readout button,
+  // and it has to be: on a hover-capable pointer the readout is already
+  // visibility:hidden by the time a click could land on it — hovering it is
+  // what opens the panel over it — so a listener on the button alone is a
+  // pin no mouse can ever reach. Bound here it catches the click wherever it
+  // falls, including the one that bubbles up from the button itself, which
+  // is the path a tap and a keyboard Enter both take.
+  widget.addEventListener('click', (e) => {
+    if (e.target.closest('.wx-close')) return;   // that button's own handler closes
+    setWeatherOpen(true);
+  });
+  document.getElementById('weather-close')
+    .addEventListener('click', () => setWeatherOpen(false));
+  // The dismiss lasts exactly as long as the pointer stays put.
+  widget.addEventListener('mouseleave', () => widget.classList.remove('dismissed'));
+
+  // This one is not: the document survives navigation, so binding it per
+  // visit would stack a dead listener every time Today is opened.
+  if (!WEATHER_DOC_BOUND) {
+    WEATHER_DOC_BOUND = true;
+    document.addEventListener('click', (e) => {
+      const w = document.getElementById('weather-widget');
+      if (w && w.classList.contains('open') && !w.contains(e.target)) closeWeather();
+    });
+  }
 }
 
 async function loadWeather() {
@@ -2420,10 +2494,62 @@ function openStream() {
 const HUB_SPEAK_SETTLE_MS = 1600;
 let HUB_SETTLE_TIMER = null;
 
+// How much faster the four rings turn per state. The DURATIONS live in
+// style.css and never change; only the rate does.
+//
+// This is the one thing in the mark that CSS cannot do without an artefact.
+// Restating `animation-duration` on a running animation re-maps the elapsed
+// time onto the new duration, so a ring 40% through a 74s turn becomes a ring
+// 40% through a 28s turn — the same angle, but every subsequent frame lands
+// somewhere it would not have, and on the outer ring (four-fold symmetric,
+// with a notch) that reads as a visible jolt on every send. playbackRate
+// changes the speed from the current frame forward and moves nothing.
+//
+// Everything else about the mark is still pure CSS. This is a speed dial on
+// animations declared in the stylesheet, not an animation loop.
+const HUB_SPIN_RATE = { idle: 1, thinking: 2.6, speaking: 3.4 };
+
 function hubState(state) {
   const hub = document.getElementById('hub');
   if (!hub) return;                 // not on the homepage; nothing to drive
   hub.dataset.state = state;
+  hubSpin(hub, HUB_SPIN_RATE[state] || 1);
+}
+
+// Older engines have neither getAnimations nor updatePlaybackRate. Both
+// absences degrade to the rings turning at their idle rate forever, which is
+// a mark that animates slightly less rather than a mark that is broken — so
+// this fails quiet on purpose.
+function hubSpin(hub, rate) {
+  if (typeof hub.getAnimations !== 'function') return;
+  let anims;
+  try { anims = hub.getAnimations({ subtree: true }); } catch { return; }
+  for (const a of anims) {
+    const name = a.animationName || '';
+    if (!name.startsWith('hub-spin-')) continue;
+    if (typeof a.updatePlaybackRate === 'function') a.updatePlaybackRate(rate);
+    else a.playbackRate = rate;
+  }
+}
+
+// One strike of the arcs per arriving message or card.
+//
+// A reply is not token-streamed — channels/dashboard.py emits it whole — so a
+// continuous shimmer would be a loop pretending to be throughput, which is
+// the same lie a fake waveform would be. A beat per thing that actually
+// landed claims exactly what is known: a turn emitting a card and then a
+// message beats twice, and a one-line answer beats once.
+//
+// The class has to come off, take effect, and go back on: re-adding a class
+// that is already there restarts nothing. getBoundingClientRect() forces the
+// style flush that makes the removal real. SVG elements are not HTMLElements
+// and have no offsetWidth to read for this.
+function hubBeat() {
+  const arcs = document.querySelector('#hub-svg .hub-arcs');
+  if (!arcs) return;
+  arcs.classList.remove('hub-beat');
+  arcs.getBoundingClientRect();
+  arcs.classList.add('hub-beat');
 }
 
 // `thinking` has no timer: it ends when a reply renders, or when chatSend's
@@ -2531,6 +2657,7 @@ function chatRenderEvent(ev) {
   // response and anything arriving on the stream from Telegram alike — which
   // is why the hub's speaking pulse hangs off this and not off either caller.
   hubSpeaking();
+  hubBeat();
   if (ev.kind === 'card') { chatAppend(chatCard(ev.key, ev.text)); return; }
   const text = ev.kind === 'notify'
     ? [ev.title, ev.text].filter(Boolean).join(' — ') : (ev.text || '');
