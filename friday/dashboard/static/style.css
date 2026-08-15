@@ -1631,65 +1631,108 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
 }
 
 /* ── The hub ───────────────────────────────────────────────────────────────
-   Dead centre: the J.A.R.V.I.S. mark, drawn as inline SVG in six layers that
-   move independently. It is the one lit object on the page, and everything
-   else is deliberately quiet so that reads.
+   Dead centre: two layers over one state.
 
-   ── Why it stopped being a PNG ──
+   Inside out — the wordmark, the concentric rings and tick collar, then a
+   ring of 90 bars standing on the outermost ring's edge and growing outward.
 
-   A raster mark has exactly one handle: the whole image. Scale it, rotate it,
-   filter it. That is why the previous version's entire animation vocabulary
-   was a hue shift and a 1% scale — there was nothing inside the file to move,
-   so "thinking" and "speaking" had to be told apart by colour temperature
-   alone. Vector layers give the mark an inside: the collar can turn against
-   the ring, the arcs can beat while the lettering holds still, and a ripple
-   can leave the core and travel out through all of it.
+   ── Why two layers and not one ──
 
-   ── The bloom is stroked, not filtered ──
+   The rings are the object: they counter-rotate, and the rate steps up with
+   the state. The bars are the voice: a travelling wave whose amplitude and
+   wavelength change with the state, plus one bright crest per arriving event.
+   Those are two different questions — what Friday IS, and what Friday is
+   DOING — and only the second has an answer that changes second to second.
+   Collapsing them into one layer means either a mark that sits inert between
+   turns or a mark that thrashes during them.
 
-   No `filter:` anywhere in this block, and that is a performance decision, not
-   a taste one. An SVG blur filter over a group re-runs on every frame its
-   children transform, and this mark has four groups rotating continuously at
-   400px. The halo is a radial-gradient disc and the ring glow is a set of
-   wide, low-opacity twins of the same circles (.hub-bloom) — both are ordinary
-   paint, and the only thing that animates about them is opacity, which is the
-   cheapest property there is.
+   Everything is 0.72x the radii the rings had before the bars arrived, so
+   adding a layer outside them did not grow the mark: rings top out at
+   r=173.75, bars run 176 to 230.4 and reach 247.4 on a beat, inside a 512
+   viewBox. ~400px on screen, as before.
 
-   ── Colour ──
+   ── The wave ──
 
-   Structure in --az, emphasis in --az-bright, the single accent arc in --az2.
-   The original artwork had an amber arc on the left flank; the page owns no
-   amber, and a logo carrying a colour nothing else on screen uses reads as a
-   broken asset rather than as an accent. --az2 is the same gesture in a
-   colour the palette already has.
+     height(i, t) = base + amp * sin(2*pi * (k*i/N - t/T))
+
+   which is ONE periodic function sampled at a constant per-bar time offset —
+   and a constant per-bar time offset is exactly what `animation-delay` is. So
+   the travelling wave is not computed anywhere; it is a property of the
+   declaration below, and the bars cannot drift out of phase because there is
+   nothing keeping them in phase in the first place.
+
+   k is the number of crests around the ring and N is 90, so bar i lags bar 0
+   by k*i/90 of a cycle and a crest takes k*T to travel all the way round: at
+   idle, k=3 and T=2.667s, which is the ~8s revolution.
+
+   Nothing is randomised per frame, deliberately. The TTS audio plays on the
+   Mac and this browser cannot hear a sample of it; a reply arrives whole
+   rather than token by token. There is no amplitude available to show, so a
+   jittering ring would be a lie told at 60fps — and one every viewer would
+   read as real, because that is what a visualiser means. An undulation claims
+   only that Friday is working, which is the thing that is actually known.
+
+   ── Why 270 elements and not one regenerated <path> ──
+
+   A path recomputed on an interval is a JS animation loop with a nicer name.
+   Low-frequency means visibly stepped, which on a wave is the one artefact
+   there is no hiding; high-frequency is the requestAnimationFrame loop this
+   codebase has avoided everywhere else. It would also have to watch
+   prefers-reduced-motion itself and stop, where a stylesheet just honours the
+   media query. And it would keep its own clock, giving it thirty chances a
+   second to get the phase relation wrong.
 
    ── The three states ──
 
-   Written to `data-state` on .hub by hubState() in app.js:
+     idle       rings counter-rotate at base rate; a gentle 3-crest sine
+                undulating in place, one lap every ~8s
+     thinking   rings 2.6x; a loading spinner — one compact lit crest circling
+                a dim track every ~1.03s. From the moment a message is sent
+                until something comes back
+     speaking   rings 3.4x; k=0, so the bar ring stays a circle and breathes
+                as one at ~0.76s a pulse, while the beat runs its crest round
+                on top. Settles back to idle when the traffic stops
 
-     idle       rings counter-rotate, a slow breath, a slow outward tide
-     thinking   ripple three times the rate and reaching further out, from
-                the moment a message is sent until something comes back
-     speaking   the ripple at its fastest and the bloom at its brightest,
-                while a response arrives; settles back to idle when the
-                traffic stops
+   Only ONE of the three has a shape, and it is the quiet one. Thinking has to
+   say "still working" to someone watching it do nothing else, which is what a
+   single travelling crest is for and what a standing wave is not; speaking
+   has the beat to carry the event, so its job is to stay round and get out of
+   the way.
 
-   ── and the one thing a state cannot express ──
+   ── Speed is playbackRate, for both layers ──
 
-   `.hub-beat` is a one-shot class app.js re-applies per arriving event, so
-   the arcs strike once per message or card rather than cycling on a timer.
-   A reply is not token-streamed — it arrives whole — so a continuous "typing"
-   shimmer would be a loop pretending to be throughput. One beat per thing
-   that actually arrived claims only what is true. Same reason there is no
-   waveform: the TTS audio plays on the Mac and this browser cannot hear it.
+   No duration in this file changes with the state. Restating
+   `animation-duration` on a running animation re-maps elapsed time onto the
+   new value: a four-fold-symmetric ring visibly jolts, and 90 bars land as a
+   frame of noise. hubSpin() in app.js drives both animation families off one
+   state. See the note there.
 
-   ── Rotation speed is not in here ──
+   Amplitude and wavelength DO change per state, and changing k rewrites every
+   bar's delay, which re-phases the bar ring in a single frame. That is
+   deliberate and it is the one discontinuity in the mark: there is no way to
+   slide continuously from a 3-crest wave to a 5-crest one without cross-fading
+   two rings. It lands on the frame the user pressed send, alongside the
+   amplitude step, so it reads as changing gear rather than as a glitch.
 
-   The four rotations run at a fixed rate and app.js changes their
-   playbackRate instead (see hubState). Restating `animation-duration` per
-   state re-maps elapsed time onto the new duration, which makes a ring with
-   four-fold symmetry visibly jump on every send. playbackRate is the one
-   handle that changes speed without moving the current frame.             */
+   ── The beat belongs to the bars ──
+
+   `.hub-beat` is a one-shot class app.js re-applies per arriving event: a
+   bright crest running once around the bar ring in 900ms, each bar lit 10ms
+   after its neighbour. It rides ON the wave, because .hub-tip's scaleY is
+   nested inside .hub-bar's and two nested scales multiply. One strike per
+   thing that actually arrived — a turn emitting a card and then a message
+   beats twice.
+
+   The four fixed arcs used to carry this and no longer do. Two things beating
+   on the same event is one thing too many, and the bars are where a beat
+   reads. The arcs keep a standing per-state pulse instead.
+
+   ── No filters, anywhere ──
+
+   A blur filter over a group re-runs every frame its children transform, and
+   here that is four rotating rings and 90 bars. The halo is a radial-gradient
+   disc and the ring glow is a wide, low-opacity stroke twin. Only opacity
+   animates.                                                                */
 
 .hub {
   position: relative;
@@ -1699,32 +1742,50 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
   /* No height of its own: the mark sets it. Still never a flex 1fr — the
      chat is what should absorb the slack in the column. */
   flex: 0 0 auto;
-  /* ~400px, not the ~750px the PNG grew to. The mark is the anchor of the
-     page, not the page. Three caps rather than one: a pixel ceiling so it
-     never dominates a wide monitor, a vh cap so a short viewport does not
-     leave the transcript a two-line slot, and 100% so it fits the column on a
-     phone. Bounding the width bounds the height too — the mark is square. */
+  /* Three caps: a pixel ceiling so the mark never dominates a wide monitor, a
+     vh cap so a short viewport does not leave the transcript a two-line slot,
+     and 100% so it fits the column on a phone. Bounding the width bounds the
+     height too — the mark is square. */
   width: min(100%, 400px, 46vh);
   align-self: center;
   margin-bottom: clamp(14px, 2.2vh, 30px);
 
-  /* Every duration and amplitude the layers below read. Collected here so a
-     state is one block of numbers rather than a rule per layer. */
-  --hub-breathe-dur: 6s;
-  --hub-ripple-dur: 6.5s;
-  --hub-bloom-dur: 6s;
+  /* Every number the two layers read. A state is this block and nothing else.
+     --hub-period is FIXED across all three; speed comes from playbackRate. */
+  --hub-period: 2.667s;
+  --hub-k: 3;         /* crests around the bar ring -> round = k * period */
+  --hub-lo: 0.55;     /* bar scaleY at the trough                        */
+  --hub-hi: 1.5;      /* bar scaleY at the crest                         */
+  --hub-still: 1;     /* the reduced-motion bar height for this state    */
 }
 
 .hub[data-state="thinking"] {
-  --hub-breathe-dur: 2.4s;
-  --hub-ripple-dur: 1.9s;
-  --hub-bloom-dur: 2s;
+  /* A loading spinner: one compact, bright crest travelling a quiet track.
+     The low baseline is the point — a spinner is legible because most of its
+     ring is DIM, and the eye is given exactly one thing to follow. The crest
+     carries brightness as well as height (see hub-wave-ripple), which is what
+     lets the track sit this low without thinking reading as quieter than
+     idle. */
+  --hub-k: 1;
+  --hub-lo: 0.55;
+  --hub-hi: 2.8;
+  --hub-still: 1.6;
 }
 
 .hub[data-state="speaking"] {
-  --hub-breathe-dur: 1.05s;
-  --hub-ripple-dur: 1.1s;
-  --hub-bloom-dur: 1.05s;
+  /* k=0 — every bar in phase, so the ring stays a CIRCLE and breathes in and
+     out as one. This was k=6, which put six crests on the ring at full
+     amplitude and drew a six-pointed star every time Friday answered.
+
+     Zero crests is also the right answer for a second reason: the beat is
+     already a crest running the ring once per arriving event, and that is the
+     motion an answer should have. A standing wave underneath it would be a
+     second thing circling at a different rate, and two crests at two speeds
+     read as neither. So speaking gives the beat an empty track to run on. */
+  --hub-k: 0;
+  --hub-lo: 1.2;
+  --hub-hi: 2.6;
+  --hub-still: 2.2;
 }
 
 .hub-mark {
@@ -1735,17 +1796,26 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
   -webkit-user-drag: none;
 }
 
-/* Every rotating or scaling group resolves its origin against the viewBox
-   rather than its own bounding box. `fill-box` would be right for the full
-   rings and wrong for the accent arc and the notch, which are not centred on
-   anything — and a partial arc pivoting about its own middle is the bug that
-   looks like the whole mark is broken. One rule, no exceptions. */
-.hub-mark [class^="hub-"],
-.hub-mark [class*=" hub-"] {
+/* Two transform-box regimes, and they are not interchangeable.
+
+   The rings turn about the mark's centre, so they resolve against the
+   viewBox. `fill-box` would be right for the full circles and wrong for the
+   accent arc and the notch, which are not centred on anything — a partial arc
+   pivoting about its own middle is the bug that looks like the whole mark is
+   broken.
+
+   The bars scale about their own base, the edge sitting on the collar, so
+   they resolve against their own box. Declared per selector rather than
+   blanket across the SVG precisely because the two disagree. */
+.hub-outer, .hub-ticks, .hub-inner, .hub-seg, .hub-arcs, .hub-accent {
   transform-box: view-box;
   transform-origin: 50% 50%;
 }
 
+.hub-bar, .hub-tip {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+}
 
 /* ── Paint ────────────────────────────────────────────────────────────── */
 
@@ -1753,30 +1823,30 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
 .hub-halo-mid { stop-color: rgba(var(--az-rgb), 0.05); }
 .hub-halo-out { stop-color: rgba(var(--az-rgb), 0);    }
 
-.hub-core-in  { stop-color: rgba(var(--az2-rgb), 0.16); }
+.hub-core-in  { stop-color: rgba(var(--az2-rgb), 0.14); }
 .hub-core-out { stop-color: rgba(var(--az2-rgb), 0);    }
 
-.hub-plate-in  { stop-color: rgba(var(--ink-rgb), 0.86); }
-.hub-plate-mid { stop-color: rgba(var(--ink-rgb), 0.62); }
+.hub-plate-in  { stop-color: rgba(var(--ink-rgb), 0.58); }
+.hub-plate-mid { stop-color: rgba(var(--ink-rgb), 0.32); }
 .hub-plate-out { stop-color: rgba(var(--ink-rgb), 0);    }
 
 .hub-bloom circle {
   stroke: rgba(var(--az-rgb), 0.16);
-  stroke-width: 26;
+  stroke-width: 22;
 }
 
-.hub-ring-heavy  { stroke: var(--az);        stroke-width: 7;   }
-.hub-ring-thin   { stroke: var(--az-deep);   stroke-width: 2;   }
-.hub-ring-bright { stroke: var(--az-bright); stroke-width: 2.5; }
+.hub-ring-heavy  { stroke: var(--az);        stroke-width: 5.5; }
+.hub-ring-thin   { stroke: var(--az-deep);   stroke-width: 1.6; }
+.hub-ring-bright { stroke: var(--az-bright); stroke-width: 2;   }
 
-.hub-tick-fine { stroke: var(--az-soft); stroke-width: 20; opacity: 0.75; }
-.hub-tick-long { stroke: var(--az);      stroke-width: 26; opacity: 0.55; }
+.hub-tick-fine { stroke: var(--az-soft); stroke-width: 15; opacity: 0.75; }
+.hub-tick-long { stroke: var(--az);      stroke-width: 19; opacity: 0.55; }
 
-.hub-band-fill { stroke: rgba(var(--az-rgb), 0.30); stroke-width: 22; }
-.hub-band-seg  { stroke: var(--az);                 stroke-width: 22; opacity: 0.55; }
+.hub-band-fill { stroke: rgba(var(--az-rgb), 0.30); stroke-width: 16; }
+.hub-band-seg  { stroke: var(--az);                 stroke-width: 16; opacity: 0.55; }
 
-.hub-seg-block { stroke: var(--az);      stroke-width: 13;  opacity: 0.45; }
-.hub-seg-fine  { stroke: var(--az-soft); stroke-width: 1.5; opacity: 0.5;  }
+.hub-seg-block { stroke: var(--az);      stroke-width: 9.5; opacity: 0.62; }
+.hub-seg-fine  { stroke: var(--az-soft); stroke-width: 1.2; opacity: 0.5;  }
 
 .hub-bead circle { fill: var(--az-soft);   }
 .hub-dot  circle { fill: var(--az-bright); }
@@ -1784,47 +1854,47 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
 .hub-notch {
   fill: none;
   stroke: var(--az);
-  stroke-width: 5;
+  stroke-width: 4;
   stroke-linejoin: round;
 }
 
 .hub-arcs path {
   stroke: var(--az-bright);
-  stroke-width: 5;
+  stroke-width: 4;
   stroke-linecap: round;
-  opacity: 0.55;
+  opacity: 0.5;
 }
 
 .hub-accent {
   stroke: var(--az2);
-  stroke-width: 6;
+  stroke-width: 4.5;
   stroke-linecap: round;
   opacity: 0.9;
 }
 
-.hub-ripple {
-  stroke: var(--az2);
-  stroke-width: 3;
-  opacity: 0;
-}
+/* The bar colour is set on the GROUP, not the bar, so the wave can animate
+   `fill` on .hub-bar and have the rect inherit it. A `fill` of its own on
+   .hub-tip would win over the inherited value and the spinner's bright crest
+   would be a height change with no light in it. The beat still sets fill on
+   .hub-tip directly, which correctly overrides the inheritance — the two
+   never run at once anyway, since a beat only ever fires in `speaking`. */
+.hub-bars { fill: var(--az); }
 
 .hub-wordmark {
   font-family: 'Orbitron', sans-serif;
   font-weight: 700;
-  font-size: 34px;
+  font-size: 25px;
   fill: var(--text);
-  letter-spacing: 1px;
+  letter-spacing: 0.5px;
 }
-
 
 /* ── Rotation ─────────────────────────────────────────────────────────────
    Counter-rotating pairs: the outer ring and the inner band turn one way, the
    tick collar and the segmented track the other. Adjacent layers never share
    a direction — two neighbours turning together read as one thicker ring.
-   The wordmark and the arcs are not in here at all.
+   The bar ring, the arcs and the wordmark are not in here at all.
 
-   Durations are the IDLE rate and never change. Speed is playbackRate, set in
-   app.js — see the note at the top of this section.                       */
+   Durations are the IDLE rate and never change; speed is playbackRate.     */
 
 .hub-outer { animation: hub-spin-cw  74s linear infinite; }
 .hub-ticks { animation: hub-spin-ccw 96s linear infinite; }
@@ -1834,92 +1904,67 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
 @keyframes hub-spin-cw  { to { transform: rotate(360deg);  } }
 @keyframes hub-spin-ccw { to { transform: rotate(-360deg); } }
 
+/* ── The wave ─────────────────────────────────────────────────────────────
+   ease-in-out on both halves of the cycle is what makes this a sine rather
+   than a triangle: the timing function applies between each pair of
+   keyframes, so a two-stop cycle eased at both ends has zero derivative at
+   the extremes, which is the shape of a cosine.                            */
 
-/* ── Breath ───────────────────────────────────────────────────────────────
-   The whole mark, on one group, so the breath is a property of the object
-   rather than six copies drifting out of phase.
-
-   The amplitude is deliberately tiny and gets smaller as the mark gets
-   bigger: 1.06 on the 240px arcs this replaced was 14px of travel; on a
-   400px mark 1.03 is already 12. Percentage motion has to shrink as the
-   object grows, or a logo breathing becomes a logo lurching.              */
-
-.hub-breathe {
-  animation: hub-breathe var(--hub-breathe-dur) ease-in-out infinite;
+.hub-bar {
+  animation: hub-wave var(--hub-period) ease-in-out infinite;
+  /* The phase. A negative delay of k*i/N of a period puts bar i that far
+     ahead of bar 0, which IS the travelling wave — there is nothing else to
+     it. 90 is the bar count, restated here because a custom property cannot
+     be used as a divisor without being registered. */
+  animation-delay: calc(var(--hub-period) * -1 * var(--hub-k) * var(--i) / 90);
 }
 
-@keyframes hub-breathe {
-  0%, 100% { transform: scale(1);      }
-  50%      { transform: scale(1.012);  }
+@keyframes hub-wave {
+  0%, 100% { transform: scaleY(var(--hub-lo)); }
+  50%      { transform: scaleY(var(--hub-hi)); }
 }
 
-.hub[data-state="thinking"] .hub-breathe { animation-name: hub-breathe-think; }
-.hub[data-state="speaking"] .hub-breathe { animation-name: hub-breathe-speak; }
+/* ── thinking: the spinner ────────────────────────────────────────────────
+   A different waveform, not just different numbers in the same one.
 
-@keyframes hub-breathe-think {
-  0%, 100% { transform: scale(1);      }
-  50%      { transform: scale(1.018);  }
+   `hub-wave` is a sine: every bar spends half its cycle above the midline, so
+   at k>1 the ring reads as a lobed shape breathing in place. Correct as a
+   wave, wrong as a signal — nothing appears to GO anywhere.
+
+   This is a pulse: flat and dim at --hub-lo for three quarters of the cycle,
+   one crest, flat again. Paired with k=1 it puts exactly one crest on the
+   ring at a time, and the same per-bar delay that made the sine undulate now
+   sends that crest round the ring once per cycle — about a second a lap.
+
+   It animates `fill` as well as height, and that is what makes it read as a
+   spinner rather than as a bump travelling round a hoop. A spinner is legible
+   because its track is dim and exactly one segment is lit; height alone on a
+   uniformly bright ring gives the eye no single thing to follow. --az-deep is
+   the track, --az-soft is the lit segment.
+
+   The rise is 7% and the fall is 17%, deliberately unequal. A symmetric crest
+   has no direction; a steep nose and a long tail is which way it is going,
+   and it costs one keyframe to say so.
+
+   Changing animation-name rather than reshaping `hub-wave` is what makes the
+   crest launch from bar 0 — twelve o'clock — on the frame the message was
+   sent, because a new animation starts at time zero. It also resets
+   playbackRate, which is why hub-wave-ripple is in hubSpin's table too. */
+@keyframes hub-wave-ripple {
+  0%   { transform: scaleY(var(--hub-lo)); fill: var(--az-deep); }
+  7%   { transform: scaleY(var(--hub-hi)); fill: var(--az-soft); }
+  24%  { transform: scaleY(var(--hub-lo)); fill: var(--az-deep); }
+  100% { transform: scaleY(var(--hub-lo)); fill: var(--az-deep); }
 }
 
-@keyframes hub-breathe-speak {
-  0%, 100% { transform: scale(1);      }
-  45%      { transform: scale(1.026);  }
-}
-
-
-/* ── The ripple ───────────────────────────────────────────────────────────
-   Three rings leaving the core on a stagger, so the outward travel is
-   continuous rather than a single ring restarting.
-
-   Each state is its OWN keyframe name rather than one set of frames with the
-   duration swapped, and that is the point of the whole layer: changing the
-   name restarts the animation, so pressing send does not just speed the tide
-   up, it launches a ring from the centre on the same frame. A duration swap
-   would leave the current ring mid-flight and only look faster on the next
-   one, which is a beat and a half after the gesture that caused it.
-
-   Scale, not `r`. Scaling a stroked circle thickens the stroke as it grows,
-   which is backwards for a ripple, so stroke-width is walked down across the
-   same keyframes to cancel it.                                            */
-
-.hub-ripple {
-  animation: hub-ripple-idle var(--hub-ripple-dur) ease-out infinite;
-}
-.hub-ripple:nth-child(2) { animation-delay: calc(var(--hub-ripple-dur) / -3); }
-.hub-ripple:nth-child(3) { animation-delay: calc(var(--hub-ripple-dur) / -1.5); }
-
-.hub[data-state="thinking"] .hub-ripple { animation-name: hub-ripple-think; }
-.hub[data-state="speaking"] .hub-ripple { animation-name: hub-ripple-speak; }
-
-/* idle — a slow tide that never leaves the inner band. */
-@keyframes hub-ripple-idle {
-  0%   { transform: scale(0.55); opacity: 0;    stroke-width: 3;   }
-  22%  {                         opacity: 0.20;                    }
-  100% { transform: scale(1.55); opacity: 0;    stroke-width: 1.6; }
-}
-
-/* thinking — three times the rate, and out past the tick collar. */
-@keyframes hub-ripple-think {
-  0%   { transform: scale(0.45); opacity: 0;    stroke-width: 3.5; }
-  15%  {                         opacity: 0.55;                    }
-  100% { transform: scale(2.25); opacity: 0;    stroke-width: 1.2; }
-}
-
-/* speaking — fastest, brightest, and all the way to the outer ring. */
-@keyframes hub-ripple-speak {
-  0%   { transform: scale(0.45); opacity: 0;    stroke-width: 4;   }
-  12%  {                         opacity: 0.8;                     }
-  100% { transform: scale(2.45); opacity: 0;    stroke-width: 1.2; }
-}
-
+.hub[data-state="thinking"] .hub-bar { animation-name: hub-wave-ripple; }
 
 /* ── Bloom ────────────────────────────────────────────────────────────────
-   The brightness channel. Opacity on three wide strokes — no filter, no
-   repaint of anything else.                                               */
+   The brightness channel: opacity on two wide strokes. No filter, and
+   nothing else repaints.                                                   */
 
 .hub-bloom {
-  opacity: 0.5;
-  animation: hub-bloom var(--hub-bloom-dur) ease-in-out infinite;
+  animation: hub-bloom 6s ease-in-out infinite;
 }
 
 @keyframes hub-bloom {
@@ -1931,49 +1976,31 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
 .hub[data-state="speaking"] .hub-bloom { animation-name: hub-bloom-speak; }
 
 @keyframes hub-bloom-think {
-  0%, 100% { opacity: 0.55; }
-  50%      { opacity: 0.85; }
+  0%, 100% { opacity: 0.6; }
+  50%      { opacity: 0.9; }
 }
 
 @keyframes hub-bloom-speak {
-  0%, 100% { opacity: 0.65; }
-  45%      { opacity: 1;    }
+  0%, 100% { opacity: 0.7; }
+  45%      { opacity: 1;   }
 }
 
+/* ── The arcs, and the accent ─────────────────────────────────────────────
+   A standing pulse, not a beat. These sit in the one clear annulus the
+   compressed stack leaves and are the ring layer's own answer to "is anything
+   happening" between events.                                               */
 
-/* ── The beat ─────────────────────────────────────────────────────────────
-   One strike per arriving message or card, not a cycle. app.js removes and
-   re-adds .hub-beat per event, so the arcs restart from zero every time
-   something actually lands — the rhythm is the traffic's, not a timer's.
-
-   The accent arc rides the same beat a fraction later, which is what stops
-   four identical arcs flashing in unison from reading as a lightbulb.     */
-
-.hub-arcs.hub-beat path { animation: hub-arc-beat 620ms ease-out 1; }
-.hub-arcs.hub-beat path:nth-child(2) { animation-delay:  60ms; }
-.hub-arcs.hub-beat path:nth-child(3) { animation-delay: 120ms; }
-.hub-arcs.hub-beat path:nth-child(4) { animation-delay: 180ms; }
-
-@keyframes hub-arc-beat {
-  0%   { opacity: 0.55; stroke-width: 5;  }
-  18%  { opacity: 1;    stroke-width: 9;  }
-  100% { opacity: 0.55; stroke-width: 5;  }
-}
-
-/* A gentler standing pulse on the arcs while a turn is in flight, so the
-   thinking state is legible even in the gap between two events. */
 .hub[data-state="thinking"] .hub-arcs path,
 .hub[data-state="speaking"] .hub-arcs path {
-  animation: hub-arc-idle 1.6s ease-in-out infinite;
+  animation: hub-arc-pulse 1.6s ease-in-out infinite;
 }
 .hub[data-state="speaking"] .hub-arcs path { animation-duration: 1.05s; }
 
-@keyframes hub-arc-idle {
-  0%, 100% { opacity: 0.45; }
+@keyframes hub-arc-pulse {
+  0%, 100% { opacity: 0.4;  }
   50%      { opacity: 0.85; }
 }
 
-/* The accent arc: always breathing a little, harder while speaking. */
 .hub-accent { animation: hub-accent-pulse 5s ease-in-out infinite; }
 .hub[data-state="thinking"] .hub-accent { animation-duration: 2s;    }
 .hub[data-state="speaking"] .hub-accent { animation-duration: 1.05s; }
@@ -1983,25 +2010,58 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
   50%      { opacity: 1;    }
 }
 
+/* ── The beat ─────────────────────────────────────────────────────────────
+   One bright crest per arriving message or card, running once around the bar
+   ring. Each bar fires 10ms after its neighbour (900ms / 90) and stays lit
+   300ms, so roughly thirty bars are bright at any moment — a crest sweeping
+   the ring rather than ninety bars blinking in sequence.
+
+   On .hub-tip, so it multiplies with .hub-bar's wave instead of replacing it.
+   Removing and re-adding the class is what restarts it; re-adding a class
+   that is already there restarts nothing. See hubBeat() in app.js.
+
+   The crest goes to --az-soft rather than --az2. --az2 is the palette's
+   accent and was the obvious choice, but it is 16 degrees of hue from --az at
+   the same brightness — on a 3.6px bar that is not a difference anyone sees,
+   and a beat nobody notices is a beat that is not there. --az-soft is a
+   brightness step instead of a hue step, which is what "bright" has to mean
+   at this size. --az2 still carries the accent, on the arc and in the core. */
+
+.hub-bars.hub-beat .hub-tip {
+  animation: hub-beat-tip 300ms ease-out 1;
+  animation-delay: calc(900ms * var(--i) / 90);
+}
+
+@keyframes hub-beat-tip {
+  0%   { transform: scaleY(1);   fill: var(--az);      }
+  35%  { transform: scaleY(1.35); fill: var(--az-soft); }
+  100% { transform: scaleY(1);   fill: var(--az);      }
+}
 
 /* Motion is decoration here and all three states are the same object. Anyone
    who has asked the OS for less motion gets the mark, still lit, holding
    still — the element stays, only the animation goes. A logo that vanishes
    under a reduced-motion setting is a missing logo, not a calmer one.
 
-   The ripples are the exception: they are the only thing here that has no
-   still frame worth showing, because a ripple stopped mid-flight is just a
-   stray ring round the mark. They are hidden outright, and the three states
-   fall back to one static step of bloom — still three distinguishable
-   states, no animation at all.                                            */
+   The rings simply stop, which costs nothing: a stopped ring is a ring. The
+   bar ring flattens to an even collar rather than freezing mid-wave, because
+   a wave stopped at an arbitrary phase is a lopsided ring that reads as a
+   rendering fault. The three states stay distinguishable by bar height and
+   bloom alone — no animation at all.
+
+   `transform` is overridden as well as `animation`, because the bars' resting
+   scaleY comes from a keyframe and would otherwise fall back to 1 for every
+   state at once.                                                           */
 @media (prefers-reduced-motion: reduce) {
-  .hub-mark *, .hub-mark { animation: none !important; transform: none !important; }
-  .hub-ripples { display: none; }
+  .hub-mark, .hub-mark * { animation: none !important; }
+  .hub-outer, .hub-ticks, .hub-inner, .hub-seg { transform: none !important; }
+  .hub-bar { transform: scaleY(var(--hub-still)) !important; }
+  .hub-tip { transform: none !important; }
   .hub-bloom { opacity: 0.45; }
-  .hub[data-state="thinking"] .hub-bloom { opacity: 0.7; }
-  .hub[data-state="speaking"] .hub-bloom { opacity: 0.95; }
-  .hub[data-state="thinking"] .hub-arcs path { opacity: 0.8; }
-  .hub[data-state="speaking"] .hub-arcs path { opacity: 1;   }
+  .hub[data-state="thinking"] .hub-bloom { opacity: 0.75; }
+  .hub[data-state="speaking"] .hub-bloom { opacity: 1;    }
+  .hub[data-state="thinking"] .hub-arcs path { opacity: 0.75; }
+  .hub[data-state="speaking"] .hub-arcs path { opacity: 1;    }
 }
 
 /* ── Chat ─────────────────────────────────────────────────────────────────
@@ -2104,9 +2164,16 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
   .chat-line.chat-enter { animation: none; }
 }
 
+/* !important throughout: this rule has been silently losing to something
+   outside this file (a stale service-worker cache serving an older
+   chat-card-shaped bubble, most likely) at least twice, so the reset is
+   pinned rather than trusted to specificity. */
 .chat-bubble {
-  background: none;
-  border: none;
+  background: none !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  outline: none !important;
   padding: 0;
   color: var(--text-2);
   font-size: 15px;
@@ -2116,8 +2183,10 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
 }
 
 .chat-friday .chat-bubble {
-  border-left: 2px solid var(--az);
-  box-shadow: -1px 0 8px rgba(var(--az-rgb), 0.28);
+  /* Flat accent line only — no box-shadow. A blurred shadow spreads past the
+     edge it's offset from and reads as a glow wrapping the whole message
+     rather than a bar down the left side of it. */
+  border-left: 2px solid var(--az) !important;
   padding-left: 12px;
   color: var(--az-soft);
 }
@@ -2631,7 +2700,21 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
    the same whether there are three tickers or twelve.                      */
 
 .ticker-marquee {
-  position: relative;
+  /* Sticky, not relative — below the 1000px breakpoint `main` regains its own
+     scroll (see the Narrow section), and a merely-relative strip scrolled
+     away with the rest of the page while the settings button and the weather
+     widget, both `position: fixed`, stayed put. `top` mirrors the box's own
+     -32px top margin: that margin is what cancels `main`'s padding-top to
+     seat the strip flush with the viewport's top edge, and sticky's `top` is
+     measured from the scrollport's padding edge, so matching the two values
+     keeps the stuck position identical to the normal-flow one instead of
+     jumping down by 32px the moment it sticks. z-index sits below the weather
+     widget (45) and the settings button (150), which already overlay it in
+     the flow case and must keep doing so once it can be stuck underneath
+     them. */
+  position: sticky;
+  top: -32px;
+  z-index: 44;
   margin: -32px -40px 24px;
   padding: 10px 0;
   overflow: hidden;
@@ -2640,24 +2723,23 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
   -webkit-backdrop-filter: var(--glass-blur);
   border-bottom: 1px solid var(--border-strong);
   box-shadow: 0 1px 10px rgba(var(--az-rgb), 0.16);
-  /* Fades the strip at both edges so an item is never seen being cut off
-     mid-character — it reads as scrolling past the edge of the screen
-     rather than being clipped by one.
+  /* Hard cuts, not fades. The mask is still here and still load-bearing —
+     the two controls seated in the band are both see-through in part (the
+     settings button has no background at all, the weather readout is a
+     0.26-alpha panel over a blur), so without it a scrolling symbol passes
+     visibly underneath both. What is gone is the ramp: this used to fade in
+     over 40px on the left and out over 84px on the right, which was the
+     last soft edge left in a band that is otherwise square and flush.
 
-     The left ramp is held fully transparent for its first 46px rather than
-     starting to fade in at 0, because the settings button is fixed over
-     that corner and the button is transparent: a plain `transparent → black
-     54px` ramp still painted a ghost of the scrolling text at 30% opacity
-     underneath it, which reads as a collision rather than a fade. 46px
-     clears the button (10px + 28px + a hair) before the ramp starts.
+     So the stops are coincident. The strip is cut dead at 40px — the
+     settings button's right edge — and again at 100% - 116px, the weather
+     readout's left edge. An item crossing either boundary is sliced
+     mid-character, which is what a ticker running behind a panel edge
+     should look like now that the panel edges are hard.
 
-     The right ramp reaches fully transparent at the weather widget's own
-     left edge (100% - 116px) rather than at 100%, for the same reason: the
-     widget is a translucent panel over a backdrop-filter, so a ticker item
-     still at 30% opacity where the widget starts smears behind the glass
-     instead of ending. It ends before the widget, not under it. */
-  mask-image: linear-gradient(to right, transparent 0, transparent 46px, black 86px, black calc(100% - 200px), transparent calc(100% - 116px));
-  -webkit-mask-image: linear-gradient(to right, transparent 0, transparent 46px, black 86px, black calc(100% - 200px), transparent calc(100% - 116px));
+     Both numbers are the controls' own widths and have to track them. */
+  mask-image: linear-gradient(to right, transparent 0, transparent 40px, black 40px, black calc(100% - 116px), transparent calc(100% - 116px));
+  -webkit-mask-image: linear-gradient(to right, transparent 0, transparent 40px, black 40px, black calc(100% - 116px), transparent calc(100% - 116px));
 }
 
 .ticker-track {
@@ -2750,13 +2832,20 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
    quotes fetch dies, and a weather reading that disappears with the stock
    strip is a reading lost to an unrelated failure.
 
-   Open, it stops 46px short of the left edge — the same constant the
-   ticker's own left fade holds transparent to clear the settings button —
-   and the button outranks it in z-order besides, so the two cannot collide
-   even if that arithmetic is ever wrong. (100vw counts a scrollbar gutter
-   where one exists; Today has none, and on a page that did the panel would
-   run those few pixels further left and *under* the button rather than over
-   it, which is why the z-order backstop is worth having.)
+   Open, it runs the full bar and stops flush against the settings button —
+   40px, the button's own width, so the two meet edge to edge with the
+   button's right border as the single rule between them. The panel drops
+   its own left border while open for exactly that reason: two adjacent 1px
+   borders of the same colour are a 2px line, and the join stops reading as
+   a join. (The ticker's mask cuts at 40px too, but the
+   two are not one constant: this one is the button's width because the panel
+   abuts it, that one is the button's width because the strip is clipped by
+   it. They agree today by coincidence.)
+
+   100vw counts a scrollbar gutter where one exists; Today has none, and on
+   a page that did the panel would run those few pixels further left and
+   *under* the button rather than over it — which is why the button's
+   z-index sits above it as a backstop.
 
    Both states are absolutely positioned over the same box and cross-fade
    rather than one being display:none'd. A display swap is instant while the
@@ -2781,7 +2870,10 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
   border: 1px solid var(--border-strong);
   border-top: 0;
   border-right: 0;
-  border-radius: 0 0 0 4px;
+  /* Square. Nothing in the band is rounded — see .settings-btn at the other
+     end. A radius on a strip that runs the full width of the screen reads as
+     a card sitting on the bar rather than a segment of it. */
+  border-radius: 0;
   background-image: repeating-linear-gradient(
     0deg,
     rgba(var(--az-rgb), 0.025) 0px,
@@ -2793,8 +2885,7 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
   /* Width is the only thing that animates now — the height is a constant, so
      the old two-stage sweep-then-drop has nothing left to stage. */
   transition: width 0.34s cubic-bezier(0.4, 0, 0.2, 1),
-              background-color 0.34s ease,
-              border-color 0.15s ease;
+              background-color 0.34s ease;
 }
 
 /* ── The three ways it opens ─────────────────────────────────────────────
@@ -2809,7 +2900,8 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
    declarations appear twice rather than once in a longer selector list. */
 
 .wx-widget.open {
-  width: calc(100vw - 46px);
+  width: calc(100vw - 40px);
+  border-left: 0;
   /* --panel's 0.26 alpha is right for a 116px chip in the corner of the bar
      and wrong for a panel spanning the screen: open, it crosses the hub,
      which is the brightest object on the page, and the forecast was being
@@ -2820,7 +2912,8 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
 
 @media (hover: hover) and (pointer: fine) {
   .wx-widget:hover {
-    width: calc(100vw - 46px);
+    width: calc(100vw - 40px);
+    border-left: 0;
     background-color: rgba(var(--ink-rgb), 0.92);
   }
 
@@ -2828,10 +2921,20 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
      still true underneath it, or the click appears to do nothing while the
      pointer sits where it was. Cleared on mouseleave (app.js), so the next
      hover opens it again. */
-  .wx-widget.dismissed:hover { width: 116px; background-color: var(--panel); }
+  .wx-widget.dismissed:hover {
+    width: 116px;
+    border-left: 1px solid var(--border-strong);
+    background-color: var(--panel);
+  }
 }
 
-.wx-widget:hover { border-color: var(--az-bright); }
+/* No border brighten on hover, deliberately. It was the affordance back when
+   hover did nothing but signal that the chip was interactive; hover expands
+   it now, which is a louder signal than any border. And the cost had grown
+   with the panel: open, this element spans the bar, so brightening its edge
+   turned the bar's own bottom rule light blue across the whole screen and
+   broke the line's continuity with .ticker-marquee's border-bottom, which is
+   the same --border-strong and does not change. */
 
 /* Same corner-bracket treatment as .panel, sized down. Inset to 0 rather
    than -1px: with no top or right border there is nothing to sit on top of,
@@ -2847,6 +2950,17 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
 }
 .wx-widget::before { top: 0; left: 0; border-top: 2px solid var(--orange); border-left: 2px solid var(--orange); }
 .wx-widget::after { bottom: 0; right: 0; border-bottom: 2px solid var(--orange); border-right: 2px solid var(--orange); }
+
+/* Open, the top-left is no longer a corner — it is the seam against the
+   settings button, and a bracket there lands directly on that button's right
+   border and doubles it, which is the one thing the flush join exists to
+   avoid. The bottom-right stays: that one is still a real corner, at the
+   edge of the screen. */
+.wx-widget.open::before { display: none; }
+@media (hover: hover) and (pointer: fine) {
+  .wx-widget:hover::before { display: none; }
+  .wx-widget.dismissed:hover::before { display: block; }
+}
 
 /* ── Collapsed: the readout, and the control ─────────────────────────────
    A real <button>, so the disclosure is operable from the keyboard at all —
@@ -2915,8 +3029,7 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
   inset: 0;
   display: flex;
   align-items: center;
-  /* 44px on the right clears the ×. */
-  padding: 0 44px 0 18px;
+  padding: 0 22px 0 18px;
   opacity: 0;
   /* Same reasoning as .wx-compact above: the × inside here must not be
      tabbable while the panel is shut. */
@@ -2956,28 +3069,6 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
   clip-path: inset(50%);
   white-space: nowrap;
 }
-
-.wx-close {
-  position: absolute;
-  top: 7px;
-  right: 9px;
-  z-index: 2;
-  width: 26px;
-  height: 26px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  color: var(--muted);
-  font-size: 17px;
-  line-height: 1;
-  cursor: pointer;
-  transition: border-color 0.15s ease, color 0.15s ease;
-}
-
-.wx-close:hover { border-color: var(--az-bright); color: var(--text); }
 
 .wx-body {
   display: flex;
@@ -3161,7 +3252,7 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
   letter-spacing: 0.08em;
   color: var(--teal);
   border: 1px solid var(--teal-dim);
-  border-radius: 2px;
+  border-radius: 0;
   padding: 1px 4px;
   vertical-align: middle;
 }
@@ -3180,12 +3271,14 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
    it carried a second, smaller copy of a name the hub already spells out
    in the middle of the page at the size it deserves.
 
-   So the button is fixed on its own, at the top-left, where it lands
-   inside the ticker's left fade (see .ticker-marquee's mask-image, widened
-   to 54px to keep a scrolling item from passing under it). It is deliberately
+   So the button is fixed on its own, seated into the top-left corner of the
+   ticker band and squared off to its full 40px, where it lands inside the
+   ticker's left fade (see .ticker-marquee's mask-image, held transparent for
+   46px to keep a scrolling item from passing under it). It is deliberately
    NOT a child of the ticker: the ticker belongs to the Today template and is
    cloned away on every settings page, and a drawer you can only open from
-   the homepage is a trap.
+   the homepage is a trap — which is also why it stays where it is, at the
+   same size, on pages that have no bar for it to be the end of.
 
    z-index sits below .sidebar-backdrop (160) on purpose — with the drawer
    open the backdrop covers it, so the tap that looks like it closes the
@@ -3193,32 +3286,56 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
 
 .settings-btn {
   position: fixed;
-  top: calc(env(safe-area-inset-top) + 6px);
-  left: 10px;
+  top: env(safe-area-inset-top);
+  left: 0;
   z-index: 150;
   background: transparent;
+  /* Square, and the band's full height — so it is the left-hand end of the
+     bar in exactly the way the weather readout is the right-hand end, seated
+     into the corner rather than floating in it. It was a 28px control inset
+     6px from the top and 10px from the left, which read as a button lying on
+     the bar rather than part of it.
+
+     Flush into the corner means no top or left border: there is nothing on
+     those two sides to be separated from. And no radius on the other two —
+     nothing in the band is rounded, so the button's right border can be the
+     one rule the weather panel butts against when it opens. */
   border: 1px solid var(--border-strong);
-  border-radius: 3px;
-  /* 28px, not 36: the ticker band is 40px tall and a 36px control in it
-     leaves 2px of clearance, which reads as a control that does not fit
-     rather than one that belongs. */
-  width: 28px;
-  height: 28px;
+  border-top: 0;
+  border-left: 0;
+  border-radius: 0;
+  width: 40px;
+  height: 40px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
+  gap: 4px;
   cursor: pointer;
-  transition: border-color 0.15s ease;
 }
-.settings-btn:hover { border-color: var(--az-bright); }
+
+/* The hover affordance is the glyph, not the border — same reasoning as
+   .wx-widget at the other end of the bar. This button's bottom border is a
+   40px stretch of the band's own bottom rule, so brightening it put a
+   visible step in that line at x = 40 while leaving the rest of it alone.
+   Lighting the three bars instead says the same thing and touches nothing
+   the bar is made of. */
+.settings-btn:hover span { background: var(--az-bright); }
+
+/* Same reasoning as .wx-compact at the other end of the bar: the focus
+   floor's +2px offset draws the ring outside the button, and this button is
+   flush into the viewport's top-left corner, so the ring's top and left
+   edges would fall off the screen entirely. Drawn inside instead.
+   Restyled, never removed. */
+.settings-btn:focus-visible { outline-offset: -3px; }
+
 .settings-btn span {
   display: block;
-  width: 14px;
+  width: 16px;
   height: 1.5px;
   background: var(--az);
+  transition: background 0.15s ease;
 }
 
 /* Dims the page behind the open drawer and gives it something to tap to
@@ -3246,14 +3363,20 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
 
   .ticker-marquee {
     margin: -20px -16px 20px;
-    /* Both fades still have to clear the two fixed controls, neither of
-       which shrinks with the viewport: the settings button on the left and
-       the weather readout on the right. */
-    mask-image: linear-gradient(to right, transparent 0, transparent 46px, black 78px, black calc(100% - 152px), transparent calc(100% - 116px));
-    -webkit-mask-image: linear-gradient(to right, transparent 0, transparent 46px, black 78px, black calc(100% - 152px), transparent calc(100% - 116px));
+    /* Sticky `top` restated to match this breakpoint's own top margin, same
+       reasoning as the desktop rule's -32px — left out here, the strip would
+       still stick, just 12px lower than its normal-flow position. */
+    top: -20px;
+    /* Identical to the desktop mask: the two controls it cuts around are
+       fixed pixel sizes and neither shrinks with the viewport, so there is
+       nothing here to scale. Restated rather than left out, because the rest
+       of this rule overrides .ticker-marquee's margins — a reader who finds
+       those overridden but not the mask will assume the mask was forgotten. */
+    mask-image: linear-gradient(to right, transparent 0, transparent 40px, black 40px, black calc(100% - 116px), transparent calc(100% - 116px));
+    -webkit-mask-image: linear-gradient(to right, transparent 0, transparent 40px, black 40px, black calc(100% - 116px), transparent calc(100% - 116px));
   }
 
-  /* No width cap — the open width is calc(100vw - 46px) at every size, so it
+  /* No width cap — the open width is calc(100vw - 40px) at every size, so it
      cannot run off a phone. The band stays 40px here too, which means the
      reading sheds content rather than growing: the meta column goes first
      (its four readings are the ones the forecast strip already implies),

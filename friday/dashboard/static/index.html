@@ -103,26 +103,31 @@
         </div>
 
         <div class="home-center">
-          <!-- The hub. The J.A.R.V.I.S. mark, drawn as inline SVG in
-               independently animatable layers rather than as one flat PNG.
+          <!-- The hub. Two layers over one state.
 
-               A raster mark can only ever be scaled, rotated or filtered as a
-               whole, which is why the previous version's entire vocabulary was
-               a hue shift and a 1% scale: there was nothing inside it to move.
-               Here the outer ring, the tick collar, the inner band, the
-               segmented track, the arcs and the wordmark are separate groups,
-               so the rings can counter-rotate past each other and the arcs can
-               beat without the lettering turning with them.
+               Inside out: the wordmark, then the concentric rings and tick
+               collar, then the bar ring standing on the outermost ring's edge
+               and growing outward.
 
-               Geometry only below — every colour, weight and animation lives
-               in style.css under "The hub". The dash arrays are computed
-               against each circle's own circumference (2*pi*r divided by the
-               tick count), which is what makes a stroked circle read as a ring
-               of radial ticks with one element instead of sixty.
+               They answer the same three states in two different registers.
+               The rings are the object — they counter-rotate, and the rate
+               steps up through idle, thinking and speaking. The bars are the
+               voice — a travelling wave whose amplitude and wavelength change
+               with the state, plus one bright crest per arriving event. One
+               is what Friday IS; the other is what Friday is DOING, and the
+               reason they are two layers rather than one is that those are
+               two different questions and only one of them has an answer that
+               changes second to second.
 
-               data-state is written by hubState() in app.js. See the same
-               section there for the beat, which is the one thing a state
-               attribute cannot express: a discrete pulse per arriving event. -->
+               The whole stack is 0.72x the radii it had before the bars
+               arrived, so adding a layer outside it did not grow the mark:
+               rings top out at r=173.75 and the bars run 176 to 247.4 at
+               their loudest, inside a 512 viewBox.
+
+               Geometry only below — every colour, rate and keyframe is in
+               style.css under "The hub". data-state is written by hubState()
+               in app.js; the beat is .hub-beat, applied per arriving event by
+               hubBeat(). -->
           <div class="hub" id="hub" data-state="idle">
             <svg class="hub-mark" id="hub-svg" viewBox="0 0 512 512"
                  role="img" aria-labelledby="hub-title" focusable="false">
@@ -130,149 +135,219 @@
 
               <defs>
                 <radialGradient id="hub-halo-grad" cx="50%" cy="50%" r="50%">
-                  <stop offset="45%" class="hub-halo-in"/>
-                  <stop offset="78%" class="hub-halo-mid"/>
+                  <stop offset="42%" class="hub-halo-in"/>
+                  <stop offset="74%" class="hub-halo-mid"/>
                   <stop offset="100%" class="hub-halo-out"/>
                 </radialGradient>
                 <radialGradient id="hub-core-grad" cx="50%" cy="50%" r="50%">
-                  <stop offset="0%"  class="hub-core-in"/>
+                  <stop offset="0%"   class="hub-core-in"/>
                   <stop offset="100%" class="hub-core-out"/>
                 </radialGradient>
-                <!-- The plate is a vignette, not a shape. A hard-edged dark
-                     ellipse behind the lettering is a visible seam crossing
-                     four rings; a gradient that reaches zero at its own edge
-                     just makes the rings recede where the word is. -->
                 <radialGradient id="hub-plate-grad" cx="50%" cy="50%" r="50%">
-                  <stop offset="0%"  class="hub-plate-in"/>
-                  <stop offset="62%" class="hub-plate-mid"/>
+                  <stop offset="0%"   class="hub-plate-in"/>
+                  <stop offset="60%"  class="hub-plate-mid"/>
                   <stop offset="100%" class="hub-plate-out"/>
                 </radialGradient>
               </defs>
 
-              <!-- Halo. Static, and the only large soft-edged thing in the
-                   mark: the PNG's glow was baked into the pixels, and a
-                   gradient disc is the vector equivalent. Deliberately NOT an
-                   SVG filter — a blur filter over a group whose children are
-                   transforming re-runs the filter every frame, and this mark
-                   is 400px of continuously moving rings. -->
+              <!-- Halo and bloom. Static paint, deliberately NOT an SVG
+                   filter: a blur over a group re-runs every frame its
+                   children transform, and here that is four rotating rings
+                   AND 90 bars. Only opacity animates. -->
               <circle cx="256" cy="256" r="256" fill="url(#hub-halo-grad)"/>
-
-              <!-- Bloom. Wide, low-opacity twins of the three structural
-                   radii, which is how the rings get their halo without a
-                   filter. Its opacity is the brightness channel of the whole
-                   mark and is the cheapest thing on the page to animate. -->
               <g class="hub-bloom" fill="none">
-                <circle cx="256" cy="256" r="238"/>
-                <circle cx="256" cy="256" r="150"/>
-                <circle cx="256" cy="256" r="110"/>
+                <circle cx="256" cy="256" r="171"/>
+                <circle cx="256" cy="256" r="108"/>
               </g>
 
-              <!-- Everything that breathes. One group, so the breath is a
-                   property of the object rather than something applied six
-                   times and drifting out of phase. -->
-              <g class="hub-breathe">
+              <!-- ── Layer 1: the outer ring. Turns clockwise. ── -->
+              <g class="hub-layer hub-outer" fill="none">
+                <circle class="hub-ring-heavy" cx="256" cy="256" r="171"
+                        stroke-dasharray="244 24.61" stroke-linecap="butt"/>
+                <circle class="hub-ring-thin" cx="256" cy="256" r="164"
+                        stroke-dasharray="309 34.48"/>
+                <!-- The three beads on the left flank and the notch at the
+                     foot: the two asymmetries that stop the outer ring
+                     reading as a plain circle. -->
+                <g class="hub-bead"><circle cx="97.6" cy="278.3" r="3"/><circle cx="96.0" cy="256.0" r="3"/><circle cx="97.6" cy="233.7" r="3"/></g>
+                <path class="hub-notch" d="M 230 435 L 243 422 L 269 422 L 282 435"/>
+              </g>
 
-                <!-- Ripples. Three staggered rings travelling outward from the
-                     core. At idle this is a slow tide; from the moment a
-                     message is sent it is fast and reaches further. -->
-                <g class="hub-ripples" fill="none">
-                  <circle class="hub-ripple" cx="256" cy="256" r="100"/>
-                  <circle class="hub-ripple" cx="256" cy="256" r="100"/>
-                  <circle class="hub-ripple" cx="256" cy="256" r="100"/>
-                </g>
+              <!-- ── Layer 2: the tick collar. Turns anticlockwise. ──
+                   60 fine ticks at r=148 and 24 long ones at r=130; each dash
+                   array is that circle's circumference divided by the tick
+                   count, which is what makes one stroked circle read as sixty
+                   radial marks. -->
+              <g class="hub-layer hub-ticks" fill="none">
+                <circle class="hub-tick-fine" cx="256" cy="256" r="148"
+                        stroke-dasharray="4.5 11"/>
+                <circle class="hub-tick-long" cx="256" cy="256" r="130"
+                        stroke-dasharray="3.6 30.43"/>
+                <circle class="hub-ring-thin" cx="256" cy="256" r="138"/>
+              </g>
 
-                <!-- ── Layer 1: the outer ring. Turns clockwise. ── -->
-                <g class="hub-layer hub-outer" fill="none">
-                  <circle class="hub-ring-heavy" cx="256" cy="256" r="238"
-                          stroke-dasharray="340 33.85" stroke-linecap="butt"/>
-                  <circle class="hub-ring-thin" cx="256" cy="256" r="228"
-                          stroke-dasharray="430 47.5"/>
-                  <!-- The three beads on the left flank and the notch at the
-                       foot: the two asymmetries that stop the outer ring
-                       reading as a plain circle. -->
-                  <g class="hub-bead">
-                    <circle cx="36.2" cy="286.9" r="4"/>
-                    <circle cx="34.0" cy="256.0" r="4"/>
-                    <circle cx="36.2" cy="225.1" r="4"/>
-                  </g>
-                  <path class="hub-notch" d="M 214 489 L 232 471 L 280 471 L 298 489"/>
-                </g>
+              <!-- ── Layer 3: the inner band. Turns clockwise, faster. ── -->
+              <g class="hub-layer hub-inner" fill="none">
+                <circle class="hub-band-fill" cx="256" cy="256" r="108"/>
+                <circle class="hub-band-seg" cx="256" cy="256" r="108"
+                        stroke-dasharray="115 20.72"/>
+                <circle class="hub-ring-bright" cx="256" cy="256" r="98"/>
+                <g class="hub-dot"><circle cx="194.1" cy="167.5" r="3.6"/><circle cx="219.1" cy="154.5" r="3.6"/><circle cx="246.6" cy="148.4" r="3.6"/><circle cx="274.8" cy="149.6" r="3.6"/></g>
+              </g>
 
-                <!-- ── Layer 2: the tick collar. Turns anticlockwise. ──
-                     Two rings of ticks at different pitches. The dense one is
-                     60 ticks at r=205 (2*pi*205 = 1288.05, so 21.47 per tick);
-                     the long one is 24 at r=180 (1130.97, 47.12 per tick). -->
-                <g class="hub-layer hub-ticks" fill="none">
-                  <circle class="hub-tick-fine" cx="256" cy="256" r="205"
-                          stroke-dasharray="6 15.47"/>
-                  <circle class="hub-tick-long" cx="256" cy="256" r="180"
-                          stroke-dasharray="5 42.12"/>
-                  <circle class="hub-ring-thin" cx="256" cy="256" r="192"/>
-                </g>
+              <!-- ── Layer 4: the segmented track. Turns anticlockwise. ── -->
+              <g class="hub-layer hub-seg" fill="none">
+                <circle class="hub-seg-block" cx="256" cy="256" r="79"
+                        stroke-dasharray="10 7.73"/>
+                <circle class="hub-ring-thin" cx="256" cy="256" r="85"/>
+                <circle class="hub-seg-fine" cx="256" cy="256" r="68"
+                        stroke-dasharray="2.2 4.4"/>
+              </g>
 
-                <!-- ── Layer 3: the inner band. Turns clockwise, faster. ──
-                     The solid blue collar, its segment breaks, and the four
-                     status beads that sit on it. -->
-                <g class="hub-layer hub-inner" fill="none">
-                  <circle class="hub-band-fill" cx="256" cy="256" r="150"/>
-                  <circle class="hub-band-seg" cx="256" cy="256" r="150"
-                          stroke-dasharray="160 28.5"/>
-                  <circle class="hub-ring-bright" cx="256" cy="256" r="136"/>
-                  <g class="hub-dot">
-                    <circle cx="170.0" cy="133.1" r="5"/>
-                    <circle cx="204.7" cy="115.1" r="5"/>
-                    <circle cx="242.9" cy="106.6" r="5"/>
-                    <circle cx="282.0" cy="108.3" r="5"/>
-                  </g>
-                </g>
+              <!-- ── Layer 5: four fixed arcs, in the one clear annulus the
+                   compressed stack leaves (155.5 to 163.2). They do not turn
+                   and they do not carry the beat any more — the bars own that
+                   now. What is left is a standing pulse per state, which is
+                   the ring stack's own answer to "is anything happening". -->
+              <g class="hub-arcs" fill="none">
+                  <path d="M 106.6 201.6 A 159 159 0 0 1 201.6 106.6"/>
+                  <path d="M 310.4 106.6 A 159 159 0 0 1 405.4 201.6"/>
+                  <path d="M 405.4 310.4 A 159 159 0 0 1 310.4 405.4"/>
+                  <path d="M 201.6 405.4 A 159 159 0 0 1 106.6 310.4"/>
+              </g>
 
-                <!-- ── Layer 4: the segmented track. Turns anticlockwise. ──
-                     The blocky detail ring from the original mark: 28 blocks
-                     at r=110 (2*pi*110 = 691.15, 24.68 per block). -->
-                <g class="hub-layer hub-seg" fill="none">
-                  <circle class="hub-seg-block" cx="256" cy="256" r="110"
-                          stroke-dasharray="14 10.68"/>
-                  <circle class="hub-ring-thin" cx="256" cy="256" r="118"/>
-                  <circle class="hub-seg-fine" cx="256" cy="256" r="95"
-                          stroke-dasharray="3 6"/>
-                </g>
+              <!-- The accent arc on the left flank. The original mark's was
+                   amber; the page owns no amber, and a logo lit in a colour
+                   nothing else on screen uses reads as a broken asset rather
+                   than an accent. --az2 is the same gesture in a colour the
+                   palette already has. -->
+              <path class="hub-accent" fill="none" d="M 128.2 315.6 A 141 141 0 0 1 128.2 196.4"/>
 
-                <!-- ── Layer 5: the arcs that beat. ──
-                     Four 50-degree arcs at r=168, fixed in place. These are
-                     what pulses when text arrives; they do not rotate,
-                     because a beat that also travels reads as a spinner. -->
-                <g class="hub-arcs" fill="none">
-                  <path d="M 98.1 198.5 A 168 168 0 0 1 198.5 98.1"/>
-                  <path d="M 313.5 98.1 A 168 168 0 0 1 413.9 198.5"/>
-                  <path d="M 413.9 313.5 A 168 168 0 0 1 313.5 413.9"/>
-                  <path d="M 198.5 413.9 A 168 168 0 0 1 98.1 313.5"/>
-                </g>
+              <!-- ── Layer 6: the bar ring. ──────────────────────────────
+                   90 bars on a 4-degree pitch standing on r=176, just
+                   clear of the outer ring's edge at 173.75, and growing
+                   outward. Three nested elements per bar, each owning one
+                   job:
 
-                <!-- The accent arc on the left flank, in the secondary accent.
-                     The original mark's was amber; the page owns no amber, and
-                     a logo lit in a colour nothing else on screen uses reads as
-                     a broken asset rather than an accent. --az2 is the same
-                     gesture in a colour the palette already has. -->
-                <path class="hub-accent" fill="none"
-                      d="M 78.4 338.8 A 196 196 0 0 1 78.4 173.2"/>
+                     .hub-slot   static placement. An SVG transform ATTRIBUTE,
+                                 not a CSS one — a CSS transform here would
+                                 override the attribute, and the rotation has
+                                 to survive both animations beneath it.
+                     .hub-bar    the travelling wave (scaleY).
+                     .hub-tip    the beat (scaleY + colour).
 
-                <!-- ── Layer 6: the wordmark. Never rotates. ──
-                     Lettering that turns is a logo being spun rather than a
-                     system at work. The dark plate under it is what keeps the
-                     segmented track from running through the glyphs.
+                   Two nested scaleY multiply, so the beat rides the wave
+                   instead of replacing it. That is the whole reason for the
+                   third level: two independent geometric animations cannot
+                   share one element's transform.
 
-                     textLength pins the wordmark to 278px whatever font
-                     actually resolves, so the mark does not reflow when
-                     Orbitron lands a beat after first paint. -->
-                <g class="hub-word">
-                  <ellipse class="hub-plate" cx="256" cy="256" rx="168" ry="46"
-                           fill="url(#hub-plate-grad)"/>
-                  <circle class="hub-core" cx="256" cy="256" r="88"
-                          fill="url(#hub-core-grad)"/>
-                  <text class="hub-wordmark" x="256" y="269"
-                        text-anchor="middle" textLength="278"
-                        lengthAdjust="spacingAndGlyphs">J.A.R.V.I.S.</text>
-                </g>
+                   --i is the bar index and the ONLY per-bar value. Phase is
+                   computed from it in style.css, so the wavelength is a
+                   stylesheet number rather than something baked into 90 lines
+                   of markup. -->
+              <g class="hub-bars">
+                  <g class="hub-slot" transform="rotate(0 256 256)" style="--i:0"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(4 256 256)" style="--i:1"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(8 256 256)" style="--i:2"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(12 256 256)" style="--i:3"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(16 256 256)" style="--i:4"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(20 256 256)" style="--i:5"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(24 256 256)" style="--i:6"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(28 256 256)" style="--i:7"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(32 256 256)" style="--i:8"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(36 256 256)" style="--i:9"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(40 256 256)" style="--i:10"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(44 256 256)" style="--i:11"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(48 256 256)" style="--i:12"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(52 256 256)" style="--i:13"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(56 256 256)" style="--i:14"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(60 256 256)" style="--i:15"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(64 256 256)" style="--i:16"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(68 256 256)" style="--i:17"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(72 256 256)" style="--i:18"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(76 256 256)" style="--i:19"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(80 256 256)" style="--i:20"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(84 256 256)" style="--i:21"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(88 256 256)" style="--i:22"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(92 256 256)" style="--i:23"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(96 256 256)" style="--i:24"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(100 256 256)" style="--i:25"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(104 256 256)" style="--i:26"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(108 256 256)" style="--i:27"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(112 256 256)" style="--i:28"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(116 256 256)" style="--i:29"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(120 256 256)" style="--i:30"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(124 256 256)" style="--i:31"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(128 256 256)" style="--i:32"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(132 256 256)" style="--i:33"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(136 256 256)" style="--i:34"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(140 256 256)" style="--i:35"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(144 256 256)" style="--i:36"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(148 256 256)" style="--i:37"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(152 256 256)" style="--i:38"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(156 256 256)" style="--i:39"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(160 256 256)" style="--i:40"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(164 256 256)" style="--i:41"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(168 256 256)" style="--i:42"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(172 256 256)" style="--i:43"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(176 256 256)" style="--i:44"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(180 256 256)" style="--i:45"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(184 256 256)" style="--i:46"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(188 256 256)" style="--i:47"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(192 256 256)" style="--i:48"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(196 256 256)" style="--i:49"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(200 256 256)" style="--i:50"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(204 256 256)" style="--i:51"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(208 256 256)" style="--i:52"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(212 256 256)" style="--i:53"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(216 256 256)" style="--i:54"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(220 256 256)" style="--i:55"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(224 256 256)" style="--i:56"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(228 256 256)" style="--i:57"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(232 256 256)" style="--i:58"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(236 256 256)" style="--i:59"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(240 256 256)" style="--i:60"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(244 256 256)" style="--i:61"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(248 256 256)" style="--i:62"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(252 256 256)" style="--i:63"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(256 256 256)" style="--i:64"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(260 256 256)" style="--i:65"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(264 256 256)" style="--i:66"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(268 256 256)" style="--i:67"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(272 256 256)" style="--i:68"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(276 256 256)" style="--i:69"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(280 256 256)" style="--i:70"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(284 256 256)" style="--i:71"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(288 256 256)" style="--i:72"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(292 256 256)" style="--i:73"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(296 256 256)" style="--i:74"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(300 256 256)" style="--i:75"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(304 256 256)" style="--i:76"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(308 256 256)" style="--i:77"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(312 256 256)" style="--i:78"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(316 256 256)" style="--i:79"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(320 256 256)" style="--i:80"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(324 256 256)" style="--i:81"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(328 256 256)" style="--i:82"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(332 256 256)" style="--i:83"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(336 256 256)" style="--i:84"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(340 256 256)" style="--i:85"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(344 256 256)" style="--i:86"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(348 256 256)" style="--i:87"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(352 256 256)" style="--i:88"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+                  <g class="hub-slot" transform="rotate(356 256 256)" style="--i:89"><g class="hub-bar"><rect class="hub-tip" x="254.2" y="63" width="3.6" height="17" rx="1.8"/></g></g>
+              </g>
+
+              <!-- The wordmark. Never turns, never scales. Lettering that
+                   rotates is a logo being spun rather than a system at work. -->
+              <g class="hub-word">
+                <ellipse class="hub-plate" cx="256" cy="256" rx="108" ry="25"
+                         fill="url(#hub-plate-grad)"/>
+                <circle class="hub-core" cx="256" cy="256" r="64"
+                        fill="url(#hub-core-grad)"/>
+                <text class="hub-wordmark" x="256" y="265"
+                      text-anchor="middle" textLength="200"
+                      lengthAdjust="spacingAndGlyphs">J.A.R.V.I.S.</text>
               </g>
             </svg>
           </div>
@@ -338,7 +413,6 @@
         <span class="wx-compact-temp" id="wx-compact-temp">—°</span>
       </button>
       <div class="wx-expanded" id="weather-panel">
-        <button class="wx-close" id="weather-close" aria-label="Close weather">×</button>
         <h2>WEATHER</h2>
         <div class="wx-body" id="weather-body"><div class="hint">Loading…</div></div>
       </div>

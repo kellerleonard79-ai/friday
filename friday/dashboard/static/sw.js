@@ -30,17 +30,17 @@
 // independently and revalidated independently, so without a version bump a
 // tab can hold one of each from either side of the change for as long as it
 // takes both background fetches to land.
-const CACHE_VERSION = 'friday-shell-v10';
+const CACHE_VERSION = 'friday-shell-v18';
 const NETWORK_TIMEOUT_MS = 2500;
 
 const SHELL_URLS = [
   '/static/app.js',
   '/static/style.css',
   '/static/manifest.webmanifest',
-  // The hub mark. Part of the shell rather than an ordinary image: an
-  // offline homepage that renders everything except the one lit object in
-  // the middle of it looks broken, not degraded.
-  '/static/jarvis.png',
+  // The hub mark used to be listed here as an image. It is inline SVG in
+  // index.html now, so it comes down with the document and there is nothing
+  // separate to precache — the offline homepage renders the one lit object in
+  // the middle of it because the markup for it IS the page.
   '/static/favicon.png',
   '/static/icon-192.png',
   '/static/icon-512.png',

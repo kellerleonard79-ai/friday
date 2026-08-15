@@ -523,7 +523,6 @@ function setWeatherOpen(open) {
   const widget = document.getElementById('weather-widget');
   if (!widget) return;                     // navigated away
   const toggle = document.getElementById('weather-toggle');
-  const closeBtn = document.getElementById('weather-close');
   widget.classList.toggle('open', open);
   if (toggle) toggle.setAttribute('aria-expanded', String(open));
 
@@ -535,19 +534,40 @@ function setWeatherOpen(open) {
   // arrives to clear and the next hover would find the widget suppressed.
   widget.classList.toggle('dismissed', !open && widget.matches(':hover'));
 
-  // Follow the disclosure with focus, but only when focus was already inside
-  // it. Opening always qualifies (the toggle is what was just activated, and
-  // it is about to go visibility:hidden, which would drop focus to the body).
-  // Closing often does not: an outside click closes the panel, and stealing
-  // focus back from the chat box the user just clicked into would be worse
-  // than the stale focus it fixes.
-  const next = open ? closeBtn : toggle;
-  if (next && (open || widget.contains(document.activeElement))) next.focus();
+  // NO focus management here, deliberately — see restoreWeatherFocus below.
+}
+
+// Hand focus back to the readout. Called ONLY from the Escape path.
+//
+// It cannot live in setWeatherOpen: closing by click would call it too, and
+// a *programmatic* .focus() lands differently from the mouse's own. Clicking
+// a button focuses it without a ring, because Chrome knows the interaction
+// was a pointer. But by the time the second click closes the panel the
+// readout is visibility:hidden and the click has landed on the panel body,
+// so focus is on <body> and calling .focus() is an unprompted move — which
+// Chrome does grant :focus-visible. The result was a 2px ring sitting inside
+// the collapsed readout after every click-to-close, until you clicked
+// somewhere else to blur it.
+//
+// Escape is the one case that genuinely needs the restore: opening from the
+// keyboard drops focus to the body (the readout hides), so without this the
+// keyboard user is left nowhere. There the ring is correct and wanted.
+function restoreWeatherFocus() {
+  const widget = document.getElementById('weather-widget');
+  const toggle = document.getElementById('weather-toggle');
+  if (!widget || !toggle) return;
+  // Only from the body (where opening left it) or from inside the widget —
+  // never from a control the user has since moved to on their own.
+  const a = document.activeElement;
+  if (a === document.body || widget.contains(a)) toggle.focus();
 }
 
 function closeWeather() {
   const widget = document.getElementById('weather-widget');
-  if (widget && widget.classList.contains('open')) setWeatherOpen(false);
+  if (widget && widget.classList.contains('open')) {
+    setWeatherOpen(false);
+    restoreWeatherFocus();
+  }
 }
 
 function initWeatherWidget() {
@@ -556,21 +576,31 @@ function initWeatherWidget() {
   // These are on the cloned template, which navigate() replaces whole, so
   // there is never a stale listener to double up.
   //
-  // The pin is bound to the whole widget rather than to the readout button,
-  // and it has to be: on a hover-capable pointer the readout is already
-  // visibility:hidden by the time a click could land on it — hovering it is
-  // what opens the panel over it — so a listener on the button alone is a
-  // pin no mouse can ever reach. Bound here it catches the click wherever it
-  // falls, including the one that bubbles up from the button itself, which
-  // is the path a tap and a keyboard Enter both take.
-  widget.addEventListener('click', (e) => {
-    if (e.target.closest('.wx-close')) return;   // that button's own handler closes
-    setWeatherOpen(true);
+  // Click toggles, and the listener is on the whole widget rather than on the
+  // readout button. It has to be: on a hover-capable pointer the readout is
+  // already visibility:hidden by the time a click could land on it — hovering
+  // it is what opens the panel over it — so a listener on the button alone
+  // would be a control no mouse can ever reach. Bound here it catches the
+  // click wherever in the band it falls, including the one that bubbles up
+  // from the button itself, which is the path a tap and a keyboard Enter
+  // both take.
+  //
+  // The second click closes it even though the pointer is still inside and
+  // :hover is still true — that is what .dismissed is for (see setWeatherOpen
+  // and the (hover: hover) block in style.css). Without it the click would
+  // remove .open and hover would immediately hold the panel open anyway, so
+  // the toggle would look like it only worked one way.
+  widget.addEventListener('click', () => {
+    setWeatherOpen(!widget.classList.contains('open'));
   });
-  document.getElementById('weather-close')
-    .addEventListener('click', () => setWeatherOpen(false));
-  // The dismiss lasts exactly as long as the pointer stays put.
+
+  // The dismiss lasts exactly as long as the pointer stays put. Cleared on
+  // the way out AND on the way back in: a collapse can pull the widget's box
+  // out from under a pointer that never moved, and a mouseleave dispatched
+  // for a layout change rather than a real movement is not something to
+  // stake the next hover on.
   widget.addEventListener('mouseleave', () => widget.classList.remove('dismissed'));
+  widget.addEventListener('mouseenter', () => widget.classList.remove('dismissed'));
 
   // This one is not: the document survives navigation, so binding it per
   // visit would stack a dead listener every time Today is opened.
@@ -578,7 +608,12 @@ function initWeatherWidget() {
     WEATHER_DOC_BOUND = true;
     document.addEventListener('click', (e) => {
       const w = document.getElementById('weather-widget');
-      if (w && w.classList.contains('open') && !w.contains(e.target)) closeWeather();
+      // setWeatherOpen, not closeWeather: this is a pointer close and must
+      // not restore focus. A click on bare page background leaves
+      // document.activeElement as <body>, which restoreWeatherFocus would
+      // read as "focus is still ours" and take back — putting the same
+      // unwanted ring on the readout that the click path was just fixed for.
+      if (w && w.classList.contains('open') && !w.contains(e.target)) setWeatherOpen(false);
     });
   }
 }
@@ -2494,45 +2529,74 @@ function openStream() {
 const HUB_SPEAK_SETTLE_MS = 1600;
 let HUB_SETTLE_TIMER = null;
 
-// How much faster the four rings turn per state. The DURATIONS live in
-// style.css and never change; only the rate does.
+// How fast each layer runs, per state. The DURATIONS live in style.css and
+// never change; only the rate does.
 //
-// This is the one thing in the mark that CSS cannot do without an artefact.
-// Restating `animation-duration` on a running animation re-maps the elapsed
-// time onto the new duration, so a ring 40% through a 74s turn becomes a ring
-// 40% through a 28s turn — the same angle, but every subsequent frame lands
-// somewhere it would not have, and on the outer ring (four-fold symmetric,
-// with a notch) that reads as a visible jolt on every send. playbackRate
-// changes the speed from the current frame forward and moves nothing.
-//
-// Everything else about the mark is still pure CSS. This is a speed dial on
-// animations declared in the stylesheet, not an animation loop.
+// Two tables, because the two layers are not the same instrument. The rings
+// are the object and read as machinery, so they step modestly — past about 4x
+// a 74s ring turning becomes a thing being spun. The bar wave is the voice
+// and carries the actual urgency, so it steps harder. A crest travels all the
+// A crest travels all the way round the bar ring in
+// --hub-k * --hub-period / rate: 8.0s at idle and 1.03s at thinking, which is
+// the spinner. Speaking has no lap at all — k=0 there, so every bar is in
+// phase and the ring breathes as a circle once every 0.76s while the beat
+// carries the going-round.
 const HUB_SPIN_RATE = { idle: 1, thinking: 2.6, speaking: 3.4 };
+const HUB_WAVE_RATE = { idle: 1, thinking: 2.6, speaking: 3.5 };
+
+// Which table each animation belongs to, keyed on its keyframe name. A name
+// that is not in here — the bloom, the arc pulse, the beat — is left alone
+// deliberately: those carry their state in their keyframes, not in their rate.
+const HUB_RATE_FOR = {
+  'hub-spin-cw':     HUB_SPIN_RATE,
+  'hub-spin-ccw':    HUB_SPIN_RATE,
+  'hub-wave':        HUB_WAVE_RATE,
+  'hub-wave-ripple': HUB_WAVE_RATE,   // thinking swaps the waveform, not just the rate
+};
 
 function hubState(state) {
   const hub = document.getElementById('hub');
   if (!hub) return;                 // not on the homepage; nothing to drive
   hub.dataset.state = state;
-  hubSpin(hub, HUB_SPIN_RATE[state] || 1);
+  hubSpin(hub, state);
 }
 
 // Older engines have neither getAnimations nor updatePlaybackRate. Both
-// absences degrade to the rings turning at their idle rate forever, which is
-// a mark that animates slightly less rather than a mark that is broken — so
-// this fails quiet on purpose.
-function hubSpin(hub, rate) {
+// absences degrade to both layers running at their idle rate forever — a mark
+// that animates slightly less rather than a mark that is broken — so this
+// fails quiet on purpose. Bar amplitude and wavelength still change with the
+// state either way, because those are custom properties and cost no JS.
+//
+// This is the one thing in the mark CSS cannot do without an artefact.
+// Restating `animation-duration` on a running animation re-maps elapsed time
+// onto the new value: a ring 40% through a 74s turn becomes a ring 40%
+// through a 28s turn — the same angle now, a different one every frame after
+// — and across 90 bars the same re-map lands as a frame of visual noise. On
+// the outer ring, four-fold symmetric with a notch, it is a visible jolt on
+// every send. playbackRate changes speed from the current frame forward and
+// moves nothing.
+//
+// Everything else about the mark is still pure CSS. This is a speed dial on
+// animations declared in the stylesheet, not an animation loop — there is no
+// requestAnimationFrame here and no geometry is computed in JS.
+//
+// The beat is deliberately NOT rate-scaled: a crest that runs the bar ring in
+// 900ms is the same event whatever Friday is doing, and speeding it up in the
+// loudest state is where it would be least legible.
+function hubSpin(hub, state) {
   if (typeof hub.getAnimations !== 'function') return;
   let anims;
   try { anims = hub.getAnimations({ subtree: true }); } catch { return; }
   for (const a of anims) {
-    const name = a.animationName || '';
-    if (!name.startsWith('hub-spin-')) continue;
+    const table = HUB_RATE_FOR[a.animationName];
+    if (!table) continue;
+    const rate = table[state] || 1;
     if (typeof a.updatePlaybackRate === 'function') a.updatePlaybackRate(rate);
     else a.playbackRate = rate;
   }
 }
 
-// One strike of the arcs per arriving message or card.
+// One bright crest per arriving message or card, running once around the ring.
 //
 // A reply is not token-streamed — channels/dashboard.py emits it whole — so a
 // continuous shimmer would be a loop pretending to be throughput, which is
@@ -2545,11 +2609,11 @@ function hubSpin(hub, rate) {
 // style flush that makes the removal real. SVG elements are not HTMLElements
 // and have no offsetWidth to read for this.
 function hubBeat() {
-  const arcs = document.querySelector('#hub-svg .hub-arcs');
-  if (!arcs) return;
-  arcs.classList.remove('hub-beat');
-  arcs.getBoundingClientRect();
-  arcs.classList.add('hub-beat');
+  const bars = document.querySelector('#hub-svg .hub-bars');
+  if (!bars) return;
+  bars.classList.remove('hub-beat');
+  bars.getBoundingClientRect();
+  bars.classList.add('hub-beat');
 }
 
 // `thinking` has no timer: it ends when a reply renders, or when chatSend's
