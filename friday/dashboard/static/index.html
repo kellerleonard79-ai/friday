@@ -81,16 +81,13 @@
          strip anchors to. -->
     <div class="hud-stage">
       <div class="home-grid">
-        <!-- Left flank: the period / after-school card, plus any pending
-             approval. Both are filled entirely by app.js — see
-             renderPeriodCard. Empty here on purpose: a placeholder rendered in
-             markup would flash the wrong period for one frame on every load. -->
-        <div class="home-side hud-flank">
-          <section class="panel period-card" id="period-card" hidden></section>
-
-          <section class="panel hidden" id="pending-panel">
-            <h2>PENDING APPROVALS</h2>
-            <div id="pending-list"></div>
+        <!-- Left flank. Nothing populates the list yet — deliberately blank,
+             same footprint as the card on the other side so the visor stays
+             symmetric about the hub. -->
+        <div class="home-todo hud-flank">
+          <section class="panel">
+            <h2>TO-DO LIST</h2>
+            <div id="todo-list"></div>
           </section>
         </div>
 
@@ -149,13 +146,16 @@
           </section>
         </div>
 
-        <!-- Right flank. Nothing populates the list yet — deliberately blank,
-             same footprint as the card on the other side so the visor stays
-             symmetric about the hub. -->
-        <div class="home-todo hud-flank">
-          <section class="panel">
-            <h2>TO-DO LIST</h2>
-            <div id="todo-list"></div>
+        <!-- Right flank: the period / after-school card, plus any pending
+             approval. Both are filled entirely by app.js — see
+             renderPeriodCard. Empty here on purpose: a placeholder rendered in
+             markup would flash the wrong period for one frame on every load. -->
+        <div class="home-side hud-flank">
+          <section class="panel period-card" id="period-card" hidden></section>
+
+          <section class="panel hidden" id="pending-panel">
+            <h2>PENDING APPROVALS</h2>
+            <div id="pending-list"></div>
           </section>
         </div>
       </div>

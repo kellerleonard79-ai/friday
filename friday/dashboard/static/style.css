@@ -1371,8 +1371,12 @@ select.input {
 /* ── The stage ─────────────────────────────────────────────────────────────
    The homepage fills the window and nothing below it scrolls. Three rows —
    ticker, content, status — with the content row taking every pixel the
-   other two do not, and three columns inside it: an instrument on each
-   flank, the hub and the conversation between them.
+   other two do not, and three columns inside it: the to-do list on the left,
+   the period card on the right, the hub and the conversation between them.
+
+   The three-column layout places by SOURCE ORDER, so the left/right
+   arrangement lives in index.html and reading order matches what is on
+   screen. The narrow breakpoints place by name and each states its own.
 
    This used to be a normal scrolling document whose children were sized in
    `calc(100vh - 360px)` — a number tuned against roughly a 900px viewport.
@@ -1589,8 +1593,11 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
   .home-grid {
     grid-template-columns: 1fr 1fr;
     /* Chat is the reason anyone opens this page on a narrow screen — it goes
-       first, ahead of the flanking widgets it sits between on desktop. */
-    grid-template-areas: "center center" "side todo";
+       first, ahead of the flanking widgets it sits between on desktop. The
+       pair below keeps the desktop arrangement, to-do on the left: this row
+       places by NAME, so it does not follow the source order the way the
+       three-column layout does and has to be flipped alongside it. */
+    grid-template-areas: "center center" "todo side";
   }
   .home-center { grid-area: center; }
   .home-side   { grid-area: side; }
@@ -1605,6 +1612,9 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
 }
 
 @media (max-width: 700px) {
+  /* One column has no left and no right, so the swap does not apply here —
+     this is an order-of-importance question instead, and the period card is
+     the time-sensitive one. Chat, then what is happening now, then the list. */
   .home-grid {
     grid-template-columns: 1fr;
     grid-template-areas: "center" "side" "todo";
