@@ -227,16 +227,19 @@ window.addEventListener('hashchange', () => {
 // ── Settings drawer ────────────────────────────────────────────────────
 // Today is the homepage; everything else (AI Model, Persona, Integrations,
 // Schedule, Calendar, Notifications, Voice, About) lives in this off-canvas
-// drawer, opened by the settings button in .topbar and closed by the
-// backdrop, a nav pick (see above), or the Escape key. Same drawer at every
-// viewport width — it used to be mobile-only, with a permanent sidebar
-// column on desktop; the column is gone.
+// drawer, opened by the settings button pinned to the top-left corner and
+// closed by the backdrop, a nav pick (see above), or the Escape key. Same
+// drawer at every viewport width — it used to be mobile-only, with a
+// permanent sidebar column on desktop; the column is gone, and so is the
+// header bar the button used to sit in.
+//
+// The way back to Today used to be the wordmark in that bar. It is the
+// drawer's first nav item now, which needs no wiring of its own: the
+// .nav-item listener above already routes on data-route.
 
 const SIDEBAR = document.getElementById('sidebar');
 const SIDEBAR_BACKDROP = document.getElementById('sidebar-backdrop');
 const HAMBURGER_BTN = document.getElementById('hamburger-btn');
-const TOPBAR_HOME = document.getElementById('topbar-home');
-TOPBAR_HOME.addEventListener('click', () => { navigate('today'); closeSidebar(); });
 
 function openSidebar() {
   SIDEBAR.classList.add('open');

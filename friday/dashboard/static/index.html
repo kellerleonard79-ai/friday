@@ -31,19 +31,30 @@
 
   <!-- Today is the homepage; everything else lives behind this settings
        button as an off-canvas drawer, on every viewport width — not just
-       mobile. Clicking the wordmark returns to Today from anywhere in it. -->
-  <header class="topbar">
-    <button class="settings-btn" id="hamburger-btn" aria-label="Open settings" aria-expanded="false">
-      <span></span><span></span><span></span>
-    </button>
-    <button class="topbar-title" id="topbar-home">F.R.I.D.A.Y.</button>
-  </header>
+       mobile.
+
+       The button is a lone fixed element, not a child of a header bar:
+       there is no bar any more. It cannot live inside the ticker either,
+       even though that is where it visually sits — the ticker belongs to
+       the Today template and is cloned away on every settings page, and a
+       settings drawer you can only open from the homepage is a trap.
+       Fixed at the top-left it lands inside the ticker’s own left fade on
+       Today, and floats over the page everywhere else.
+
+       The F.R.I.D.A.Y. wordmark that used to sit beside it is gone: the
+       hub in the middle of Today is the wordmark, at the size the name
+       deserves. Its other job — getting back to Today from a settings
+       page — is now the first item in the drawer. -->
+  <button class="settings-btn" id="hamburger-btn" aria-label="Open settings" aria-expanded="false">
+    <span></span><span></span><span></span>
+  </button>
   <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
 
   <aside class="sidebar" id="sidebar">
     <div class="logo">SETTINGS</div>
     <div class="logo-sub">CONFIGURATION</div>
     <nav>
+      <a class="nav-item" data-route="today">Today</a>
       <a class="nav-item" data-route="ai">AI Model</a>
       <a class="nav-item" data-route="persona">Persona</a>
       <a class="nav-item" data-route="integrations">Integrations</a>
