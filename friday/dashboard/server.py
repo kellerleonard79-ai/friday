@@ -524,6 +524,31 @@ def _publish_pending(broadcaster, pid: str, status: str) -> None:
         logger.debug(f"pending broadcast failed: {e}")
 
 
+def _apply_work_status(conn: sqlite3.Connection, items: list[dict]) -> list[dict]:
+    """Merge Today-panel Accept/Dismiss state onto a list of Canvas work
+    items, IN PLACE for status/style, and filter out dismissed ones OUT of
+    place — a dismissal is an explicit choice Keller already made, and this
+    card's own failure mode ("show too much, never too little") is about
+    Canvas data Friday might be wrong to drop, not about a decision Keller
+    already gave it.
+
+    `work_status` is None for an item never acted on (Accept/Dismiss both
+    still offered), 'open'/'done' for an accepted one (shown, marked
+    accepted, no buttons), and rows are dropped entirely for 'dismissed'.
+    """
+    from memory import work as work_store
+    statuses = work_store.canvas_statuses(conn)
+    out = []
+    for a in items:
+        info = statuses.get(str(a.get("id")))
+        status = info["status"] if info else None
+        if status == "dismissed":
+            continue
+        a["work_status"] = status
+        out.append(a)
+    return out
+
+
 def _pending_approvals(conn: sqlite3.Connection) -> list[dict]:
     """Pending approval rows with the full draft text decoded from payload JSON."""
     out = []
@@ -1428,13 +1453,17 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
                     named.add(str(a["course_id"]))
 
         by_course: dict[str, list] = {cid: [] for cid in named}
+        ann_by_course: dict[str, list] = {cid: [] for cid in named}
         if named:
             horizon = (today + timedelta(days=21)).isoformat()
-            for a in canvas_connector.work_items(
+            work_rows = _apply_work_status(conn, canvas_connector.work_items(
                 conn, course_ids=sorted(named),
                 due_after=today.isoformat(), due_before=horizon, limit=500,
-            ):
+            ))
+            for a in work_rows:
                 by_course.setdefault(str(a["course_id"]), []).append(a)
+            for t in canvas_connector.announcements(conn, course_ids=sorted(named)):
+                ann_by_course.setdefault(str(t["course_id"]), []).append(t)
 
         return {
             "schedule": sched,
@@ -1445,6 +1474,7 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
             "periods": periods,
             "courses": courses,
             "assignments_by_course": by_course,
+            "announcements_by_course": ann_by_course,
             "cache": canvas_connector.cache_status(conn),
         }
 
@@ -1571,9 +1601,9 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
         # client hides them by default (SHOW_SUBMITTED) and can reveal them
         # without a second request, the same pattern /api/schedule already
         # uses for the period card's per-course work lists.
-        due = canvas_connector.work_items(
+        due = _apply_work_status(conn, canvas_connector.work_items(
             conn, due_after=today.isoformat(),
-            due_before=(today + timedelta(days=2)).isoformat(), limit=100)
+            due_before=(today + timedelta(days=2)).isoformat(), limit=100))
         courses = {c["id"]: c for c in canvas_connector.courses(conn)}
         for a in due:
             c = courses.get(str(a["course_id"]))
@@ -1607,6 +1637,132 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
             "overcommitted": free_minutes < 0,
             "cache": canvas_connector.cache_status(conn),
         }
+
+    # ── Work: the left panel ────────────────────────────────────────────────
+    #
+    # Today PROPOSES (Canvas assignments/events, read-only), Work is what
+    # Keller ACCEPTED plus what he typed himself — see memory/work.py's module
+    # docstring for the mirror-not-move design. Every route here publishes the
+    # 'work' stream kind so a second tab, or a card resolved through chat,
+    # stays in sync without a second polling loop — see app.js's onStream.
+    #
+    # Bucketing (Now / Upcoming / Sometime) is NOT computed here — the client
+    # does it off `due_at`, same "browser owns the clock" split the period
+    # card already uses. This endpoint returns a flat, due-date-ordered list.
+
+    def _publish_work(kind: str = "work") -> None:
+        try:
+            broadcaster.publish({"kind": kind})
+        except Exception as e:
+            logger.debug(f"work broadcast failed: {e}")
+
+    @app.get("/api/work-items")
+    def api_work_items() -> dict:
+        from memory import work as work_store
+        return {"items": work_store.list_items(conn, statuses=("open", "done"))}
+
+    @app.post("/api/work-items")
+    def api_work_items_add(payload: dict = Body(...)) -> dict:
+        """A task Keller typed directly into the Work panel — the dashboard's
+        half of tools/work_write.py::add_task. No card: see that module's
+        docstring on why a to-do add is the policy table's plain AUTO cell
+        rather than an override."""
+        from memory import work as work_store
+        title = str(payload.get("title") or "").strip()
+        if not title:
+            raise HTTPException(400, "A task needs a title.")
+        due_date = str(payload.get("due_date") or "").strip()
+        if due_date:
+            try:
+                date.fromisoformat(due_date)
+            except ValueError:
+                raise HTTPException(400, f"due_date={due_date!r} is not an ISO date.")
+        minutes = payload.get("estimated_minutes")
+        item = work_store.add_manual(
+            conn, title=title, due_at=due_date or None,
+            has_due_time=False, estimated_minutes=int(minutes) if minutes else None,
+        )
+        _publish_work()
+        return {"ok": True, "item": item}
+
+    @app.post("/api/work-items/accept")
+    def api_work_items_accept(payload: dict = Body(...)) -> dict:
+        """Accept a Canvas item off the Today panel. Looks the item up in the
+        Canvas cache itself rather than trusting title/due_at from the
+        client — the accepted snapshot has to be what Friday actually knows,
+        not whatever the browser's copy of the row happened to hold."""
+        from connectors import canvas as canvas_connector
+        from memory import work as work_store
+        source_ref = str(payload.get("source_ref") or "").strip()
+        if not source_ref:
+            raise HTTPException(400, "source_ref is required.")
+        rows = canvas_connector.assignments(conn, limit=1000)
+        match = next((r for r in rows if r["id"] == source_ref), None)
+        if match is None:
+            raise HTTPException(404, "That item is no longer in the Canvas cache.")
+        estimate = payload.get("estimated_minutes")
+        item = work_store.accept_canvas(
+            conn, source_ref=source_ref, title=match["title"],
+            due_at=match["due_at"], has_due_time=match["has_due_time"],
+            source_url=match["html_url"],
+            estimated_minutes=int(estimate) if estimate else None,
+        )
+        _publish_work()
+        return {"ok": True, "item": item}
+
+    @app.post("/api/work-items/dismiss")
+    def api_work_items_dismiss(payload: dict = Body(...)) -> dict:
+        source_ref = str(payload.get("source_ref") or "").strip()
+        title = str(payload.get("title") or "").strip()
+        if not source_ref:
+            raise HTTPException(400, "source_ref is required.")
+        from memory import work as work_store
+        item = work_store.dismiss_canvas(conn, source_ref=source_ref, title=title)
+        _publish_work()
+        return {"ok": True, "item": item}
+
+    @app.post("/api/work-items/{item_id}/complete")
+    def api_work_items_complete(item_id: int) -> dict:
+        from memory import work as work_store
+        item = work_store.set_status(conn, item_id, "done")
+        if item is None:
+            raise HTTPException(404, "Unknown work item.")
+        _publish_work()
+        return {"ok": True, "item": item}
+
+    @app.post("/api/work-items/{item_id}/reopen")
+    def api_work_items_reopen(item_id: int) -> dict:
+        """Un-complete. A manual toggle, not Canvas disagreeing — see
+        memory/work.py::set_status on why nothing else can do this."""
+        from memory import work as work_store
+        item = work_store.set_status(conn, item_id, "open")
+        if item is None:
+            raise HTTPException(404, "Unknown work item.")
+        _publish_work()
+        return {"ok": True, "item": item}
+
+    @app.post("/api/work-items/{item_id}/estimate")
+    def api_work_items_estimate(item_id: int, payload: dict = Body(...)) -> dict:
+        from memory import work as work_store
+        minutes = payload.get("minutes")
+        item = work_store.set_estimate(
+            conn, item_id, int(minutes) if minutes else None)
+        if item is None:
+            raise HTTPException(404, "Unknown work item.")
+        _publish_work()
+        return {"ok": True, "item": item}
+
+    @app.post("/api/canvas/announcements/{announcement_id}/dismiss")
+    def api_canvas_announcement_dismiss(announcement_id: str) -> dict:
+        from connectors import canvas as canvas_connector
+        ok = canvas_connector.dismiss_announcement(conn, announcement_id)
+        if not ok:
+            raise HTTPException(404, "Unknown announcement.")
+        # Reuses the existing 'canvas' stream kind — app.js already reloads
+        # both the schedule and after-school payloads on it, which is exactly
+        # the refresh a dismissed announcement needs and nothing more.
+        _publish_work("canvas")
+        return {"ok": True}
 
     @app.post("/api/schedule/override")
     def api_schedule_override(payload: dict = Body(default={})) -> dict:
