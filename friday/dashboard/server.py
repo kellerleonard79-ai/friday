@@ -1388,6 +1388,12 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
         names gets a key even when it has nothing posted — an empty list is
         "nothing posted yet", which early in a semester is most of them, and
         a missing key is indistinguishable from a bug.
+
+        kinds=("assignment",) below drops iCal course EVENTS ("OPEN LAB",
+        "Open House") from this list — real on the calendar, not something to
+        turn in. A course whose Canvas presence is mostly calendar entries
+        (some are) will look sparse here rather than showing its lab schedule
+        as if it were homework.
         """
         from connectors import canvas as canvas_connector
         cfg = _load_config(config_path)
@@ -1424,7 +1430,7 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
         if named:
             horizon = (today + timedelta(days=21)).isoformat()
             for a in canvas_connector.assignments(
-                conn, course_ids=sorted(named),
+                conn, course_ids=sorted(named), kinds=("assignment",),
                 due_after=today.isoformat(), due_before=horizon, limit=500,
             ):
                 by_course.setdefault(str(a["course_id"]), []).append(a)
@@ -1557,12 +1563,14 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
         # longer string sharing a prefix sorts GREATER, so a <= against
         # "2026-08-13T23:59:59" would exclude an assignment due at exactly
         # 11:59pm — which is when essentially every Canvas assignment is due.
+        # kinds=("assignment",) — same reason as /api/schedule: a calendar
+        # EVENT is not work due, however due-date-shaped its row looks.
         # Submitted assignments ride along rather than being dropped here — the
         # client hides them by default (SHOW_SUBMITTED) and can reveal them
         # without a second request, the same pattern /api/schedule already
         # uses for the period card's per-course work lists.
         due = canvas_connector.assignments(
-            conn, due_after=today.isoformat(),
+            conn, kinds=("assignment",), due_after=today.isoformat(),
             due_before=(today + timedelta(days=2)).isoformat(), limit=100)
         courses = {c["id"]: c for c in canvas_connector.courses(conn)}
         for a in due:

@@ -1326,7 +1326,13 @@ function locateNow(periods, nowMin) {
 function courseName(id) {
   if (!SCHED || id == null) return null;
   const c = SCHED.courses[String(id)];
-  return c ? (c.name || '') : null;
+  if (!c) return null;
+  // course_code is Canvas's short label ("AP ENG LIT & COMP-MASON"); name is
+  // the official long title ("...1st, 6th, and 7th Periods."), REST-only and
+  // fine as a header on its own but wrong as one. course_code is empty on an
+  // iCal-only course (REST has never enriched it), so name is the fallback,
+  // not the default.
+  return c.course_code || c.name || '';
 }
 
 // Upcoming work for one course. Undated items are kept — "no due date" is a
@@ -1444,8 +1450,14 @@ function renderPeriodCard() {
 
   const loc = locateNow(periods, nowMin);
 
-  // After the last bell the card becomes a different thing entirely.
-  if (VIEW_INDEX == null && loc.state === 'after') {
+  // After the last bell — or on a day with no periods at all — the card
+  // becomes a different thing entirely. locateNow only reasons about the
+  // clock, not the calendar, so a weekend at 10am reads as "before first
+  // bell" on the bell schedule alone; is_school_day is what actually says
+  // there's no school today. A manual view (VIEW_INDEX) still wins — someone
+  // deliberately browsing the bell schedule from the after-school card's
+  // "Today's periods" button gets what they asked for regardless of the day.
+  if (VIEW_INDEX == null && (loc.state === 'after' || !SCHED.is_school_day)) {
     renderAfterSchool(card);
     return;
   }

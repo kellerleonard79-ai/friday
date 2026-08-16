@@ -558,12 +558,20 @@ def courses(conn: sqlite3.Connection) -> list[dict]:
 
 def assignments(conn: sqlite3.Connection, course_ids: list[str] | None = None,
                 due_after: str | None = None, due_before: str | None = None,
-                limit: int = 200) -> list[dict]:
-    """Cached assignments, optionally scoped to courses and a due window.
+                limit: int = 200, kinds: tuple[str, ...] | None = None) -> list[dict]:
+    """Cached assignments, optionally scoped to courses, a due window, and kind.
 
     Pure read — safe on the request path, which is the entire reason the cache
     tables exist. Undated items sort last rather than being dropped: "no due
     date" is a real state a card should be able to show.
+
+    `kinds` defaults to None (both 'assignment' and 'event'), because this is
+    a general cache reader and a future consumer may genuinely want calendar
+    events. A caller building a work/to-do list — the only two today — passes
+    `kinds=("assignment",)`: an iCal course EVENT like "OPEN LAB" is a
+    schedule entry, not something to turn in, and the UID pattern that sets
+    `kind` (see `_ical_item`) already separates the two at ingest, so this is
+    a filter, not a classification.
     """
     sql = ("SELECT id, course_id, title, due_at, has_due_time, points, "
            "submitted, html_url, kind, source, fetched_at "
@@ -572,6 +580,9 @@ def assignments(conn: sqlite3.Connection, course_ids: list[str] | None = None,
     if course_ids:
         sql += f" AND course_id IN ({','.join('?' * len(course_ids))})"
         args.extend(course_ids)
+    if kinds:
+        sql += f" AND kind IN ({','.join('?' * len(kinds))})"
+        args.extend(kinds)
     if due_after:
         sql += " AND due_at >= ?"
         args.append(due_after)
