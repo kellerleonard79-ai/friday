@@ -388,6 +388,41 @@ def _rest_get(url: str, token: str, params: dict) -> list:
     return out
 
 
+def _store_announcements(conn: sqlite3.Connection,
+                         per_course: dict[str, list[dict]], now_iso: str) -> None:
+    """Upsert announcements, per course. `dismissed` is never touched here —
+    it is the one piece of state this cache holds that Canvas does not send
+    back, and an upsert that reset it on every 15-minute poll would un-dismiss
+    everything Keller had already cleared."""
+    for course_id, topics in per_course.items():
+        for t in topics:
+            conn.execute(
+                """INSERT INTO canvas_announcements
+                     (id, course_id, title, html_url, posted_at, dismissed, fetched_at)
+                   VALUES (?, ?, ?, ?, ?, 0, ?)
+                   ON CONFLICT(id) DO UPDATE SET
+                     course_id  = excluded.course_id,
+                     title      = excluded.title,
+                     html_url   = excluded.html_url,
+                     posted_at  = excluded.posted_at,
+                     fetched_at = excluded.fetched_at""",
+                (f"announcement-{t.get('id')}", str(course_id),
+                 t.get("title") or "", t.get("html_url") or "",
+                 t.get("posted_at") or "", now_iso),
+            )
+        # Pruned per course, same rule as assignments: a removed announcement
+        # leaves the cache, but only for a course that actually answered this
+        # cycle — a timeout must not be read as "Canvas deleted everything".
+        seen = [f"announcement-{t.get('id')}" for t in topics]
+        marks = ",".join("?" * len(seen)) if seen else "''"
+        conn.execute(
+            f"DELETE FROM canvas_announcements "
+            f"WHERE course_id = ? AND id NOT IN ({marks})",
+            [str(course_id), *seen],
+        )
+    conn.commit()
+
+
 def _store_rest(conn: sqlite3.Connection, courses: list[dict],
                 per_course: dict[str, list[dict]], now_iso: str) -> None:
     """Overlay the REST pass on top of the iCal rows."""
@@ -510,6 +545,7 @@ def refresh(config: dict, conn: sqlite3.Connection) -> dict:
                 f"{host}/api/v1/courses", token,
                 {"per_page": 100, "enrollment_state": "active"})
             per_course: dict[str, list[dict]] = {}
+            per_course_ann: dict[str, list[dict]] = {}
             for c in courses_json:
                 cid = c.get("id")
                 if cid is None:
@@ -521,7 +557,16 @@ def refresh(config: dict, conn: sqlite3.Connection) -> dict:
                 except Exception as e:
                     # One unreadable course must not lose the other four.
                     logger.debug(f"Canvas REST assignments for {cid} failed: {e}")
+                try:
+                    per_course_ann[str(cid)] = _rest_get(
+                        f"{host}/api/v1/courses/{cid}/discussion_topics", token,
+                        {"per_page": 100, "only_announcements": "true"})
+                except Exception as e:
+                    # Same rule: one course's announcements failing must not
+                    # cost the assignment enrichment that already succeeded.
+                    logger.debug(f"Canvas REST announcements for {cid} failed: {e}")
             _store_rest(conn, courses_json, per_course, now_iso)
+            _store_announcements(conn, per_course_ann, now_iso)
             result["rest_ok"] = True
         except requests.exceptions.HTTPError as e:
             # A 401 on the FIRST call (/courses) means the token itself is
@@ -662,6 +707,55 @@ def work_items(conn: sqlite3.Connection, course_ids: list[str] | None = None,
         else:
             seen[key]["repeat_count"] += 1
     return [seen[k] for k in order]
+
+
+def announcements(conn: sqlite3.Connection, course_ids: list[str] | None = None,
+                  per_course_limit: int = 5) -> list[dict]:
+    """Cached, undismissed announcements, newest first per course.
+
+    REST-only — the iCal feed carries no announcements, so this is empty
+    whenever REST enrichment is unavailable (a dead token, same as a
+    REST-only assignment field going missing). Capped per course so one
+    chatty class does not push every other period's announcements off the
+    card; there is no server-side global cap because the period card only
+    ever asks for one course's worth at a time.
+    """
+    sql = ("SELECT id, course_id, title, html_url, posted_at, fetched_at "
+           "FROM canvas_announcements WHERE dismissed = 0")
+    args: list = []
+    if course_ids:
+        sql += f" AND course_id IN ({','.join('?' * len(course_ids))})"
+        args.extend(course_ids)
+    sql += " ORDER BY course_id, posted_at DESC"
+    try:
+        rows = conn.execute(sql, args).fetchall()
+    except Exception as e:
+        logger.debug(f"canvas announcements read failed: {e}")
+        return []
+    out: list[dict] = []
+    per_course_count: dict[str, int] = {}
+    for r in rows:
+        cid = r[1]
+        n = per_course_count.get(cid, 0)
+        if n >= per_course_limit:
+            continue
+        per_course_count[cid] = n + 1
+        out.append({"id": r[0], "course_id": cid, "title": r[2] or "",
+                    "html_url": r[3] or "", "posted_at": r[4] or "",
+                    "fetched_at": r[5] or ""})
+    return out
+
+
+def dismiss_announcement(conn: sqlite3.Connection, announcement_id: str) -> bool:
+    try:
+        cur = conn.execute(
+            "UPDATE canvas_announcements SET dismissed = 1 WHERE id = ?",
+            (announcement_id,))
+        conn.commit()
+        return cur.rowcount > 0
+    except Exception as e:
+        logger.debug(f"canvas announcement dismiss failed: {e}")
+        return False
 
 
 def cache_status(conn: sqlite3.Connection) -> dict:

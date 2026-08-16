@@ -207,6 +207,71 @@ CREATE TABLE IF NOT EXISTS canvas_assignments (
 
 CREATE INDEX IF NOT EXISTS idx_canvas_asg_course ON canvas_assignments (course_id);
 CREATE INDEX IF NOT EXISTS idx_canvas_asg_due    ON canvas_assignments (due_at);
+
+-- One row per Canvas announcement (a discussion_topic with only_announcements
+-- filtering already applied server-side, so nothing here re-decides that).
+-- `dismissed` is the ENTIRE point of caching these rather than reading them
+-- live off the period card: a "persists until explicitly dismissed" surface
+-- needs somewhere durable to remember a dismissal happened, and nothing else
+-- in the Canvas cache is ever hand-dismissed by the user.
+CREATE TABLE IF NOT EXISTS canvas_announcements (
+    id          TEXT PRIMARY KEY,   -- 'announcement-<canvas id>'
+    course_id   TEXT,
+    title       TEXT,
+    html_url    TEXT,
+    posted_at   TEXT,
+    dismissed   INTEGER DEFAULT 0,
+    fetched_at  TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_canvas_ann_course ON canvas_announcements (course_id);
+
+-- ── Work: what Keller has committed to, from any source ──────────────────────
+-- The to-do system (Phase III step 8's Today/Work split). ONE TABLE FOR EVERY
+-- ORIGIN, deliberately — a Canvas-origin row and a hand-typed one differ only
+-- in `source`/`source_ref`/`source_url`, and bucketing (Now/Upcoming/Sometime)
+-- is the same due_at logic either way.
+--
+-- A CANVAS-ORIGIN ROW IS A MIRROR, NOT A LIVE VIEW. title/due_at/has_due_time
+-- are snapshotted from canvas_assignments at the moment Keller accepts (or
+-- dismisses) the item — this table is never joined against canvas_assignments
+-- on read. If Canvas later renames the assignment or moves its due date, the
+-- Work panel keeps showing what was true at accept time until something reads
+-- this row again with fresh values, which nothing currently does. That is a
+-- real gap, chosen deliberately over the alternative (a live join): a live
+-- join would mean an accepted item's due date silently moves out from under a
+-- plan Keller already made around the old one, which is a worse surprise than
+-- a stale mirror is. Completion already has to be independent of Canvas (a
+-- submission after the fact must not un-complete an item), and a stale mirror
+-- is the same independence applied to the due date and title too.
+--
+-- STATUS DOUBLES AS THE TODAY-PANEL DISMISS/ACCEPT RECORD for a Canvas-origin
+-- row: 'dismissed' means the Today panel hides it, 'open'/'done' means Today
+-- shows it marked accepted instead of offering Accept/Dismiss again. A row's
+-- ABSENCE (no source_ref match) means Today has not been told anything about
+-- it yet — the ordinary case for something newly posted.
+CREATE TABLE IF NOT EXISTS work_items (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    title              TEXT,
+    source             TEXT,     -- 'canvas' | 'manual'
+    source_ref         TEXT,     -- canvas_assignments.id; NULL for manual
+    source_url         TEXT,     -- html_url; NULL for manual
+    due_at             TEXT,     -- ISO date or datetime; NULL = no due date
+    has_due_time       INTEGER DEFAULT 0,
+    estimated_minutes  INTEGER,  -- NULL = no estimate given
+    status             TEXT,     -- 'open' | 'done' | 'dismissed'
+    accepted_at        TEXT,
+    completed_at       TEXT,
+    created_at         TEXT
+);
+
+-- A Canvas assignment can be accepted or dismissed at most once — a partial
+-- index rather than a plain UNIQUE so manual rows (source_ref IS NULL) are
+-- never compared against each other under it.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_work_source_ref
+    ON work_items (source, source_ref) WHERE source_ref IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_work_status ON work_items (status);
+CREATE INDEX IF NOT EXISTS idx_work_due    ON work_items (due_at);
 """
 
 
