@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from typing import Callable, Optional
 
 from pynput import keyboard
@@ -127,6 +128,80 @@ class PTTListener:
         )
         self._listener.start()
         _LOGGER.info("PTT listener started on key=%s", self.key)
+
+    def stop(self) -> None:
+        if self._listener is not None:
+            try:
+                self._listener.stop()
+            except Exception:
+                pass
+            self._listener = None
+
+
+class TapToggleListener:
+    """Global key listener that fires `on_toggle_cb` once `tap_count` presses
+    of `key_name` land within `window_ms` of each other, then resets.
+
+    A separate `keyboard.Listener` instance from `PTTListener` — pynput
+    delivers the same OS event to every active listener, so this coexists
+    with a hold-to-talk key on a different (or even the same) binding.
+    Counts press edges only; a key held down does not auto-repeat into taps
+    (same `_held` guard as PTTListener), and a tap that starts a run older
+    than `window_ms` drops off the front rather than accumulating forever.
+    """
+
+    def __init__(
+        self,
+        key_name: str,
+        tap_count: int,
+        window_ms: int,
+        on_toggle_cb: Callable[[], None],
+    ) -> None:
+        self.key = _resolve_key(key_name)
+        self.tap_count = max(2, tap_count)
+        self.window_s = window_ms / 1000.0
+        self.on_toggle_cb = on_toggle_cb
+
+        self._lock = threading.Lock()
+        self._times: list[float] = []
+        self._held = False
+        self._listener: Optional[keyboard.Listener] = None
+
+    def _on_press(self, k) -> None:
+        if k != self.key:
+            return
+        if self._held:
+            return  # auto-repeat
+        self._held = True
+        now = time.monotonic()
+        fire = False
+        with self._lock:
+            self._times = [t for t in self._times if now - t <= self.window_s]
+            self._times.append(now)
+            if len(self._times) >= self.tap_count:
+                self._times.clear()
+                fire = True
+        if fire:
+            try:
+                self.on_toggle_cb()
+            except Exception as e:
+                _LOGGER.exception("wake-toggle on_toggle_cb raised: %s", e)
+
+    def _on_release(self, k) -> None:
+        if k == self.key:
+            self._held = False
+
+    def start(self) -> None:
+        self._listener = keyboard.Listener(
+            on_press=self._on_press,
+            on_release=self._on_release,
+            suppress=False,
+        )
+        self._listener.start()
+        _LOGGER.info(
+            "wake-toggle listener started on key=%s (%dx within %dms)",
+            self.key, self.tap_count, int(self.window_s * 1000),
+        )
 
     def stop(self) -> None:
         if self._listener is not None:

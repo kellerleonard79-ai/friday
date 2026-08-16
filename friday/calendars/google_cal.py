@@ -382,3 +382,41 @@ def update_event(cfg: dict, uid: str, calendar_name: str = "",
         }
     logger.error(f"Google Calendar update — event {uid} not found in any calendar")
     return None
+
+
+def delete_event(cfg: dict, uid: str, calendar_name: str = "") -> writes.WriteOutcome:
+    """Delete an event, found by its Google event id. `calendar_name` is
+    tried first when known; otherwise every readable calendar is tried in
+    turn, mirroring update_event's search order — a Google event id is only
+    unique within its own calendar's namespace.
+
+    A 404 on a candidate calendar means "not there", not "gone" — the search
+    keeps going. Exhausting every candidate without a hit is refused: nothing
+    was removed, so a retry is safe.
+    """
+    service = _get_service()
+    if service is None:
+        return writes.refused("Google Calendar is not authenticated")
+
+    candidates: list[tuple[str, str]] = []
+    if calendar_name:
+        cal_id = _calendar_map().get(calendar_name)
+        if cal_id:
+            candidates.append((calendar_name, cal_id))
+    candidates += [c for c in _read_calendar_ids(cfg) if c not in candidates]
+
+    for name, cal_id in candidates:
+        try:
+            service.events().delete(calendarId=cal_id, eventId=uid).execute()
+            return writes.written(uid)
+        except Exception as e:
+            status = getattr(getattr(e, "resp", None), "status", None)
+            if status == 404:
+                continue  # not in this calendar — keep looking
+            if isinstance(status, int) and 400 <= status < 500 and status != 429:
+                logger.error(f"Google Calendar delete refused for {uid}: {e}")
+                return writes.refused(f"HTTP {status}: {e}")
+            logger.error(f"Google Calendar delete failed for {uid}: {e}")
+            return writes.unknown(f"{type(e).__name__}: {e}")
+    logger.error(f"Google Calendar delete — event {uid} not found in any calendar")
+    return writes.refused(f"event {uid} not found in any calendar")

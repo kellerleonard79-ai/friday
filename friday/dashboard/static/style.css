@@ -1686,18 +1686,19 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
 
      idle       rings counter-rotate at base rate; a gentle 3-crest sine
                 undulating in place, one lap every ~8s
-     thinking   rings 2.6x; a loading spinner — one compact lit crest circling
-                a dim track every ~1.03s. From the moment a message is sent
+     thinking   rings 2.6x; a comet — a lit head and a long tail running a
+                ring of CONSTANT height, ~1.03s a lap. Light travels; the
+                outline does not move. From the moment a message is sent
                 until something comes back
      speaking   rings 3.4x; k=0, so the bar ring stays a circle and breathes
                 as one at ~0.76s a pulse, while the beat runs its crest round
                 on top. Settles back to idle when the traffic stops
 
-   Only ONE of the three has a shape, and it is the quiet one. Thinking has to
-   say "still working" to someone watching it do nothing else, which is what a
-   single travelling crest is for and what a standing wave is not; speaking
-   has the beat to carry the event, so its job is to stay round and get out of
-   the way.
+   Only ONE of the three changes the mark's shape, and it is the quiet one.
+   Thinking has to say "still working" to someone watching it do nothing else,
+   and it does that with light on a fixed ring rather than with geometry —
+   height there reads as a wobble, not a spin. Speaking has the beat to carry
+   the event, so its job is to stay round and get out of the way.
 
    ── Speed is playbackRate, for both layers ──
 
@@ -1760,16 +1761,20 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
 }
 
 .hub[data-state="thinking"] {
-  /* A loading spinner: one compact, bright crest travelling a quiet track.
-     The low baseline is the point — a spinner is legible because most of its
-     ring is DIM, and the eye is given exactly one thing to follow. The crest
-     carries brightness as well as height (see hub-wave-ripple), which is what
-     lets the track sit this low without thinking reading as quieter than
-     idle. */
+  /* A comet: a lit head with a long fading tail, running a ring that does not
+     change shape. --hub-k is the only wave number that matters here — one
+     comet on the ring at a time.
+
+     There is no --hub-lo / --hub-hi, and that is the whole point of this
+     state. Bar HEIGHT is constant (see the rule below); only light travels.
+     Every earlier attempt animated height, so the crest bulged the outline
+     and the mark wobbled its way round instead of spinning. A spinner does
+     not deform.
+
+     If you restore a height animation here, restore these two with it —
+     otherwise they silently inherit idle's amplitudes. */
   --hub-k: 1;
-  --hub-lo: 0.55;
-  --hub-hi: 2.8;
-  --hub-still: 1.6;
+  --hub-still: 1.7;
 }
 
 .hub[data-state="speaking"] {
@@ -1924,40 +1929,44 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
   50%      { transform: scaleY(var(--hub-hi)); }
 }
 
-/* ── thinking: the spinner ────────────────────────────────────────────────
-   A different waveform, not just different numbers in the same one.
+/* ── thinking: the comet ──────────────────────────────────────────────────
+   A lit head with a long tail, travelling a ring of CONSTANT height. This is
+   the third attempt at this state and the first that does not animate
+   geometry, which is what was wrong with the other two: when the crest is a
+   height change, the silhouette bulges as it passes and the mark wobbles its
+   way around rather than spinning. A spinner does not deform. So the bars
+   here are pinned at scaleY(1.7) and the animation touches nothing but
+   `fill`.
 
-   `hub-wave` is a sine: every bar spends half its cycle above the midline, so
-   at k>1 the ring reads as a lobed shape breathing in place. Correct as a
-   wave, wrong as a signal — nothing appears to GO anywhere.
+   Paired with k=1 there is exactly one comet on the ring, and the same
+   per-bar delay that makes the sine undulate elsewhere sends it round once
+   per cycle — about a second a lap.
 
-   This is a pulse: flat and dim at --hub-lo for three quarters of the cycle,
-   one crest, flat again. Paired with k=1 it puts exactly one crest on the
-   ring at a time, and the same per-bar delay that made the sine undulate now
-   sends that crest round the ring once per cycle — about a second a lap.
-
-   It animates `fill` as well as height, and that is what makes it read as a
-   spinner rather than as a bump travelling round a hoop. A spinner is legible
-   because its track is dim and exactly one segment is lit; height alone on a
-   uniformly bright ring gives the eye no single thing to follow. --az-deep is
-   the track, --az-soft is the lit segment.
-
-   The rise is 7% and the fall is 17%, deliberately unequal. A symmetric crest
-   has no direction; a steep nose and a long tail is which way it is going,
-   and it costs one keyframe to say so.
+   The four stops are the comet: --az-deep is the unlit track, --az-soft is
+   the head, and the long --az-to-deep fade from 18% to 45% is the tail. It is
+   asymmetric on purpose. A symmetric glow has no direction; a 3% rise and a
+   42% decay is which way it is going, and it is the tail rather than the head
+   that says so.
 
    Changing animation-name rather than reshaping `hub-wave` is what makes the
-   crest launch from bar 0 — twelve o'clock — on the frame the message was
+   comet launch from bar 0 — twelve o'clock — on the frame the message was
    sent, because a new animation starts at time zero. It also resets
-   playbackRate, which is why hub-wave-ripple is in hubSpin's table too. */
-@keyframes hub-wave-ripple {
-  0%   { transform: scaleY(var(--hub-lo)); fill: var(--az-deep); }
-  7%   { transform: scaleY(var(--hub-hi)); fill: var(--az-soft); }
-  24%  { transform: scaleY(var(--hub-lo)); fill: var(--az-deep); }
-  100% { transform: scaleY(var(--hub-lo)); fill: var(--az-deep); }
+   playbackRate, which is why hub-wave-comet is in hubSpin's table too. */
+@keyframes hub-wave-comet {
+  0%   { fill: var(--az-deep); }
+  3%   { fill: var(--az-soft); }
+  18%  { fill: var(--az);      }
+  45%  { fill: var(--az-deep); }
+  100% { fill: var(--az-deep); }
 }
 
-.hub[data-state="thinking"] .hub-bar { animation-name: hub-wave-ripple; }
+/* The pinned height is on the same rule as the animation-name so the two
+   cannot be separated by accident — a comet on bars that are still running
+   `hub-wave` underneath is the exact bug this state was rewritten to fix. */
+.hub[data-state="thinking"] .hub-bar {
+  transform: scaleY(1.7);
+  animation-name: hub-wave-comet;
+}
 
 /* ── Bloom ────────────────────────────────────────────────────────────────
    The brightness channel: opacity on two wide strokes. No filter, and
@@ -2550,6 +2559,23 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
 .pc-work-due { color: var(--muted); font-size: 11px; white-space: nowrap; }
 
 .pc-empty { color: var(--muted-2); font-size: 13px; font-style: italic; }
+
+/* The submitted-work toggle. Understated on purpose — it is a secondary
+   affordance next to a list that is, by default, exactly the items still
+   worth looking at. */
+.pc-toggle-submitted {
+  display: block;
+  margin-top: 6px;
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--muted-2);
+  cursor: pointer;
+}
+.pc-toggle-submitted:hover { color: var(--teal); }
 
 .pc-unresolved {
   color: var(--orange-bright);

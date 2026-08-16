@@ -124,6 +124,32 @@ def _readback_confirms(calendar_name: str, uid: str) -> bool:
         return False
 
 
+def delete_event(uid: str, calendar_name: str = "", verify: bool = True) -> WriteOutcome:
+    """Delete an event. Returns a WriteOutcome — see calendars/writes.py.
+
+    THE READ-BACK CONFIRMS ABSENCE, THE MIRROR OF write_event's. A backend
+    reporting "deleted" is the backend agreeing with itself; invariant 4 asks
+    the same question a create's read-back does, just inverted — does the
+    authority that accepted the write now agree nothing is there. Same door
+    the write went out of, for the same reason write_event's read-back does:
+    EventKit lags a JXA write long enough that it would still report an event
+    as present that Calendar.app has already removed.
+
+    Skipped when `calendar_name` is unknown — event_exists() needs one to
+    scope its scan, and a write reported `written` with no calendar to check
+    against is left honestly `verified=False` rather than guessed at.
+    """
+    outcome = _mod().delete_event(_CONFIG, uid, calendar_name=calendar_name)
+    if not verify or not outcome.ok or not calendar_name:
+        return outcome
+    try:
+        still_there = bool(_mod().event_exists(_CONFIG, calendar_name, uid))
+    except Exception as e:
+        logger.warning(f"Delete read-back failed (reporting unconfirmed): {e}")
+        return outcome
+    return dataclasses.replace(outcome, verified=not still_there)
+
+
 def update_event(uid: str, calendar_name: str = "", **fields) -> dict | None:
     """Modify an existing event in place. `fields` accepts title/start/end/
     location/description/all_day; anything left out keeps its current value.

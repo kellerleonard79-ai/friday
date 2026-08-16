@@ -371,6 +371,70 @@ def format_update_confirmation(result: dict, fields: dict,
     return msg
 
 
+def update_outcome(uid: str, calendar: str = "", title: str | None = None,
+                   date: str | None = None, start_time: str | None = None,
+                   end_time: str | None = None):
+    """auto_update's edit, with a WriteOutcome returned instead of the raw
+    post-update dict, and no Telegram traffic of its own — the tool layer's
+    counterpart to write_outcome() above, for the same reason: a tool must
+    never message the user directly (invariant 2).
+
+    VERIFIED IS SET FROM THE UPDATE CALL ITSELF, NOT A SEPARATE READ-BACK.
+    Unlike a create, where the write path mints its own uid and a read-back is
+    the first time anything but us has agreed the event exists, an update is
+    found by uid, mutated, and has its properties re-read from the live
+    object in the SAME call: calendars/apple.py's script reads e.summary()
+    etc. back off the object after assigning them, and the Google backend's
+    patch() response is the API's own post-patch state. That is already the
+    service confirming the write back — a second round trip would be asking
+    the same authority the same question twice, and the uid lookup alone
+    already costs ~12.8s on a large Apple calendar (see apple.py::update_event).
+    """
+    from calendars import writes as _writes
+    fields: dict = {}
+    if title is not None:
+        fields["title"] = _normalize_title(title.strip())
+    retimed = any(v is not None for v in (date, start_time, end_time))
+    if retimed:
+        try:
+            start, end, all_day = _resolve_times(date or "", start_time or "", end_time or "")
+        except ValueError as e:
+            return _writes.refused(str(e))
+        fields.update(start=start, end=end, all_day=all_day)
+    if not fields:
+        return _writes.refused("no changes requested")
+
+    try:
+        result = cal_backend.update_event(uid, calendar_name=calendar, **fields)
+    except Exception as e:
+        logger.exception(f"update_outcome — unexpected: {e}")
+        return _writes.unknown(f"{type(e).__name__}: {e}")
+
+    if not result:
+        # Not found and "the call itself failed" both come back as None from
+        # both backends (calendars/apple.py and calendars/google_cal.py). Not
+        # refused: a caller that treats this as definitely-did-not-happen and
+        # retries could double-apply a change that actually landed but whose
+        # confirmation dict was lost to a transport error on the way back.
+        return _writes.unknown(f"event {uid} was not found, or the update failed")
+
+    return _writes.written(result.get("uid") or uid, verified=True)
+
+
+def delete_outcome(uid: str, calendar: str = ""):
+    """auto_update's missing counterpart: delete, with a WriteOutcome and no
+    Telegram traffic — the tool layer's silent entry point, same as
+    write_outcome() and update_outcome() above."""
+    from calendars import writes as _writes
+    if not uid:
+        return _writes.refused("uid required")
+    try:
+        return cal_backend.delete_event(uid, calendar_name=calendar)
+    except Exception as e:
+        logger.exception(f"delete_outcome — unexpected: {e}")
+        return _writes.unknown(f"{type(e).__name__}: {e}")
+
+
 def gated_write(event: dict, conn: sqlite3.Connection, telegram,
                 default_calendar: str | None = None) -> str | None:
     """Stage event in pending_actions and prompt the user. The write happens

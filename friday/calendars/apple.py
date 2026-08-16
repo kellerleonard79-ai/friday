@@ -163,10 +163,24 @@ if (!hit) {{
 }} else {{
   try {{
     const e = hit.event, ch = req.changes;
-    // startDate must be set before endDate: Calendar.app clamps an endDate
-    // that lands before the event's current start, silently dropping the move.
-    if ('startMs' in ch)      e.startDate   = new Date(ch.startMs);
-    if ('endMs' in ch)        e.endDate     = new Date(ch.endMs);
+    // ORDER MATTERS, AND NEITHER FIXED ORDER IS SAFE. Calendar.app validates
+    // start < end on EACH property assignment, not just at save. Setting
+    // startDate first breaks when the new start lands after the event's
+    // CURRENT end (moving the whole event later) — the assignment throws
+    // "The start date must be before the end date." with the new start and
+    // the not-yet-updated end. Setting endDate first breaks symmetrically
+    // when the new end lands before the event's CURRENT start (moving it
+    // earlier). So when both are changing, assign whichever bound moves
+    // OUTWARD first — away from the other one's current value — so the
+    // instant between the two assignments always has start < end.
+    if ('startMs' in ch && 'endMs' in ch) {{
+      const newStart = new Date(ch.startMs), newEnd = new Date(ch.endMs);
+      if (newStart > e.endDate()) {{ e.endDate = newEnd; e.startDate = newStart; }}
+      else                        {{ e.startDate = newStart; e.endDate = newEnd; }}
+    }} else {{
+      if ('startMs' in ch) e.startDate = new Date(ch.startMs);
+      if ('endMs' in ch)   e.endDate   = new Date(ch.endMs);
+    }}
     if ('summary' in ch)      e.summary     = ch.summary;
     if ('location' in ch)     e.location    = ch.location;
     if ('description' in ch)  e.description = ch.description;
@@ -205,6 +219,64 @@ if (!hit) {{
         logger.error(f"Apple Calendar update error: {out['error']}")
         return None
     return out
+
+
+def delete_event(cfg: dict, uid: str, calendar_name: str = "") -> writes.WriteOutcome:
+    """Delete an event, found by its Apple UID. Returns a WriteOutcome — see
+    calendars/writes.py. `calendar_name` narrows the JXA scan the same way
+    update_event's does; omit it and every calendar is tried.
+
+    "Not found" and "found but the delete itself errored" both come back
+    refused: either way nothing was removed, so a retry is safe. A timeout or
+    a non-zero exit is unknown for the same reason write_event's is — the
+    request may already have reached Calendar.app.
+    """
+    req = {"uid": uid, "calendar": calendar_name or ""}
+    script = f"""
+const Calendar = Application('Calendar');
+const req = {json.dumps(req)};
+function findByUid(cals) {{
+  for (const c of cals) {{
+    const m = c.events.whose({{uid: req.uid}})();
+    if (m.length > 0) return m[0];
+  }}
+  return null;
+}}
+const named = req.calendar ? Calendar.calendars.whose({{name: req.calendar}})() : [];
+let hit = named.length ? findByUid(named) : null;
+if (!hit) hit = findByUid(Calendar.calendars());
+if (!hit) {{
+  JSON.stringify({{error: "event not found: " + req.uid}});
+}} else {{
+  try {{
+    Calendar.delete(hit);
+    JSON.stringify({{deleted: req.uid}});
+  }} catch (err) {{
+    JSON.stringify({{error: err.toString()}});
+  }}
+}}
+"""
+    try:
+        result = subprocess.run(
+            ["osascript", "-l", "JavaScript", "-e", script],
+            capture_output=True, text=True, timeout=_UPDATE_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired:
+        logger.warning(f"Apple Calendar delete timed out for uid {uid}")
+        return writes.unknown(f"osascript timed out after {_UPDATE_TIMEOUT_S}s")
+    if result.returncode != 0:
+        detail = result.stderr.strip()[:200]
+        logger.error(f"Apple Calendar delete failed: {detail}")
+        return writes.unknown(f"osascript exited {result.returncode}: {detail}")
+    try:
+        out = json.loads(result.stdout.strip())
+    except json.JSONDecodeError:
+        logger.error(f"Apple Calendar delete — bad JSON: {result.stdout[:200]}")
+        return writes.unknown(f"unparseable osascript output: {result.stdout[:200]}")
+    if "error" in out:
+        logger.error(f"Apple Calendar delete error: {out['error']}")
+        return writes.refused(str(out["error"]))
+    return writes.written(str(uid))
 
 
 # Bounded hard. This runs while the user is waiting on a confirmation, and on

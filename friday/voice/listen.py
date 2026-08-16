@@ -1,11 +1,13 @@
 """Friday voice listener — standalone entry point.
 
-Boots audio + wake + clap + PTT + Whisper + Telegram bridge, runs the session
-state machine specified in the project plan.
+Boots audio + wake + clap + PTT + Whisper + the dashboard bridge, runs the
+session state machine specified in the project plan.
 
 This module never imports from Friday's core. The only allowed external touch
 is a read-only SQLite query against `system_state` to learn whether Friday is
-online.
+online, plus loopback HTTP to the dashboard's own API (see
+dashboard_bridge.py) — the same kind of external touch menubar.py and
+mac_app.py already make from outside voice/.
 """
 from __future__ import annotations
 
@@ -37,8 +39,9 @@ from audio import (  # noqa: E402
     record_until_silence,
     record_while_held,
 )
-from bridge import BridgeResult, Outcome, TelegramBridge  # noqa: E402
-from ptt import PTTListener  # noqa: E402
+from bridge import BridgeResult, Outcome  # noqa: E402
+from dashboard_bridge import DashboardBridge  # noqa: E402
+from ptt import PTTListener, TapToggleListener  # noqa: E402
 from wakeword import WakeDetector  # noqa: E402
 
 _LOGGER = logging.getLogger(__name__)
@@ -48,8 +51,9 @@ _LOGGER = logging.getLogger(__name__)
 #       wake word ("Hey Friday" via openWakeWord) | double-clap | push-to-talk
 #   • Boot-time mic TCC probe that validates real signal (zeros == denied)
 #   • Per-session state machine: offline check → ack phrase → record
-#     (silence-terminated or held) → Whisper transcribe → Telegram bridge →
-#     speak reply (only if external audio / always_speak)
+#     (silence-terminated or held) → Whisper transcribe → dashboard bridge
+#     (loopback POST /api/chat) → speak reply (only if external audio /
+#     always_speak)
 #   • /tmp/friday_listening flag toggled per session (menubar/dashboard read it)
 LISTENING_FLAG = Path("/tmp/friday_listening")
 
@@ -265,15 +269,17 @@ def _transcribe_wav_bytes(model, wav_bytes: bytes) -> str:
 # ---------------------------------------------------------------------------
 
 # What to say when there is no reply to read out. Keyed by why. The split that
-# matters is whether the message actually got to Friday: on a timeout it did,
-# the answer is already on its way to Telegram, and the old blanket "I couldn't
-# reach Friday" was simply false — it sent a briefing while voice denied it.
+# matters is whether the message actually got to Friday: on a timeout it did —
+# conversation.handle() keeps running server-side after our HTTP client gives
+# up, and the reply still lands in conversation_history and on the SSE stream
+# — and the old blanket "I couldn't reach Friday" was simply false — it sent a
+# briefing while voice denied it.
 _FAILURE_CUES = {
     Outcome.TIMEOUT: (
-        "Friday is taking a while, sir. The reply will be in Telegram."
+        "Friday is taking a while, sir. The reply will be in the dashboard."
     ),
     Outcome.DISCONNECTED: (
-        "I lost my connection mid-request, sir. Check Telegram."
+        "I lost my connection mid-request, sir. Check the dashboard."
     ),
     Outcome.SEND_FAILED: "I couldn't reach Friday, sir.",
     Outcome.NOT_CONNECTED: "I couldn't reach Friday, sir.",
@@ -345,7 +351,8 @@ class VoiceListener:
             )
         self.clap: Optional[ClapDetector] = None
         self.ptt: Optional[PTTListener] = None
-        self.bridge: Optional[TelegramBridge] = None
+        self.wake_toggle: Optional[TapToggleListener] = None
+        self.bridge: Optional[DashboardBridge] = None
         self.whisper = None
 
         self._wake_thread: Optional[threading.Thread] = None
@@ -354,18 +361,55 @@ class VoiceListener:
         # callback can hand off control to record_while_held.
         self._ptt_active = threading.Event()
 
+        # Whether the wake loop is actually feeding frames to a detector right
+        # now. Separate from cfg.wake_enabled (the boot-time value) because
+        # the triple-tap toggle flips this live, in-process, with no restart —
+        # including turning wake ON when it booted disabled, which is the
+        # common case (voice.wake_enabled defaults false).
+        self._wake_active = threading.Event()
+
+        # Reference-counted stream ownership so wake joining/leaving this set
+        # live doesn't fight with clap's or a PTT session's own start/stop —
+        # see _stream_want/_stream_unwant.
+        self._stream_lock = threading.Lock()
+        self._stream_wanters: set[str] = set()
+
+    # ----- shared stream ownership -----
+
+    def _stream_want(self, name: str) -> None:
+        """Register `name` as needing the always-on stream. Starts it on the
+        empty→non-empty edge only, so wake, clap and a PTT-only session can
+        share it without double-opening the device."""
+        with self._stream_lock:
+            was_empty = not self._stream_wanters
+            self._stream_wanters.add(name)
+            if was_empty:
+                self.stream.start()
+
+    def _stream_unwant(self, name: str) -> None:
+        """Release `name`'s claim on the stream. Stops it only once nobody
+        else still wants it. Safe to call more than once for the same name."""
+        with self._stream_lock:
+            self._stream_wanters.discard(name)
+            if not self._stream_wanters:
+                self.stream.stop()
+
+    def _stream_always_on(self) -> bool:
+        with self._stream_lock:
+            return bool(self._stream_wanters)
+
     # ----- boot / shutdown -----
 
     def boot(self) -> None:
         if not self.cfg.enabled:
             _LOGGER.info("voice.enabled = false → exiting")
             sys.exit(0)
-        if not voice_config.telegram_credentials_present(self.cfg):
+        if not voice_config.dashboard_auth_token_present(self.cfg):
             print(
-                "\n!!! Voice cannot start: Telegram credentials missing.\n"
-                "    Register an app at https://my.telegram.org → API development tools\n"
-                "    Then add telegram.api_id (int) and telegram.api_hash (str) to\n"
-                "    friday_config.yaml. See voice/bridge.py for details.\n",
+                "\n!!! Voice cannot start: dashboard.auth_token missing.\n"
+                "    Friday generates this on first boot and writes it back to\n"
+                "    friday_config.yaml. Start the daemon at least once, then\n"
+                "    restart the voice agent. See voice/dashboard_bridge.py.\n",
                 file=sys.stderr,
             )
             sys.exit(2)
@@ -383,8 +427,13 @@ class VoiceListener:
         # The stream is only started here when a detector needs it always-on.
         # PTT-only mode opens/closes the stream per session so macOS's orange
         # "mic in use" menu-bar indicator is only lit during actual capture.
-        if self.cfg.wake_enabled or self.cfg.clap_enabled:
-            self.stream.start()
+        # Reference-counted because wake can join or leave this set later,
+        # live, via the triple-tap toggle.
+        if self.cfg.clap_enabled:
+            self._stream_want("clap")
+        if self.cfg.wake_enabled and self.wake is not None:
+            self._stream_want("wake")
+            self._wake_active.set()
         self.whisper = _load_whisper(self.cfg.whisper_model)
 
         if self.cfg.clap_enabled:
@@ -398,19 +447,8 @@ class VoiceListener:
         else:
             _LOGGER.info("clap detector disabled (voice.clap_enabled=false)")
 
-        self.bridge = TelegramBridge(
-            api_id=self.cfg.telegram_api_id,
-            api_hash=self.cfg.telegram_api_hash,
-            bot_token=self.cfg.telegram_bot_token,
-            session_string=self.cfg.telegram_telethon_session or None,
-        )
+        self.bridge = DashboardBridge(auth_token=self.cfg.dashboard_auth_token)
         self.bridge.connect()
-        # If this was a first-time auth (or Telethon rotated the session
-        # blob), persist it back to friday_config.yaml so the next launchd
-        # restart skips the phone/code prompt entirely.
-        new_session = self.bridge.get_session_string()
-        if new_session and new_session != self.cfg.telegram_telethon_session:
-            voice_config.persist_telethon_session(new_session)
 
         # Global key monitoring needs Accessibility. Ask before pynput does, so
         # the failure names itself instead of arriving as one buried warning.
@@ -464,23 +502,48 @@ class VoiceListener:
                 "recognized name (e.g. right_option) and restart.", e,
             )
 
-        if self.cfg.wake_enabled and self.wake is not None:
-            self._wake_thread = threading.Thread(
-                target=self._wake_loop, name="wake-loop", daemon=True
+        try:
+            self.wake_toggle = TapToggleListener(
+                key_name=self.cfg.wake_toggle_key,
+                tap_count=self.cfg.wake_toggle_tap_count,
+                window_ms=self.cfg.wake_toggle_window_ms,
+                on_toggle_cb=self._on_wake_toggle,
             )
-            self._wake_thread.start()
-        else:
-            _LOGGER.info("wake detector disabled (voice.wake_enabled=false)")
+            self.wake_toggle.start()
+        except ValueError as e:
+            self.wake_toggle = None
+            _LOGGER.error(
+                "wake-word toggle hotkey disabled: %s. Set "
+                "voice.wake_toggle_key to a recognized name (e.g. "
+                "left_option) and restart.", e,
+            )
+
+        # Always running, regardless of voice.wake_enabled — idles when
+        # _wake_active is clear and wakes up once the triple-tap sets it.
+        self._wake_thread = threading.Thread(
+            target=self._wake_loop, name="wake-loop", daemon=True
+        )
+        self._wake_thread.start()
+        if not self._wake_active.is_set():
+            _LOGGER.info(
+                "wake detector idle at boot (voice.wake_enabled=%s) — "
+                "triple-tap %s to enable it live",
+                self.cfg.wake_enabled, self.cfg.wake_toggle_key,
+            )
 
         # Banner reflects what's actually live so a glance at the log tells
         # the user which trigger paths exist.
         active = []
-        if self.cfg.wake_enabled and self.wake is not None:
+        if self._wake_active.is_set():
             active.append("wake")
         if self.cfg.clap_enabled and self.clap is not None:
             active.append("clap")
         if self.ptt is not None:
             active.append(f"PTT={self.cfg.push_to_talk_key}")
+        if self.wake_toggle is not None:
+            active.append(
+                f"wake-toggle={self.cfg.wake_toggle_key}x{self.cfg.wake_toggle_tap_count}"
+            )
         _LOGGER.info(
             "F.R.I.D.A.Y. Voice — online. Triggers: %s",
             ", ".join(active) if active else "none (voice is deaf)",
@@ -493,7 +556,7 @@ class VoiceListener:
                 LISTENING_FLAG.unlink()
         except OSError:
             pass
-        for component in (self.ptt, self.clap, self.bridge, self.stream):
+        for component in (self.ptt, self.wake_toggle, self.clap, self.bridge, self.stream):
             try:
                 if component is not None:
                     component.stop() if hasattr(component, "stop") else component.disconnect()
@@ -506,9 +569,15 @@ class VoiceListener:
     # ----- wake loop -----
 
     def _wake_loop(self) -> None:
+        # Subscribing doesn't require the stream to be running (AudioStream
+        # tracks it independent of _running), so this can start immediately
+        # at boot and simply idle until _wake_active is set.
         consumer = self.stream.subscribe("wake")
         try:
             while not self.shutdown.is_set():
+                if not self._wake_active.is_set() or self.wake is None:
+                    time.sleep(0.25)
+                    continue
                 # Re-read config each iteration (cheap thanks to mtime cache)
                 # so menubar toggles take effect immediately.
                 cfg = voice_config.load()
@@ -528,6 +597,37 @@ class VoiceListener:
                     self._trigger(source="wake", phrase=hit.phrase)
         finally:
             consumer.unsubscribe()
+
+    def _on_wake_toggle(self) -> None:
+        """Fired by the triple-tap listener. Flips wake word on/off live —
+        no config write, no LaunchAgent restart. Turning on lazily builds
+        the detector (openWakeWord model load, roughly a second) the first
+        time it's needed, so booting with voice.wake_enabled=false (the
+        default) never pays that cost for someone who leaves the hotkey
+        untouched."""
+        cfg = voice_config.load()
+        if self._wake_active.is_set():
+            self._wake_active.clear()
+            self._stream_unwant("wake")
+            _LOGGER.info("wake word disabled via triple-tap (%s)", cfg.wake_toggle_key)
+            tts.speak("Wake word off, sir.", voice=cfg.tts_voice)
+            return
+
+        if self.wake is None:
+            try:
+                self.wake = WakeDetector(
+                    phrases=cfg.wake_phrases,
+                    solo_trigger_enabled=cfg.solo_trigger_enabled,
+                )
+            except Exception as e:
+                _LOGGER.error("wake-toggle: could not start wake detector: %s", e)
+                tts.speak("I can't start wake word, sir. Check the log.", voice=cfg.tts_voice)
+                return
+        self.wake.reset()
+        self._stream_want("wake")
+        self._wake_active.set()
+        _LOGGER.info("wake word enabled via triple-tap (%s)", cfg.wake_toggle_key)
+        tts.speak("Wake word on, sir.", voice=cfg.tts_voice)
 
     # ----- triggers -----
 
@@ -567,13 +667,10 @@ class VoiceListener:
     def _run_session(self, source: str, phrase: Optional[str]) -> None:
         # In PTT-only mode the stream is not running at idle (so macOS's
         # orange mic indicator stays dark). Open it now and tear it down in
-        # the finally block. With wake/clap enabled the stream is always-on
-        # at boot, so we only pause/resume around the session.
-        ptt_owns_stream = (
-            source == "ptt"
-            and not self.cfg.wake_enabled
-            and not self.cfg.clap_enabled
-        )
+        # the finally block. With wake or clap live — which, for wake, can
+        # now change at any moment via the triple-tap toggle — the stream is
+        # already always-on, so we only pause/resume around the session.
+        ptt_owns_stream = source == "ptt" and not self._stream_always_on()
         try:
             # Open the device before anything else. It is the long pole by an
             # order of magnitude (~470 ms, plus ~105 ms to the first frame), and
@@ -581,7 +678,7 @@ class VoiceListener:
             # a dead mic. Loading config and reading system_state underneath the
             # warm-up costs nothing and buys back their share of the head.
             if ptt_owns_stream:
-                self.stream.start()
+                self._stream_want("ptt")
             cfg = voice_config.load()
             if not ptt_owns_stream:
                 self.stream.pause()
@@ -643,7 +740,7 @@ class VoiceListener:
             # idempotent, so the finally block still covers the paths that
             # never get here.
             if ptt_owns_stream:
-                self.stream.stop()
+                self._stream_unwant("ptt")
 
             # Step 7: transcribe
             try:
@@ -685,12 +782,12 @@ class VoiceListener:
                 if cfg.always_speak or tts.external_audio_present():
                     tts.speak(result.reply, voice=cfg.tts_voice).join()
                 else:
-                    _LOGGER.info("reply delivered to Telegram only (no external audio, always_speak=False)")
+                    _LOGGER.info("reply delivered to the dashboard only (no external audio, always_speak=False)")
             else:
                 # No reply to read out — say which kind of nothing it was. The
                 # message may well have reached Friday and simply outrun our
-                # listening window, in which case the answer is in Telegram and
-                # claiming we couldn't reach him would be a lie.
+                # listening window, in which case the answer is in the
+                # dashboard and claiming we couldn't reach him would be a lie.
                 _LOGGER.warning(
                     "no reply to speak (outcome=%s): %s",
                     result.outcome.value, result.detail,
@@ -712,7 +809,7 @@ class VoiceListener:
             if ptt_owns_stream:
                 # Normally already closed right after capture; this covers the
                 # early returns (Friday offline, empty transcript) and crashes.
-                self.stream.stop()
+                self._stream_unwant("ptt")
             else:
                 self.stream.resume()
             # Step 13: release lock

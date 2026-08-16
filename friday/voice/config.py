@@ -55,6 +55,9 @@ class VoiceConfig:
 
     whisper_model: str
     push_to_talk_key: str
+    wake_toggle_key: str
+    wake_toggle_tap_count: int
+    wake_toggle_window_ms: int
     tts_voice: str
     response_timeout_s: int
     slow_reply_cue_s: int
@@ -68,6 +71,8 @@ class VoiceConfig:
     telegram_api_id: int
     telegram_api_hash: str
     telegram_telethon_session: str
+
+    dashboard_auth_token: str
 
     raw: Dict[str, Any] = field(default_factory=dict, repr=False)
 
@@ -87,6 +92,11 @@ _DEFAULTS: Dict[str, Any] = {
     "preroll_ms": 500,
     "whisper_model": "base",
     "push_to_talk_key": "right_option",
+    # Distinct from push_to_talk_key by default so rapid PTT presses can't
+    # be mistaken for the toggle gesture.
+    "wake_toggle_key": "left_option",
+    "wake_toggle_tap_count": 3,
+    "wake_toggle_window_ms": 600,
     "tts_voice": "Daniel",
     # Generous on purpose. A plain conversational turn answers in 5-12 s, but
     # anything that makes the agent run tools takes much longer: "brief me now"
@@ -151,6 +161,7 @@ def _build(data: Dict[str, Any]) -> VoiceConfig:
     voice = (data.get("voice") or {})
     persona = (data.get("persona") or {})
     telegram = (data.get("telegram") or {})
+    dashboard = (data.get("dashboard") or {})
 
     def vget(key: str) -> Any:
         return voice.get(key, _DEFAULTS[key])
@@ -193,6 +204,13 @@ def _build(data: Dict[str, Any]) -> VoiceConfig:
         preroll_ms=_coerce_int(vget("preroll_ms"), 500),
         whisper_model=_coerce_str(vget("whisper_model"), _DEFAULTS["whisper_model"]),
         push_to_talk_key=_coerce_str(vget("push_to_talk_key"), _DEFAULTS["push_to_talk_key"]),
+        wake_toggle_key=_coerce_str(vget("wake_toggle_key"), _DEFAULTS["wake_toggle_key"]),
+        wake_toggle_tap_count=_coerce_int(
+            vget("wake_toggle_tap_count"), _DEFAULTS["wake_toggle_tap_count"]
+        ),
+        wake_toggle_window_ms=_coerce_int(
+            vget("wake_toggle_window_ms"), _DEFAULTS["wake_toggle_window_ms"]
+        ),
         tts_voice=_coerce_str(vget("tts_voice"), _DEFAULTS["tts_voice"]),
         response_timeout_s=_coerce_int(
             vget("response_timeout_s"), _DEFAULTS["response_timeout_s"]
@@ -208,6 +226,7 @@ def _build(data: Dict[str, Any]) -> VoiceConfig:
         telegram_api_id=_coerce_int(telegram.get("api_id"), 0),
         telegram_api_hash=str(telegram.get("api_hash") or ""),
         telegram_telethon_session=str(telegram.get("telethon_session") or ""),
+        dashboard_auth_token=str(dashboard.get("auth_token") or ""),
         raw=data,
     )
 
@@ -323,6 +342,11 @@ def telegram_credentials_present(cfg: Optional[VoiceConfig] = None) -> bool:
         and cfg.telegram_api_id
         and cfg.telegram_api_hash
     )
+
+
+def dashboard_auth_token_present(cfg: Optional[VoiceConfig] = None) -> bool:
+    cfg = cfg or load()
+    return bool(cfg.dashboard_auth_token)
 
 
 if __name__ == "__main__":

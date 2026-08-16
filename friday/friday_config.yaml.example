@@ -221,6 +221,12 @@ notifications:
 #
 # wake_enabled/clap_enabled true = always-on mic stream (orange indicator lit
 # at idle). Both false = push-to-talk only, mic opened per session.
+#
+# wake_enabled only sets the state at boot. Live, with no restart, a triple
+# tap of wake_toggle_key (wake_toggle_tap_count presses within
+# wake_toggle_window_ms of each other) flips wake word on or off — including
+# turning it on from a cold voice.wake_enabled=false boot, lazily loading the
+# detector the first time it's needed.
 voice:
   enabled: true
   mic_enabled: true
@@ -229,6 +235,9 @@ voice:
   always_speak: false
   whisper_model: base               # whisper model size
   push_to_talk_key: right_option
+  wake_toggle_key: left_option      # triple-tap this to toggle wake word live
+  wake_toggle_tap_count: 3
+  wake_toggle_window_ms: 600
   tts_voice: Daniel
   silence_ms: 1500
   max_recording_ms: 30000

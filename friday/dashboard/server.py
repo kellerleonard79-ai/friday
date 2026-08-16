@@ -498,8 +498,15 @@ class ChatIn(BaseModel):
     module namespace — a model defined in a function body is invisible there,
     and the parameter degrades into a required query argument with no error
     until the first request.
+
+    `client_id` is optional and display-only: the browser that sends a message
+    stamps one so it can recognize its own echo coming back on the stream (see
+    the /api/chat route) and skip rendering it twice. A caller with no notion
+    of that — voice/dashboard_bridge.py, curl — simply omits it, and the
+    message still broadcasts; there is just nothing to de-duplicate against.
     """
     text: str
+    client_id: str | None = None
 
 
 def _publish_pending(broadcaster, pid: str, status: str) -> None:
@@ -1194,13 +1201,36 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
     async def api_chat(payload: ChatIn) -> dict:
         from channels import conversation
         from channels.dashboard import DashboardChannel
+        text = (payload.text or "").strip()
+        # THE USER'S OWN LINE, BROADCAST BEFORE THE TURN RUNS.
+        #
+        # Everything below this point renders what FRIDAY said, on the stream
+        # and in the response alike — nothing here has ever announced what the
+        # USER said to a tab that didn't type it. That was invisible as long
+        # as every /api/chat caller was a browser rendering its own input
+        # optimistically, but voice/dashboard_bridge.py posts here too, and a
+        # PTT transcript has no browser to echo itself locally — it just never
+        # appeared until the next full page load re-read conversation_history.
+        #
+        # Published straight to the broadcaster rather than through
+        # DashboardChannel: the channel's send()/emit() vocabulary
+        # (MESSAGE/CARD/NOTIFY) is Friday's voice, and a user line is not that.
+        # `client_id`, if the caller sent one, lets that same browser recognize
+        # its own echo and skip re-rendering it — see ChatIn's docstring.
+        if text:
+            broadcaster.publish({
+                "kind": "user_message",
+                "text": text,
+                "at": datetime.now().isoformat(),
+                "client_id": payload.client_id,
+            })
         # The sink is the live stream; the events also come back on this
         # response. Both, deliberately: the stream is what makes a second tab
         # (or a card resolved from Telegram) update, and the response is what
         # makes the browser that asked immune to having missed it.
         channel = DashboardChannel(sink=broadcaster.publish)
         reply = await conversation.handle(
-            payload.text, channel, conn, _load_config(config_path))
+            text, channel, conn, _load_config(config_path))
         # The events are what the channel was told to say, in order.
         return {
             "paused": reply.paused,
@@ -1527,10 +1557,13 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
         # longer string sharing a prefix sorts GREATER, so a <= against
         # "2026-08-13T23:59:59" would exclude an assignment due at exactly
         # 11:59pm — which is when essentially every Canvas assignment is due.
-        due = [a for a in canvas_connector.assignments(
-                   conn, due_after=today.isoformat(),
-                   due_before=(today + timedelta(days=2)).isoformat(), limit=100)
-               if not a.get("submitted")]
+        # Submitted assignments ride along rather than being dropped here — the
+        # client hides them by default (SHOW_SUBMITTED) and can reveal them
+        # without a second request, the same pattern /api/schedule already
+        # uses for the period card's per-course work lists.
+        due = canvas_connector.assignments(
+            conn, due_after=today.isoformat(),
+            due_before=(today + timedelta(days=2)).isoformat(), limit=100)
         courses = {c["id"]: c for c in canvas_connector.courses(conn)}
         for a in due:
             c = courses.get(str(a["course_id"]))

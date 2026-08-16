@@ -1257,6 +1257,24 @@ let PERIOD_TIMER = null;
 let VIEW_INDEX = null;     // manual override: an index into SCHED.periods
 let VIEW_AT = 0;           // when the manual view was chosen (ms)
 
+// A submitted assignment is noise once it's turned in, and it throws off any
+// count of what's left — so it's hidden by default everywhere on this card,
+// with one toggle (not persisted across page loads, same as VIEW_INDEX) that
+// un-hides it in both the period view and the after-school view at once.
+let SHOW_SUBMITTED = false;
+
+function submittedToggleHtml(hiddenCount) {
+  if (!hiddenCount) return '';
+  return `<button class="pc-toggle-submitted" data-toggle-submitted="1">${
+    SHOW_SUBMITTED ? 'Hide turned-in work' : `${hiddenCount} turned in — show`}</button>`;
+}
+
+function bindSubmittedToggle(card) {
+  card.querySelectorAll('[data-toggle-submitted]').forEach((b) => {
+    b.onclick = () => { SHOW_SUBMITTED = !SHOW_SUBMITTED; renderPeriodCard(); };
+  });
+}
+
 // A laptop left open must not sit on 2nd period at 3pm.
 const VIEW_RETURN_MS = 120000;
 
@@ -1312,10 +1330,20 @@ function courseName(id) {
 }
 
 // Upcoming work for one course. Undated items are kept — "no due date" is a
-// real state and dropping it would hide an assignment entirely.
+// real state and dropping it would hide an assignment entirely. Submitted
+// items are filtered out here, before the slice, so a done assignment never
+// spends one of the limited display slots a live one could use.
 function courseWork(id, limit = 4) {
   if (!SCHED || id == null) return [];
-  return (SCHED.assignments_by_course[String(id)] || []).slice(0, limit);
+  const all = SCHED.assignments_by_course[String(id)] || [];
+  const pending = SHOW_SUBMITTED ? all : all.filter((a) => !a.submitted);
+  return pending.slice(0, limit);
+}
+
+function courseSubmittedCount(id) {
+  if (!SCHED || id == null) return 0;
+  return (SCHED.assignments_by_course[String(id)] || [])
+    .filter((a) => a.submitted).length;
 }
 
 function dueLabel(a) {
@@ -1344,16 +1372,21 @@ function dueLabel(a) {
 
 function workList(id) {
   const work = courseWork(id);
+  const hidden = courseSubmittedCount(id);
+  const toggle = submittedToggleHtml(hidden);
   if (!work.length) {
-    // Early in a semester most courses are empty. Say so — a blank slot reads
-    // as a card that failed to load.
-    return '<div class="pc-empty">Nothing posted.</div>';
+    // Two different empty states: nothing posted at all, versus everything
+    // posted is already turned in and hidden. "Nothing posted" for the
+    // second case would read as a card that failed to load work that in
+    // fact exists and is done.
+    const msg = (hidden && !SHOW_SUBMITTED) ? 'All turned in.' : 'Nothing posted.';
+    return `<div class="pc-empty">${msg}</div>${toggle}`;
   }
   return `<ul class="pc-work">${work.map((a) => `
     <li${a.submitted ? ' class="done"' : ''}>
       <span class="pc-work-title">${escapeHtml(a.title)}</span>
       <span class="pc-work-due mono">${escapeHtml(dueLabel(a))}</span>
-    </li>`).join('')}</ul>`;
+    </li>`).join('')}</ul>${toggle}`;
 }
 
 // How a slot names itself. An alternating slot on an unknown letter is TWO
@@ -1478,6 +1511,7 @@ function renderPeriodCard() {
       renderPeriodCard();
     };
   });
+  bindSubmittedToggle(card);
 }
 
 // After the last bell the card stops being about periods and becomes a
@@ -1533,14 +1567,21 @@ function renderAfterSchool(card) {
         </li>`).join('')}</ul>`
     : '<div class="pc-empty">Nothing on the calendar.</div>';
 
-  const due = a.due.length
-    ? `<ul class="pc-work">${a.due.map((d) => `
-        <li>
+  // Turned-in work is noise here and skews the "what's left" read of the
+  // list — hidden by default, same rule and same toggle as the period card.
+  const dueHiddenCount = a.due.filter((d) => d.submitted).length;
+  const dueVisible = SHOW_SUBMITTED ? a.due : a.due.filter((d) => !d.submitted);
+  const dueToggle = submittedToggleHtml(dueHiddenCount);
+  const due = dueVisible.length
+    ? `<ul class="pc-work">${dueVisible.map((d) => `
+        <li${d.submitted ? ' class="done"' : ''}>
           <span class="pc-work-title">${escapeHtml(d.title)}${
             d.course_name ? ` <span class="pc-loc">${escapeHtml(d.course_name)}</span>` : ''}</span>
           <span class="pc-work-due mono">${escapeHtml(dueLabelFor(d, a))}</span>
-        </li>`).join('')}</ul>`
-    : '<div class="pc-empty">Nothing due tonight or tomorrow.</div>';
+        </li>`).join('')}</ul>${dueToggle}`
+    : `<div class="pc-empty">${
+        (dueHiddenCount && !SHOW_SUBMITTED) ? 'All turned in.' : 'Nothing due tonight or tomorrow.'
+      }</div>${dueToggle}`;
 
   // THE HEADLINE. Negative is the case this card exists for, so it is loud
   // and it names the overrun rather than showing a minus sign.
@@ -1600,6 +1641,7 @@ function renderAfterSchool(card) {
     VIEW_INDEX = 0; VIEW_AT = Date.now(); renderPeriodCard();
   };
   card.querySelector('[data-pc="reload"]').onclick = () => loadAfterSchool();
+  bindSubmittedToggle(card);
 }
 
 // The after-school payload carries its own `today`, so dueLabel's SCHED-based
@@ -2538,7 +2580,7 @@ let HUB_SETTLE_TIMER = null;
 // and carries the actual urgency, so it steps harder. A crest travels all the
 // A crest travels all the way round the bar ring in
 // --hub-k * --hub-period / rate: 8.0s at idle and 1.03s at thinking, which is
-// the spinner. Speaking has no lap at all — k=0 there, so every bar is in
+// the comet. Speaking has no lap at all — k=0 there, so every bar is in
 // phase and the ring breathes as a circle once every 0.76s while the beat
 // carries the going-round.
 const HUB_SPIN_RATE = { idle: 1, thinking: 2.6, speaking: 3.4 };
@@ -2551,7 +2593,7 @@ const HUB_RATE_FOR = {
   'hub-spin-cw':     HUB_SPIN_RATE,
   'hub-spin-ccw':    HUB_SPIN_RATE,
   'hub-wave':        HUB_WAVE_RATE,
-  'hub-wave-ripple': HUB_WAVE_RATE,   // thinking swaps the waveform, not just the rate
+  'hub-wave-comet':  HUB_WAVE_RATE,   // thinking swaps the waveform, not just the rate
 };
 
 function hubState(state) {
@@ -2749,18 +2791,48 @@ function chatAlreadyRendered(ev) {
   return false;
 }
 
+// The same problem, one layer up: chatSend() below renders the user's own
+// bubble LOCALLY, the instant they hit send, with no server timestamp to key
+// on yet — the message hasn't been posted. So its dedupe is a client-minted
+// id instead of the server's `at`. A caller with no id (voice, via
+// dashboard_bridge.py — there is no browser tab to have echoed it already)
+// simply never matches one, and the line renders wherever it arrives.
+const CHAT_SENT_IDS = new Set();
+
+function chatClientId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+// The user's own line, arriving on the stream. For a message THIS tab sent,
+// it is a harmless echo of what chatSend() already drew — skipped via
+// client_id. For anything else — a PTT transcript, a second open tab — this
+// is the ONLY place it ever renders live; without it, a spoken message was
+// invisible here until the next full page load re-read conversation_history.
+onStream('user_message', (ev) => {
+  if (CURRENT_ROUTE !== 'today') return;
+  if (ev.client_id && CHAT_SENT_IDS.has(ev.client_id)) return;
+  if (!ev.text) return;
+  chatAppend(chatLine('user', ev.text, 'dashboard', ev.at));
+});
+
 async function chatSend(text) {
   const input = document.getElementById('chat-input');
   const send = document.getElementById('chat-send');
   input.disabled = true; send.disabled = true;
   hubThinking();
+  // Minted before the send and remembered so the same message arriving back
+  // on the stream (every /api/chat caller's user line broadcasts there now)
+  // is recognized as this tab's own echo rather than rendered twice.
+  const clientId = chatClientId();
+  CHAT_SENT_IDS.add(clientId);
+  if (CHAT_SENT_IDS.size > 400) CHAT_SENT_IDS.clear();  // bounded; a dedupe, not a log
   chatAppend(chatLine('user', text, 'dashboard', new Date().toISOString()));
   const thinking = document.createElement('div');
   thinking.className = 'chat-line chat-friday chat-thinking';
   thinking.innerHTML = '<div class="chat-bubble">…</div>';
   chatAppend(thinking);
   try {
-    const r = await api.post('/api/chat', { text }, { timeoutMs: 60000 });
+    const r = await api.post('/api/chat', { text, client_id: clientId }, { timeoutMs: 60000 });
     thinking.remove();
     if (r.paused) {
       chatAppend(chatLine('assistant', 'Paused — nothing was processed.',

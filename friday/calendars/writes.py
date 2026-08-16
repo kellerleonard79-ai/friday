@@ -118,3 +118,20 @@ def write_fingerprint(title: str, day: str, start_time: str,
         (calendar or "").strip().casefold(),
     ))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
+
+
+def target_fingerprint(operation: str, uid: str, *parts: str) -> str:
+    """The idempotency key for a write that targets an EXISTING event by
+    identifier — update and delete — as opposed to write_fingerprint's
+    content-based key for a create, which has no identifier yet to key on.
+
+    Keyed on the identifier plus what was asked for, so a retried update with
+    the same requested changes collides with itself (same as a retried create
+    colliding on title/day/time/calendar) while a second, DIFFERENT update of
+    the same event — the user correcting themselves a minute later — does not,
+    because its `parts` differ. A delete passes no parts: any two deletes of
+    the same uid are the same delete.
+    """
+    raw = "\x1f".join((operation, (uid or "").strip(),
+                       *((p or "").strip() for p in parts)))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]

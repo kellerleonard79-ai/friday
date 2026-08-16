@@ -39,6 +39,7 @@ packaging/windows/Releases/
 dist/
 build/
 .build-venv/
+.venv/
 
 # Runtime logs — contain live tokens, never track.
 friday/logs/

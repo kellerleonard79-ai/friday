@@ -104,6 +104,13 @@ def _shape(evt: dict) -> dict:
         "calendar": evt.get("calendar", ""),
         "all_day": all_day,
         "date": sd.date().isoformat() if sd else "",
+        # THE ONLY IDENTIFIER update_calendar_event / delete_calendar_event
+        # CAN TARGET. Their precondition (tools/preconditions.py) requires a
+        # read of the target's day in this turn; this is what that read has to
+        # hand the model to satisfy it — without a uid here neither tool is
+        # reachable at all. Present on every event from both backends (see
+        # connectors/apple_calendar.py and calendars/google_cal.py).
+        "uid": evt.get("uid", ""),
     }
     if not all_day:
         out["start"] = sd.isoformat(timespec="minutes") if sd else ""
