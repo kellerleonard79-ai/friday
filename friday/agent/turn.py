@@ -58,6 +58,7 @@ from tools.types import ToolError, ToolResult
 # silently has no tools looks exactly like a model choosing not to call one.
 from tools import calendar_read as _register_calendar_reads  # noqa: F401
 from tools import calendar_write as _register_calendar_writes  # noqa: F401
+from tools import work_write as _register_work_writes  # noqa: F401
 
 logger = logging.getLogger("friday.turn")
 
