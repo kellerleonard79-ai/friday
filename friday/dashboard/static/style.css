@@ -1856,17 +1856,6 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
 .hub-bead circle { fill: var(--az-soft);   }
 .hub-dot  circle { fill: var(--az-bright); }
 
-.hub-notch {
-  /* Filled, not just stroked: the flat top is a straight line over the
-     heavy ring's curve, and with fill:none the sliver between them where
-     the two diverge showed the ring's curve through as a stray dark notch
-     in the middle of the bridge. */
-  fill: var(--az);
-  stroke: var(--az);
-  stroke-width: 4;
-  stroke-linejoin: round;
-}
-
 .hub-arcs path {
   stroke: var(--az-bright);
   stroke-width: 4;
