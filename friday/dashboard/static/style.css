@@ -1929,6 +1929,15 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
   50%      { transform: scaleY(var(--hub-hi)); }
 }
 
+/* Idle: the wave is what thinking and speaking arrive with, not a resting
+   state of its own. At rest the bars sit flat at --hub-still rather than
+   breathing — the rings and bloom still animate, this silences only the
+   bar ring's travelling wave. */
+.hub[data-state="idle"] .hub-bar {
+  animation: none;
+  transform: scaleY(var(--hub-still));
+}
+
 /* ── thinking: the comet ──────────────────────────────────────────────────
    A lit head with a long tail, travelling a ring of CONSTANT height. This is
    the third attempt at this state and the first that does not animate
