@@ -54,7 +54,7 @@ _TEXT_COLORS = {
     "error":     (1.00, 0.23, 0.19),
     "listening": (1.00, 0.20, 0.20),
 }
-_TEXT = "F.R.I.D.A.Y."
+_TEXT = "J.A.R.V.I.S."
 _FONT_POINT_SIZE = 13.0
 
 USER_ICON_DIR  = Path.home() / "Library" / "Application Support" / "friday"

@@ -1,5 +1,20 @@
 # Project Friday — Claude Code Instructions
 
+> **Naming: JARVIS is the preferred name going forward.** The persona was
+> renamed from Friday to JARVIS across every user-visible surface — the
+> model's own identity, dashboard UI, notifications, menu bar/tray/Dock
+> chrome and logos, TTS, and default wake phrases. New user-facing text
+> (replies, UI strings, docs prose) should say JARVIS.
+>
+> **In code, `Friday` and `JARVIS` are interchangeable and neither needs to
+> change.** The package directory (`friday/`), `friday_config.yaml` and every
+> config key, `friday_memory.db`, launchd labels (`com.friday.*`), Python
+> identifiers, log file names and logger names, and this project's own name
+> ("Project Friday") are untouched by the rename and are not being migrated —
+> see the rename commit on `phase3-dispatcher` for the exact split. Do not
+> rename an internal to "finish the job"; that was a deliberate, load-bearing
+> decision, not an oversight.
+
 ## Working with the user
 
 **Do not verify a change with a headless browser or by booting a dev/preview

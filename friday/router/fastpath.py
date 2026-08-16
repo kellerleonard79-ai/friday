@@ -115,7 +115,7 @@ def _norm(text: str) -> str:
 # optional suffix inside each pattern rather than stripped up front, so a
 # pattern can decline it — and so "sir" alone still has to be matched on
 # purpose rather than becoming the empty string and matching everything.
-_SIR = r"(?:[, ]+(?:sir|friday))*"
+_SIR = r"(?:[, ]+(?:sir|jarvis|friday))*"
 
 
 def _p(body: str) -> re.Pattern:
@@ -137,7 +137,7 @@ _W = r"(?:what's|whats|what is|what)"
 _GREETING = _p(
     r"(?:hello|hi|hey|yo|heya|good (?:morning|afternoon|evening|day)"
     r"|(?:are )?you there|are you (?:there|awake|alive|up)"
-    r"|you (?:awake|alive|up)|sir|friday)"
+    r"|you (?:awake|alive|up)|sir|jarvis|friday)"
 )
 
 _BRIEF = _p(

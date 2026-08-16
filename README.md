@@ -4,6 +4,15 @@ A personal AI secretary that runs on an always-on machine. Friday ingests inform
 Canvas, GroupMe, Google Calendar and the weather API, manages your calendar, delivers
 proactive briefings and urgent alerts over Telegram, and drafts replies for your review.
 
+> **A note on the name.** The assistant's persona was renamed from Friday to
+> **JARVIS** — that's what it calls itself in chat, on the dashboard, in
+> notifications, and on the menu bar/Dock icon. The project itself, this repo,
+> the `friday/` package, `friday_config.yaml`, the database, and every
+> internal identifier kept the name Friday and are not being renamed. In code
+> and in this document, **Friday and JARVIS are used interchangeably** —
+> "Friday" when talking about the project/process/files, "JARVIS" when
+> talking about the assistant the user is actually speaking to.
+
 **Telegram is the sole user interface.** Briefings, alerts, approvals, drafts and
 conversational queries all happen in one Telegram chat. There is also a local web dashboard
 and a menu bar / tray app, but those are for configuration and status — not conversation.
@@ -734,7 +743,7 @@ It offers full config editing (briefing times, provider and model, API keys, Gro
 priorities, notification toggles, voice settings), live status, a Today activity feed, and a
 restart control.
 
-The menu bar app (`menubar.py`, rumps) shows status and offers Brief Me Now, Pause Friday,
+The menu bar app (`menubar.py`, rumps) shows status and offers Brief Me Now, Pause JARVIS,
 Open Dashboard, a Gemini/Ollama provider switch, and wake-word mute. It polls
 `/api/voice/status` every few seconds.
 
@@ -786,7 +795,7 @@ that does, it is a bug.
 2. **Message the bot first.** Telegram will not deliver to a chat that has never been
    opened from your side.
 3. **Look for a startup message.** On boot Friday sends
-   `Friday online — <provider> / <model>`. If that arrives, the token and chat ID are fine
+   `JARVIS online — <provider> / <model>`. If that arrives, the token and chat ID are fine
    and the problem is downstream.
 4. **Check for a second running instance.** Two processes polling the same bot token will
    fight over updates:
