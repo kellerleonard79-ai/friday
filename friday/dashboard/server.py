@@ -1389,11 +1389,12 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
         "nothing posted yet", which early in a semester is most of them, and
         a missing key is indistinguishable from a bug.
 
-        kinds=("assignment",) below drops iCal course EVENTS ("OPEN LAB",
-        "Open House") from this list — real on the calendar, not something to
-        turn in. A course whose Canvas presence is mostly calendar entries
-        (some are) will look sparse here rather than showing its lab schedule
-        as if it were homework.
+        canvas_connector.work_items() below, not the raw assignments() cache
+        read — it drops locked/module-gated placeholders and collapses a
+        title that repeats verbatim (a recurring calendar block like "OPEN
+        LAB") to its next occurrence. It does NOT filter by kind: a real
+        deadline posted as a Canvas calendar EVENT ("LAB DUE", "TEST") is
+        still work, whatever object type the teacher happened to use.
         """
         from connectors import canvas as canvas_connector
         cfg = _load_config(config_path)
@@ -1429,8 +1430,8 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
         by_course: dict[str, list] = {cid: [] for cid in named}
         if named:
             horizon = (today + timedelta(days=21)).isoformat()
-            for a in canvas_connector.assignments(
-                conn, course_ids=sorted(named), kinds=("assignment",),
+            for a in canvas_connector.work_items(
+                conn, course_ids=sorted(named),
                 due_after=today.isoformat(), due_before=horizon, limit=500,
             ):
                 by_course.setdefault(str(a["course_id"]), []).append(a)
@@ -1563,14 +1564,15 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
         # longer string sharing a prefix sorts GREATER, so a <= against
         # "2026-08-13T23:59:59" would exclude an assignment due at exactly
         # 11:59pm — which is when essentially every Canvas assignment is due.
-        # kinds=("assignment",) — same reason as /api/schedule: a calendar
-        # EVENT is not work due, however due-date-shaped its row looks.
+        # work_items() — same reason as /api/schedule: locked placeholders
+        # and repeat calendar blocks dropped/collapsed, kind left alone,
+        # because a deadline posted as a calendar EVENT is still due.
         # Submitted assignments ride along rather than being dropped here — the
         # client hides them by default (SHOW_SUBMITTED) and can reveal them
         # without a second request, the same pattern /api/schedule already
         # uses for the period card's per-course work lists.
-        due = canvas_connector.assignments(
-            conn, kinds=("assignment",), due_after=today.isoformat(),
+        due = canvas_connector.work_items(
+            conn, due_after=today.isoformat(),
             due_before=(today + timedelta(days=2)).isoformat(), limit=100)
         courses = {c["id"]: c for c in canvas_connector.courses(conn)}
         for a in due:

@@ -1390,9 +1390,19 @@ function workList(id) {
   }
   return `<ul class="pc-work">${work.map((a) => `
     <li${a.submitted ? ' class="done"' : ''}>
-      <span class="pc-work-title">${escapeHtml(a.title)}</span>
+      <span class="pc-work-title">${escapeHtml(a.title)}${repeatSuffix(a)}</span>
       <span class="pc-work-due mono">${escapeHtml(dueLabel(a))}</span>
     </li>`).join('')}</ul>${toggle}`;
+}
+
+// work_items() (server side) collapses a title that repeats verbatim — a
+// recurring calendar block like "OPEN LAB" on ten different afternoons — to
+// its next occurrence, so the count has to surface somewhere or four
+// identical rows just becomes one row that quietly used to be four.
+function repeatSuffix(a) {
+  return a.repeat_count > 1
+    ? ` <span class="pc-loc">×${a.repeat_count}</span>`
+    : '';
 }
 
 // How a slot names itself. An alternating slot on an unknown letter is TWO
@@ -1587,7 +1597,7 @@ function renderAfterSchool(card) {
   const due = dueVisible.length
     ? `<ul class="pc-work">${dueVisible.map((d) => `
         <li${d.submitted ? ' class="done"' : ''}>
-          <span class="pc-work-title">${escapeHtml(d.title)}${
+          <span class="pc-work-title">${escapeHtml(d.title)}${repeatSuffix(d)}${
             d.course_name ? ` <span class="pc-loc">${escapeHtml(d.course_name)}</span>` : ''}</span>
           <span class="pc-work-due mono">${escapeHtml(dueLabelFor(d, a))}</span>
         </li>`).join('')}</ul>${dueToggle}`

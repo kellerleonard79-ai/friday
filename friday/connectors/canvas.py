@@ -420,11 +420,18 @@ def _store_rest(conn: sqlite3.Connection, courses: list[dict],
             due = _to_local_iso(a.get("due_at"))
             submission = a.get("submission") or {}
             submitted = submission.get("submitted_at")
+            # locked_for_user is Canvas's own answer to "can the student see
+            # this yet" — a module-gated assignment Canvas names after its
+            # unlock date, because the real title is exactly what's hidden.
+            # NULL (not False) when the field is simply absent from the
+            # response, which is "unknown", not "unlocked".
+            locked = a.get("locked_for_user")
+            published = a.get("published")
             conn.execute(
                 """INSERT INTO canvas_assignments
                      (id, course_id, title, due_at, has_due_time, points,
-                      submitted, html_url, kind, source, fetched_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'assignment', 'rest', ?)
+                      submitted, locked, published, html_url, kind, source, fetched_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'assignment', 'rest', ?)
                    ON CONFLICT(id) DO UPDATE SET
                      course_id    = excluded.course_id,
                      title        = excluded.title,
@@ -432,6 +439,8 @@ def _store_rest(conn: sqlite3.Connection, courses: list[dict],
                      has_due_time = excluded.has_due_time,
                      points       = excluded.points,
                      submitted    = excluded.submitted,
+                     locked       = excluded.locked,
+                     published    = excluded.published,
                      html_url     = excluded.html_url,
                      source       = 'rest',
                      fetched_at   = excluded.fetched_at""",
@@ -439,6 +448,8 @@ def _store_rest(conn: sqlite3.Connection, courses: list[dict],
                  a.get("name") or "", due, 1 if due else 0,
                  a.get("points_possible"),
                  1 if submitted else (0 if submission else None),
+                 None if locked is None else (1 if locked else 0),
+                 None if published is None else (1 if published else 0),
                  a.get("html_url") or "", now_iso),
             )
 
@@ -565,16 +576,17 @@ def assignments(conn: sqlite3.Connection, course_ids: list[str] | None = None,
     tables exist. Undated items sort last rather than being dropped: "no due
     date" is a real state a card should be able to show.
 
-    `kinds` defaults to None (both 'assignment' and 'event'), because this is
-    a general cache reader and a future consumer may genuinely want calendar
-    events. A caller building a work/to-do list — the only two today — passes
-    `kinds=("assignment",)`: an iCal course EVENT like "OPEN LAB" is a
-    schedule entry, not something to turn in, and the UID pattern that sets
-    `kind` (see `_ical_item`) already separates the two at ingest, so this is
-    a filter, not a classification.
+    `kinds` defaults to None (both 'assignment' and 'event') and is a raw
+    passthrough on the `kind` column — NOT a "what counts as work" filter.
+    It looks like one and it is not: Canvas teachers routinely post real
+    deadlines (LAB DUE, CLASSWORK DUE, TEST) as calendar EVENTS rather than
+    ASSIGNMENTS, so `kind='event'` does not mean "not work" and filtering a
+    to-do surface down to `kinds=("assignment",)` drops real due dates. That
+    filter was tried here and reverted — see `work_items()` below, which is
+    what a work/to-do caller wants instead.
     """
     sql = ("SELECT id, course_id, title, due_at, has_due_time, points, "
-           "submitted, html_url, kind, source, fetched_at "
+           "submitted, locked, published, html_url, kind, source, fetched_at "
            "FROM canvas_assignments WHERE 1=1")
     args: list = []
     if course_ids:
@@ -599,8 +611,57 @@ def assignments(conn: sqlite3.Connection, course_ids: list[str] | None = None,
     return [{"id": r[0], "course_id": r[1], "title": r[2] or "",
              "due_at": r[3], "has_due_time": bool(r[4]), "points": r[5],
              "submitted": None if r[6] is None else bool(r[6]),
-             "html_url": r[7] or "", "kind": r[8] or "", "source": r[9] or "",
-             "fetched_at": r[10] or ""} for r in rows]
+             "locked": None if r[7] is None else bool(r[7]),
+             "published": None if r[8] is None else bool(r[8]),
+             "html_url": r[9] or "", "kind": r[10] or "", "source": r[11] or "",
+             "fetched_at": r[12] or ""} for r in rows]
+
+
+def work_items(conn: sqlite3.Connection, course_ids: list[str] | None = None,
+               due_after: str | None = None, due_before: str | None = None,
+               limit: int = 200) -> list[dict]:
+    """The subset of the cache that a to-do/due surface should actually show.
+
+    This is what `/api/schedule` and `/api/after-school` call — not
+    `assignments()` directly, which is a neutral cache reader with no
+    opinion about what "work" means. Two judgment calls live here, in one
+    place, so the period card and the after-school card can't drift apart
+    on what counts:
+
+    - A REST assignment still locked behind an unmet module prerequisite is
+      dropped. `locked=True` is Canvas's own signal (see the `locked`
+      column's comment in memory/db.py) — not a guess from the title, even
+      though the symptom of a locked item IS a title that's nothing but a
+      date, because that's literally what Canvas names it when the real
+      title is exactly what's hidden. `locked=None` (every iCal row, and
+      any REST row Canvas didn't send the field for) is never dropped —
+      unknown means "not applicable", not "hide it", same rule `submitted`
+      already follows.
+    - A title that repeats verbatim within the window is collapsed to its
+      next occurrence, with `repeat_count` on that row. Canvas's recurring
+      calendar blocks ("OPEN LAB" on ten different afternoons) are ten
+      separate VEVENTs with ten different ids and no shared recurrence
+      field, so a repeat is detected by (course_id, title) colliding —
+      not by kind, not by a recurrence rule that doesn't exist here.
+      Collapsed, never dropped: four OPEN LAB rows lose to a real deadline
+      for a display slot, but the count still says four happened.
+    """
+    rows = assignments(conn, course_ids=course_ids, due_after=due_after,
+                        due_before=due_before, limit=limit)
+    rows = [r for r in rows if not r.get("locked")]
+
+    seen: dict[tuple, dict] = {}
+    order: list[tuple] = []
+    for r in rows:
+        key = (r["course_id"], r["title"])
+        if key not in seen:
+            item = dict(r)
+            item["repeat_count"] = 1
+            seen[key] = item
+            order.append(key)
+        else:
+            seen[key]["repeat_count"] += 1
+    return [seen[k] for k in order]
 
 
 def cache_status(conn: sqlite3.Connection) -> dict:

@@ -193,6 +193,12 @@ CREATE TABLE IF NOT EXISTS canvas_assignments (
     has_due_time INTEGER DEFAULT 0, -- 1 only when due_at carries a real time
     points       REAL,              -- REST only
     submitted    INTEGER,           -- REST only. NULL = unknown, not "no"
+    locked       INTEGER,           -- REST only. NULL = unknown, not "no".
+                                     -- Canvas's own locked_for_user — a
+                                     -- module-gated assignment Canvas names
+                                     -- after its unlock date because the real
+                                     -- title is exactly what's still hidden.
+    published    INTEGER,           -- REST only. NULL = unknown, not "no"
     html_url     TEXT,
     kind         TEXT,              -- 'assignment' | 'event'
     source       TEXT,              -- 'ical' | 'rest'
@@ -320,6 +326,21 @@ class Database:
                 self._conn.execute(
                     f"ALTER TABLE pending_actions ADD COLUMN {col} {decl}")
                 logger.info(f"Migration: added pending_actions.{col} column")
+
+        # canvas_assignments.locked / .published: Canvas's own signal for a
+        # module-gated assignment, so "is this real, actionable work" can be
+        # answered from data instead of guessing from the title. Discovered
+        # from a live payload: a locked assignment's `name` IS its unlock
+        # date ("Thursday, August 20, 2026.") because the real title is
+        # exactly what's still hidden — `locked_for_user: true` was sitting
+        # right next to it the whole time. NULL for existing rows and for
+        # every iCal row: unknown, not "unlocked" — connectors/canvas.py's
+        # work_items() only excludes locked = 1, never NULL.
+        ca_cols = {r[1] for r in self._conn.execute("PRAGMA table_info(canvas_assignments)")}
+        for col in ("locked", "published"):
+            if col not in ca_cols:
+                self._conn.execute(f"ALTER TABLE canvas_assignments ADD COLUMN {col} INTEGER")
+                logger.info(f"Migration: added canvas_assignments.{col} column")
 
         # recent_writes: the idempotency ledger, keyed on a content fingerprint
         # rather than on anyone's identifier. It answers "did this exact write
