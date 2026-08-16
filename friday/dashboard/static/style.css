@@ -2543,11 +2543,14 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
 
 .pc-work { list-style: none; margin: 0; padding: 0; }
 
+/* Column, not a single row: the title/due line and the accept/dismiss row
+   beneath it are different concerns, and a row action bar squeezed onto the
+   same line as the due date is the first thing that breaks on a phone. */
 .pc-work li {
   display: flex;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 5px 0;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 0;
   border-bottom: 1px solid var(--border);
   font-size: 14px;
   color: var(--text-2);
@@ -2555,8 +2558,46 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
 
 .pc-work li:last-child { border-bottom: none; }
 .pc-work li.done { opacity: 0.5; text-decoration: line-through; }
+
+.pc-work-main {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+}
+
 .pc-work-title { min-width: 0; }
 .pc-work-due { color: var(--muted); font-size: 11px; white-space: nowrap; }
+
+.pc-work-link { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--muted-2); }
+.pc-work-link:hover { color: var(--teal); border-bottom-color: var(--teal); }
+
+/* Accept / Dismiss, or the badge once one of them has already been tapped. */
+.pc-row-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+.pc-act {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 8px;
+  cursor: pointer;
+  color: var(--muted);
+}
+.pc-act:hover { border-color: var(--teal); color: var(--teal); }
+.pc-act:disabled { opacity: 0.5; cursor: default; }
+.pc-act-accept:hover { border-color: var(--teal); color: var(--teal); }
+.pc-act-dismiss:hover { border-color: var(--danger); color: var(--danger); }
+
+.pc-accepted {
+  align-self: flex-end;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--teal);
+}
 
 .pc-empty { color: var(--muted-2); font-size: 13px; font-style: italic; }
 
@@ -2710,6 +2751,223 @@ body[data-route="today"] .ticker-marquee { flex: 0 0 auto; }
   color: var(--muted-2);
   font-size: 12px;
 }
+
+/* ── Period list (replaces the old prev/next/dots pager) ───────────────────
+   One scrolling column of rows instead of a page swap. `.pc-scroll` gets the
+   flex/overflow treatment #todo-list already has, for the same reason: it is
+   the one genuinely unbounded thing in a flex-column panel and has to take
+   the slack and scroll inside itself rather than growing the card. */
+.hud-flank > .panel > .pc-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.pc-row { scroll-margin: 4px; }
+
+.pc-row-collapsed {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  padding: 8px 2px;
+  cursor: pointer;
+  text-align: left;
+  font-family: 'Rajdhani', sans-serif;
+}
+.pc-row-collapsed:hover { background: rgba(var(--az-rgb), 0.06); }
+.pc-row-collapsed:last-child { border-bottom: none; }
+
+.pc-row-collapsed.is-current {
+  border-left: 2px solid var(--teal);
+  padding-left: 8px;
+}
+
+.pc-row-label {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--muted-2);
+  white-space: nowrap;
+}
+
+.pc-row-course {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.pc-row-time {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.pc-row-expanded {
+  padding: 10px 2px 14px;
+  border-bottom: 1px solid var(--border-strong);
+}
+.pc-row-expanded:last-child { border-bottom: none; }
+
+/* The expanded row's own head doubles as a button back to the collapsed line
+   when it is a manually-tapped-open period rather than the current one — see
+   app.js::expandedRowHtml. Reset to look identical either way; the cursor is
+   the only tell, which is deliberate: highlighting "this is clickable" on
+   the one row already being looked at is a distraction, not an affordance. */
+button.pc-row-head {
+  all: unset;
+  display: flex;
+  width: 100%;
+  cursor: pointer;
+}
+div.pc-row-head { display: flex; }
+
+/* ── Announcements ──────────────────────────────────────────────────────── */
+
+.pc-ann { list-style: none; margin: 0; padding: 0; }
+
+.pc-ann li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+.pc-ann li:last-child { border-bottom: none; }
+
+.pc-ann-title {
+  color: var(--text-2);
+  font-size: 13px;
+  text-decoration: none;
+  border-bottom: 1px dotted var(--muted-2);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pc-ann-title:hover { color: var(--teal); border-bottom-color: var(--teal); }
+
+.pc-ann-dismiss {
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  color: var(--muted-2);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0 2px;
+}
+.pc-ann-dismiss:hover { color: var(--danger); }
+
+/* ── Effort picker popover ──────────────────────────────────────────────── */
+
+.pc-effort-pop {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  gap: 4px;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.pc-effort-pop button {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  background: rgba(var(--az-rgb), 0.06);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 5px 8px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.pc-effort-pop button:hover { border-color: var(--teal); color: var(--teal); }
+.pc-effort-pop .pc-effort-skip { color: var(--muted-2); }
+
+/* ── Work panel (#todo-list) ────────────────────────────────────────────── */
+
+.wk-add {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+  flex: 0 0 auto;
+}
+.wk-add .input { flex: 1 1 auto; min-width: 0; padding: 8px 10px; font-size: 13px; }
+.wk-add-date { flex: 0 0 auto; width: 132px; }
+
+.wk-section { margin-bottom: 16px; }
+
+.wk-section-h {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.wk-count { color: var(--muted-2); }
+
+.wk-list { list-style: none; margin: 0; padding: 0; }
+
+.wk-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+}
+.wk-row:last-child { border-bottom: none; }
+
+.wk-row.overdue .wk-meta { color: var(--danger); }
+
+.wk-check {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: none;
+  cursor: pointer;
+}
+.wk-check:hover { border-color: var(--teal); background: rgba(var(--ok-rgb), 0.15); }
+
+.wk-body { flex: 1 1 auto; min-width: 0; }
+
+.wk-title {
+  font-size: 14px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wk-title a { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--muted-2); }
+.wk-title a:hover { color: var(--teal); border-bottom-color: var(--teal); }
+
+.wk-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+.wk-est {
+  flex: 0 0 auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 7px;
+  color: var(--muted-2);
+  cursor: pointer;
+}
+.wk-est:hover { border-color: var(--teal); color: var(--teal); }
 
 /* ── Ticker tape ────────────────────────────────────────────────────────────
    Full-bleed against main's own padding (32px 40px — see the `main` rule) so

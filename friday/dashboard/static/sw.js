@@ -30,7 +30,7 @@
 // independently and revalidated independently, so without a version bump a
 // tab can hold one of each from either side of the change for as long as it
 // takes both background fetches to land.
-const CACHE_VERSION = 'friday-shell-v19';
+const CACHE_VERSION = 'friday-shell-v20';
 const NETWORK_TIMEOUT_MS = 2500;
 
 const SHELL_URLS = [

@@ -174,6 +174,7 @@ const ROUTES = {
 
 let VOICE_TIMER = null;
 let WIDGET_TIMER = null;
+let WORK_TIMER = null;
 
 function navigate(route) {
   if (!ROUTES[route]) route = 'today';
@@ -184,6 +185,7 @@ function navigate(route) {
   if (CHAT_PENDING_TIMER) { clearInterval(CHAT_PENDING_TIMER); CHAT_PENDING_TIMER = null; }
   if (PERIOD_TIMER) { clearInterval(PERIOD_TIMER); PERIOD_TIMER = null; }
   if (WIDGET_TIMER) { clearInterval(WIDGET_TIMER); WIDGET_TIMER = null; }
+  if (WORK_TIMER) { clearInterval(WORK_TIMER); WORK_TIMER = null; }
   if (POWER_TIMER) { clearInterval(POWER_TIMER); POWER_TIMER = null; }
   document.querySelectorAll('.nav-item').forEach((a) => {
     a.classList.toggle('active', a.dataset.route === route);
@@ -304,8 +306,15 @@ function renderToday() {
   // The period card runs on its own timer and its own data. It is first on
   // the page because it is the thing being looked up, not the thing being
   // monitored.
-  VIEW_INDEX = null;
+  EXPANDED_INDEX = null;
+  BROWSE_UNTIL = 0;
+  FORCE_PERIODS = false;
   startPeriodCard();
+
+  // The Work panel — what's been accepted plus what Keller typed himself.
+  // Own timer for the same reason the period card has one: due-bucket
+  // boundaries move with the clock even when nothing else changed.
+  startWorkPanel();
 
   // Weather and markets. Their own timer, because their data ages on a
   // different clock from the 5s status tick and refetching quotes six times
@@ -1254,13 +1263,15 @@ function renderGroupCards(remote) {
 
 let SCHED = null;          // last /api/schedule payload
 let PERIOD_TIMER = null;
-let VIEW_INDEX = null;     // manual override: an index into SCHED.periods
-let VIEW_AT = 0;           // when the manual view was chosen (ms)
+let EXPANDED_INDEX = null; // manual override: an index into SCHED.periods,
+                           // tapped open from its collapsed line
+let FORCE_PERIODS = false; // "Today's periods" from the after-school card:
+                           // show the period list even though school is out
 
 // A submitted assignment is noise once it's turned in, and it throws off any
 // count of what's left — so it's hidden by default everywhere on this card,
-// with one toggle (not persisted across page loads, same as VIEW_INDEX) that
-// un-hides it in both the period view and the after-school view at once.
+// with one toggle (not persisted across page loads, same as EXPANDED_INDEX)
+// that un-hides it in both the period view and the after-school view at once.
 let SHOW_SUBMITTED = false;
 
 function submittedToggleHtml(hiddenCount) {
@@ -1277,6 +1288,26 @@ function bindSubmittedToggle(card) {
 
 // A laptop left open must not sit on 2nd period at 3pm.
 const VIEW_RETURN_MS = 120000;
+
+// The one piece of "manual override" state that used to be a page (prev /
+// next / dots / Back to now). Now the card is a single scrolling list that
+// always defaults to now; browsing away from that — tapping a collapsed
+// period open, or just scrolling the list by hand — is what sets this, and
+// it drifts back on its own once VIEW_RETURN_MS has passed with no further
+// interaction. There is no button for the return trip; the absence of one is
+// the point.
+let BROWSE_UNTIL = 0;      // ms epoch; while Date.now() < this, don't auto-follow
+let PC_PROGRAMMATIC_SCROLL_UNTIL = 0;  // suppresses the scroll listener during our own scrollIntoView
+
+function markBrowsing() { BROWSE_UNTIL = Date.now() + VIEW_RETURN_MS; }
+
+function bindScrollAway(list) {
+  if (!list) return;
+  list.onscroll = () => {
+    if (Date.now() < PC_PROGRAMMATIC_SCROLL_UNTIL) return;
+    markBrowsing();
+  };
+}
 
 function hhmmToMin(s) {
   if (!s) return null;
@@ -1376,6 +1407,42 @@ function dueLabel(a) {
   return rel;
 }
 
+// Every work row Keller has not yet acted on gets Accept/Dismiss; one he has
+// gets a badge instead of the buttons, so what's been taken on reads
+// differently from what's merely been posted. work_status is null/undefined
+// for "never acted on" — see dashboard/server.py::_apply_work_status, which
+// merges this in and drops 'dismissed' rows before they ever reach the client.
+function workActionsHtml(a) {
+  if (a.work_status === 'open' || a.work_status === 'done') {
+    return '<span class="pc-accepted">Accepted</span>';
+  }
+  return `<span class="pc-row-actions">
+      <button class="pc-act pc-act-accept" data-accept="${escapeAttr(a.id)}" title="Accept — add to Work">✓ Accept</button>
+      <button class="pc-act pc-act-dismiss" data-dismiss="${escapeAttr(a.id)}" data-dismiss-title="${escapeAttr(a.title)}" title="Dismiss — not work">✕</button>
+    </span>`;
+}
+
+// A REST assignment carries its own Canvas html_url; an iCal-derived calendar
+// event carries one too (the feed's own URL field) — either way, a title
+// with somewhere to go is a link and one without one is plain text.
+function workTitleHtml(a) {
+  const title = escapeHtml(a.title) + repeatSuffix(a);
+  return a.html_url
+    ? `<a class="pc-work-link" href="${escapeAttr(a.html_url)}" target="_blank" rel="noopener">${title}</a>`
+    : title;
+}
+
+function workRowLi(a) {
+  return `
+    <li${a.submitted ? ' class="done"' : ''}>
+      <div class="pc-work-main">
+        <span class="pc-work-title">${workTitleHtml(a)}</span>
+        <span class="pc-work-due mono">${escapeHtml(dueLabel(a))}</span>
+      </div>
+      ${workActionsHtml(a)}
+    </li>`;
+}
+
 function workList(id) {
   const work = courseWork(id);
   const hidden = courseSubmittedCount(id);
@@ -1388,11 +1455,7 @@ function workList(id) {
     const msg = (hidden && !SHOW_SUBMITTED) ? 'All turned in.' : 'Nothing posted.';
     return `<div class="pc-empty">${msg}</div>${toggle}`;
   }
-  return `<ul class="pc-work">${work.map((a) => `
-    <li${a.submitted ? ' class="done"' : ''}>
-      <span class="pc-work-title">${escapeHtml(a.title)}${repeatSuffix(a)}</span>
-      <span class="pc-work-due mono">${escapeHtml(dueLabel(a))}</span>
-    </li>`).join('')}</ul>${toggle}`;
+  return `<ul class="pc-work">${work.map(workRowLi).join('')}</ul>${toggle}`;
 }
 
 // work_items() (server side) collapses a title that repeats verbatim — a
@@ -1403,6 +1466,104 @@ function repeatSuffix(a) {
   return a.repeat_count > 1
     ? ` <span class="pc-loc">×${a.repeat_count}</span>`
     : '';
+}
+
+// Announcements are read-only and persist until dismissed (server-side flag,
+// not a client toggle) — see canvas_announcements.dismissed in memory/db.py.
+// No body text, deliberately: expanding a long announcement inline is what
+// the spec explicitly ruled out, so this is a title and a way out to Canvas.
+function announcementsList(courseId) {
+  if (!SCHED || courseId == null) return '';
+  const items = (SCHED.announcements_by_course || {})[String(courseId)] || [];
+  if (!items.length) return '';
+  return `
+    <div class="pc-section-h">Announcements</div>
+    <ul class="pc-ann">${items.map((t) => `
+      <li>
+        <a class="pc-ann-title" href="${escapeAttr(t.html_url)}" target="_blank" rel="noopener">${escapeHtml(t.title)}</a>
+        <button class="pc-ann-dismiss" data-ann-dismiss="${escapeAttr(t.id)}" title="Dismiss">✕</button>
+      </li>`).join('')}</ul>`;
+}
+
+// Every accept/dismiss/estimate/complete button and every announcement
+// dismiss on the Today and Work panels funnels through here. None of these
+// re-render locally on success — the server publishes the 'work' (or
+// 'canvas', for an announcement) stream kind, and the SAME event reaches the
+// tab that clicked it, so one code path (onStream) does every refresh.
+function bindTodayActions(card) {
+  card.querySelectorAll('[data-accept]').forEach((b) => {
+    b.onclick = (e) => {
+      e.stopPropagation();
+      const id = b.dataset.accept;
+      openEffortPicker(b, async (minutes) => {
+        b.disabled = true;
+        try {
+          await api.post('/api/work-items/accept',
+            { source_ref: id, estimated_minutes: minutes || undefined });
+        } catch { flash('ACCEPT FAILED', true); b.disabled = false; }
+      });
+    };
+  });
+  card.querySelectorAll('[data-dismiss]').forEach((b) => {
+    b.onclick = async (e) => {
+      e.stopPropagation();
+      b.disabled = true;
+      try {
+        await api.post('/api/work-items/dismiss',
+          { source_ref: b.dataset.dismiss, title: b.dataset.dismissTitle || '' });
+      } catch { flash('DISMISS FAILED', true); b.disabled = false; }
+    };
+  });
+  card.querySelectorAll('[data-ann-dismiss]').forEach((b) => {
+    b.onclick = async (e) => {
+      e.stopPropagation();
+      b.disabled = true;
+      try {
+        await api.post(`/api/canvas/announcements/${b.dataset.annDismiss}/dismiss`);
+      } catch { flash('FAILED', true); b.disabled = false; }
+    };
+  });
+}
+
+// A small popover of effort buckets, anchored under whichever button opened
+// it. Fixed positioning: the homepage stage does not scroll, so a viewport
+// rect is a page rect. "3h+" is a floor (180) rather than open-ended — the
+// picker has five buttons, not a text field, on purpose.
+let EFFORT_POP = null;
+
+const EFFORT_OPTIONS = [
+  { m: 15, label: '15m' }, { m: 30, label: '30m' },
+  { m: 60, label: '1h' }, { m: 120, label: '2h' }, { m: 180, label: '3h+' },
+];
+
+function closeEffortPicker() {
+  if (EFFORT_POP) { EFFORT_POP.remove(); EFFORT_POP = null; }
+}
+
+function openEffortPicker(anchor, onPick) {
+  closeEffortPicker();
+  const pop = document.createElement('div');
+  pop.className = 'pc-effort-pop';
+  pop.innerHTML = EFFORT_OPTIONS.map((o) =>
+    `<button type="button" data-m="${o.m}">${o.label}</button>`).join('')
+    + '<button type="button" class="pc-effort-skip" data-m="0">Skip</button>';
+  document.body.appendChild(pop);
+  const r = anchor.getBoundingClientRect();
+  const top = Math.min(r.bottom + 6, window.innerHeight - 56);
+  const left = Math.min(r.left, window.innerWidth - 220);
+  pop.style.top = `${Math.max(4, top)}px`;
+  pop.style.left = `${Math.max(4, left)}px`;
+  pop.querySelectorAll('button').forEach((b) => {
+    b.onclick = (e) => {
+      e.stopPropagation();
+      closeEffortPicker();
+      onPick(+b.dataset.m || null);
+    };
+  });
+  EFFORT_POP = pop;
+  // Deferred by a tick so the click that opened the popover doesn't also
+  // close it via this same listener.
+  setTimeout(() => document.addEventListener('click', closeEffortPicker, { once: true }), 0);
 }
 
 // How a slot names itself. An alternating slot on an unknown letter is TWO
@@ -1429,7 +1590,7 @@ function periodBody(p) {
           <div class="pc-alt-body">
             <div class="pc-alt-n">Period ${escapeHtml(String(a.n == null ? '?' : a.n))}</div>
             <div class="pc-course-sm">${n ? escapeHtml(n) : '<span class="pc-none">unassigned</span>'}</div>
-            ${n ? workList(a.course_id) : ''}
+            ${n ? workList(a.course_id) + announcementsList(a.course_id) : ''}
           </div>
         </div>`;
     }).join('');
@@ -1442,98 +1603,157 @@ function periodBody(p) {
     return '<div class="pc-course pc-none">No course assigned</div>'
       + '<div class="pc-empty">Set one on the Schedule page.</div>';
   }
-  return `<div class="pc-course">${escapeHtml(name)}</div>${workList(p.course_id)}`;
+  return `<div class="pc-course">${escapeHtml(name)}</div>${workList(p.course_id)}${announcementsList(p.course_id)}`;
 }
 
+// One row's status line — what "current" means for it, or just its plain
+// time range when it is being tapped-open rather than actually happening now.
+function rowStatus(p, i, currentIdx, loc, nowMin) {
+  if (i === currentIdx) {
+    if (loc.state === 'in_period') {
+      return { eyebrow: periodLabel(p),
+               timing: `${fmtLeft(loc.cur.e - nowMin)} · ends ${minToLabel(loc.cur.e)}` };
+    }
+    if (loc.state === 'passing') {
+      return { eyebrow: 'Passing time',
+               timing: `${periodLabel(p)} starts in ${loc.next.s - nowMin} min` };
+    }
+    if (loc.state === 'before') {
+      return { eyebrow: 'Before first bell',
+               timing: `${periodLabel(p)} starts at ${minToLabel(loc.next.s)}` };
+    }
+  }
+  const s = hhmmToMin(p.start), e = hhmmToMin(p.end);
+  return { eyebrow: periodLabel(p),
+           timing: (s != null && e != null) ? `${minToLabel(s)} – ${minToLabel(e)}` : '' };
+}
+
+// A non-active period: one line — label, course, time range — tappable open.
+// This is the entire replacement for the old prev/next/dots pager: today's
+// shape is visible at a glance, and getting to any period is one tap, not a
+// sequence of them.
+function collapsedRowHtml(p, i, isCurrent) {
+  const name = courseName(p.course_id)
+    || (p.alternating && !p.resolved ? 'Rotation not set' : '');
+  const s = hhmmToMin(p.start), e = hhmmToMin(p.end);
+  const time = (s != null && e != null) ? `${minToLabel(s)}–${minToLabel(e)}` : '';
+  return `
+    <button type="button" class="pc-row pc-row-collapsed${isCurrent ? ' is-current' : ''}" data-expand="${i}">
+      <span class="pc-row-label">${escapeHtml(periodLabel(p))}</span>
+      <span class="pc-row-course">${name ? escapeHtml(name) : '<span class="pc-none">unassigned</span>'}</span>
+      <span class="pc-row-time mono">${escapeHtml(time)}</span>
+    </button>`;
+}
+
+// The active period: full detail. `collapsible` is true only for a period
+// expanded by a manual tap that is NOT the current one — that header is
+// itself a button back to the collapsed line. The current period's own
+// header does nothing on tap; there is nothing truer to fall back to.
+function expandedRowHtml(p, i, status, collapsible) {
+  const headTag = collapsible ? 'button' : 'div';
+  const headAttrs = collapsible ? ` type="button" data-collapse="${i}"` : '';
+  return `
+    <div class="pc-row pc-row-expanded">
+      <${headTag} class="pc-head pc-row-head"${headAttrs}>
+        <span class="pc-eyebrow">${escapeHtml(status.eyebrow)}</span>
+      </${headTag}>
+      ${periodBody(p)}
+      <div class="pc-timing mono">${escapeHtml(status.timing)}</div>
+    </div>`;
+}
+
+// Zero controls in normal use: no prev/next, no page dots, no Back to now.
+// One continuous scrolling list of today's periods, always defaulting to
+// whichever one is happening (or about to). Non-current periods are one
+// line; tapping a line expands it in place, and expanding — or just
+// scrolling the list by hand — is the only way this card stops following
+// the clock, for VIEW_RETURN_MS, after which it snaps back on its own.
 function renderPeriodCard() {
   const card = document.getElementById('period-card');
   if (!card) return;
   if (!SCHED || !(SCHED.periods || []).length) { card.hidden = true; return; }
   card.hidden = false;
 
+  // Manual browsing — an expanded period, or a forced view of the period
+  // list from the after-school card — expires on its own.
+  if (Date.now() >= BROWSE_UNTIL) { EXPANDED_INDEX = null; FORCE_PERIODS = false; }
+
   const now = new Date();
   const nowMin = now.getHours() * 60 + now.getMinutes();
   const periods = SCHED.periods;
-
-  // A manual view expires on its own so the card returns to the truth.
-  if (VIEW_INDEX != null && Date.now() - VIEW_AT > VIEW_RETURN_MS) VIEW_INDEX = null;
-
   const loc = locateNow(periods, nowMin);
 
   // After the last bell — or on a day with no periods at all — the card
-  // becomes a different thing entirely. locateNow only reasons about the
-  // clock, not the calendar, so a weekend at 10am reads as "before first
-  // bell" on the bell schedule alone; is_school_day is what actually says
-  // there's no school today. A manual view (VIEW_INDEX) still wins — someone
-  // deliberately browsing the bell schedule from the after-school card's
-  // "Today's periods" button gets what they asked for regardless of the day.
-  if (VIEW_INDEX == null && (loc.state === 'after' || !SCHED.is_school_day)) {
+  // becomes a different thing entirely, UNLESS Keller explicitly asked to
+  // browse the bell schedule anyway (FORCE_PERIODS, set by the after-school
+  // card's "Today's periods" button) — is_school_day is what actually says
+  // there's no school today; locateNow only reasons about the clock.
+  if (!FORCE_PERIODS && (loc.state === 'after' || !SCHED.is_school_day)) {
     renderAfterSchool(card);
     return;
   }
 
-  let shown = null;      // the period object being displayed
-  let eyebrow = '';
-  let timing = '';
+  let currentIdx = null;
+  if (loc.state === 'in_period') currentIdx = periods.indexOf(loc.cur.p);
+  else if (loc.state === 'passing' || loc.state === 'before') currentIdx = periods.indexOf(loc.next.p);
 
-  if (VIEW_INDEX != null) {
-    shown = periods[VIEW_INDEX];
-    eyebrow = periodLabel(shown);
-    timing = `${minToLabel(hhmmToMin(shown.start))} – ${minToLabel(hhmmToMin(shown.end))}`;
-  } else if (loc.state === 'in_period') {
-    shown = loc.cur.p;
-    eyebrow = periodLabel(shown);
-    timing = `${fmtLeft(loc.cur.e - nowMin)} · ends ${minToLabel(loc.cur.e)}`;
-  } else if (loc.state === 'passing') {
-    shown = loc.next.p;
-    eyebrow = 'Passing time';
-    timing = `${periodLabel(shown)} starts in ${loc.next.s - nowMin} min`;
-  } else if (loc.state === 'before') {
-    shown = loc.next.p;
-    eyebrow = 'Before first bell';
-    timing = `${periodLabel(shown)} starts at ${minToLabel(loc.next.s)}`;
-  }
+  // Browsing the period list with no "now" to anchor to (FORCE_PERIODS after
+  // the last bell) starts at the first period rather than showing nothing.
+  const activeIdx = EXPANDED_INDEX != null ? EXPANDED_INDEX : (currentIdx != null ? currentIdx : 0);
 
-  if (!shown) { card.hidden = true; return; }
-
-  const idx = periods.indexOf(shown);
   const letter = SCHED.letter
     ? `<span class="pc-letter ${SCHED.letter_source === 'override' ? 'forced' : ''}">${
         escapeHtml(SCHED.letter)} DAY</span>`
     : '';
   const stale = staleNotice();
 
+  const rows = periods.map((p, i) => {
+    if (i !== activeIdx) return collapsedRowHtml(p, i, i === currentIdx);
+    const status = rowStatus(p, i, currentIdx, loc, nowMin);
+    return expandedRowHtml(p, i, status, EXPANDED_INDEX != null && i !== currentIdx);
+  }).join('');
+
   card.innerHTML = `
     <div class="pc-head">
-      <span class="pc-eyebrow">${escapeHtml(eyebrow)}</span>
+      <span class="pc-eyebrow">TODAY</span>
       ${letter}
     </div>
-    ${periodBody(shown)}
-    <div class="pc-timing mono">${escapeHtml(timing)}</div>
-    <div class="pc-nav">
-      <button class="icon-btn" data-pc="prev" ${idx <= 0 ? 'disabled' : ''}>‹</button>
-      <span class="pc-dots">${periods.map((p, i) =>
-        `<span class="pc-dot${i === idx ? ' on' : ''}">${escapeHtml(p.label || '')}</span>`).join('')}</span>
-      <button class="icon-btn" data-pc="next" ${idx >= periods.length - 1 ? 'disabled' : ''}>›</button>
-      ${VIEW_INDEX != null ? '<button class="btn btn-outline pc-now" data-pc="now">Back to now</button>' : ''}
-    </div>
+    <div class="pc-scroll" id="pc-scroll">${rows}</div>
     ${stale}
     ${updatedNotice(SCHED._cachedAt)}
   `;
 
-  card.querySelectorAll('[data-pc]').forEach((b) => {
+  const scroll = card.querySelector('#pc-scroll');
+  bindScrollAway(scroll);
+
+  card.querySelectorAll('[data-expand]').forEach((b) => {
     b.onclick = () => {
-      const act = b.dataset.pc;
-      if (act === 'now') { VIEW_INDEX = null; }
-      else {
-        VIEW_INDEX = Math.max(0, Math.min(periods.length - 1,
-          idx + (act === 'next' ? 1 : -1)));
-        VIEW_AT = Date.now();
-      }
+      markBrowsing();
+      EXPANDED_INDEX = +b.dataset.expand;
       renderPeriodCard();
     };
   });
+  card.querySelectorAll('[data-collapse]').forEach((b) => {
+    b.onclick = () => {
+      markBrowsing();
+      EXPANDED_INDEX = null;
+      renderPeriodCard();
+    };
+  });
+  bindTodayActions(card);
   bindSubmittedToggle(card);
+
+  // Not currently browsing: the list follows the clock, so scroll the active
+  // row into view. Instant on a fresh render (a smooth scroll on every 20s
+  // tick would be a constant slow drift), smooth on the snap-back from an
+  // idle browse so the return itself is legible.
+  if (Date.now() >= BROWSE_UNTIL) {
+    const activeEl = scroll && scroll.querySelector('.pc-row-expanded');
+    if (activeEl) {
+      PC_PROGRAMMATIC_SCROLL_UNTIL = Date.now() + 700;
+      activeEl.scrollIntoView({ block: 'nearest' });
+    }
+  }
 }
 
 // After the last bell the card stops being about periods and becomes a
@@ -1597,9 +1817,12 @@ function renderAfterSchool(card) {
   const due = dueVisible.length
     ? `<ul class="pc-work">${dueVisible.map((d) => `
         <li${d.submitted ? ' class="done"' : ''}>
-          <span class="pc-work-title">${escapeHtml(d.title)}${repeatSuffix(d)}${
-            d.course_name ? ` <span class="pc-loc">${escapeHtml(d.course_name)}</span>` : ''}</span>
-          <span class="pc-work-due mono">${escapeHtml(dueLabelFor(d, a))}</span>
+          <div class="pc-work-main">
+            <span class="pc-work-title">${workTitleHtml(d)}${
+              d.course_name ? ` <span class="pc-loc">${escapeHtml(d.course_name)}</span>` : ''}</span>
+            <span class="pc-work-due mono">${escapeHtml(dueLabelFor(d, a))}</span>
+          </div>
+          ${workActionsHtml(d)}
         </li>`).join('')}</ul>${dueToggle}`
     : `<div class="pc-empty">${
         (dueHiddenCount && !SHOW_SUBMITTED) ? 'All turned in.' : 'Nothing due tonight or tomorrow.'
@@ -1660,9 +1883,10 @@ function renderAfterSchool(card) {
   `;
 
   card.querySelector('[data-pc="back"]').onclick = () => {
-    VIEW_INDEX = 0; VIEW_AT = Date.now(); renderPeriodCard();
+    FORCE_PERIODS = true; EXPANDED_INDEX = null; markBrowsing(); renderPeriodCard();
   };
   card.querySelector('[data-pc="reload"]').onclick = () => loadAfterSchool();
+  bindTodayActions(card);
   bindSubmittedToggle(card);
 }
 
@@ -1718,6 +1942,164 @@ function startPeriodCard() {
 // reads it inside its temporal dead zone and throws at load, which aborts the
 // whole script and renders a blank dashboard. Registration order does not
 // matter; position relative to that declaration does.
+
+// ── Work: the left panel ──────────────────────────────────────────────────
+//
+// What Keller has committed to — accepted Canvas items plus his own typed
+// tasks — as opposed to the period card, which only ever PROPOSES. See
+// memory/work.py and dashboard/server.py's "Work: the left panel" section.
+//
+// BUCKETING HAPPENS HERE, NOT ON THE SERVER — same "browser owns the clock"
+// split the period card's relative due labels already use. /api/work-items
+// returns a flat, due-date-ordered list; which of Now/Upcoming/Sometime an
+// item falls into is a function of the wall clock at render time, and a
+// bucket computed server-side would be stale by the time a slow connection
+// actually delivers it.
+
+let WORK = null;           // last /api/work-items payload (flat list)
+let WORK_PENDING = false;
+
+async function loadWorkPanel() {
+  if (WORK_PENDING) return;
+  WORK_PENDING = true;
+  try {
+    const r = await api.get('/api/work-items', { timeoutMs: 5000 });
+    WORK = r.items || [];
+  } catch { /* keep the last payload rather than blanking the panel */ }
+  finally { WORK_PENDING = false; }
+  renderWorkPanel();
+}
+
+function startWorkPanel() {
+  bindWorkComposer();
+  loadWorkPanel();
+  if (WORK_TIMER) clearInterval(WORK_TIMER);
+  // A minute: due-bucket boundaries (the 48h Now/Upcoming line, "overdue")
+  // move with the clock even when nothing on the server changed, and a
+  // minute is well under the smallest unit "in 2 days" rounds to.
+  WORK_TIMER = setInterval(renderWorkPanel, 60000);
+}
+
+// Overdue is Now, not its own bucket — spec: "Overdue items pinned at the
+// top, marked overdue," inside Now, not a fourth section.
+function workBucket(item) {
+  if (!item.due_at) return 'sometime';
+  const due = Date.parse(item.due_at);
+  if (Number.isNaN(due)) return 'sometime';
+  return (due - Date.now()) / 3600000 < 48 ? 'now' : 'upcoming';
+}
+
+function wkDueLabel(w) {
+  if (!w.due_at) return 'no due date';
+  const day = String(w.due_at).slice(0, 10);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const d = Math.round((Date.parse(`${day}T00:00:00`) - today.getTime()) / 86400000);
+  let rel = day;
+  if (d === 0) rel = 'today';
+  else if (d === 1) rel = 'tomorrow';
+  else if (d === -1) rel = 'yesterday';
+  else if (d > 1 && d < 7) rel = `in ${d} days`;
+  else if (d < -1 && d > -7) rel = `${-d} days ago`;
+  if (w.has_due_time) {
+    try {
+      return `${rel} ${new Date(w.due_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+    } catch { /* fall through to the bare day */ }
+  }
+  return rel;
+}
+
+function workRowHtml(w) {
+  const overdue = w.due_at && Date.parse(w.due_at) < Date.now();
+  const link = w.source_url
+    ? `<a class="pc-work-link" href="${escapeAttr(w.source_url)}" target="_blank" rel="noopener">${escapeHtml(w.title)}</a>`
+    : escapeHtml(w.title);
+  const estLabel = w.estimated_minutes ? spanLabel(w.estimated_minutes) : 'estimate';
+  return `
+    <li class="wk-row${overdue ? ' overdue' : ''}">
+      <button type="button" class="wk-check" data-complete="${w.id}" title="Mark done" aria-label="Mark done"></button>
+      <div class="wk-body">
+        <div class="wk-title">${link}</div>
+        <div class="wk-meta mono">${overdue ? 'OVERDUE — ' : ''}${escapeHtml(wkDueLabel(w))}</div>
+      </div>
+      <button type="button" class="wk-est" data-estimate="${w.id}">${escapeHtml(estLabel)}</button>
+    </li>`;
+}
+
+function workSectionHtml(label, items) {
+  if (!items.length) return '';
+  return `
+    <div class="wk-section">
+      <div class="wk-section-h">${escapeHtml(label)} <span class="wk-count mono">${items.length}</span></div>
+      <ul class="wk-list">${items.map(workRowHtml).join('')}</ul>
+    </div>`;
+}
+
+function renderWorkPanel() {
+  const host = document.getElementById('todo-list');
+  if (!host) return;
+  if (!WORK) { host.innerHTML = '<div class="hint">Loading…</div>'; return; }
+
+  const open = WORK.filter((w) => w.status !== 'done');
+  const buckets = { now: [], upcoming: [], sometime: [] };
+  open.forEach((w) => buckets[workBucket(w)].push(w));
+  // Overdue-first within Now: due_at ascending puts the most-overdue item
+  // (furthest in the past) at the top, which is the pin the spec asks for.
+  buckets.now.sort((a, b) => Date.parse(a.due_at) - Date.parse(b.due_at));
+  buckets.upcoming.sort((a, b) => Date.parse(a.due_at) - Date.parse(b.due_at));
+
+  const html = [
+    workSectionHtml('Now', buckets.now),
+    workSectionHtml('Upcoming', buckets.upcoming),
+    workSectionHtml('Sometime', buckets.sometime),
+  ].join('');
+
+  // #todo-list:empty renders "Nothing tracked yet" from pure CSS — leaving
+  // host truly empty when there is nothing open is what makes that fire,
+  // rather than duplicating the message here.
+  host.innerHTML = html;
+  bindWorkPanelActions(host);
+}
+
+function bindWorkPanelActions(host) {
+  host.querySelectorAll('[data-complete]').forEach((b) => {
+    b.onclick = async () => {
+      b.disabled = true;
+      try { await api.post(`/api/work-items/${b.dataset.complete}/complete`); }
+      catch { flash('FAILED', true); b.disabled = false; }
+    };
+  });
+  host.querySelectorAll('[data-estimate]').forEach((b) => {
+    b.onclick = () => {
+      openEffortPicker(b, async (minutes) => {
+        try { await api.post(`/api/work-items/${b.dataset.estimate}/estimate`, { minutes }); }
+        catch { flash('FAILED', true); }
+      });
+    };
+  });
+}
+
+// The add-task composer lives in index.html, outside #todo-list, so redrawing
+// the list on every poll never re-creates (and re-focuses-away-from) it.
+// Bound once per page-today mount; `_bound` guards a second startWorkPanel()
+// call from double-registering a listener on the same cloned element.
+function bindWorkComposer() {
+  const form = document.getElementById('work-add-form');
+  if (!form || form._bound) return;
+  form._bound = true;
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const titleEl = document.getElementById('work-add-title');
+    const dateEl = document.getElementById('work-add-date');
+    const title = titleEl.value.trim();
+    if (!title) return;
+    try {
+      await api.post('/api/work-items',
+        { title, due_date: dateEl.value || undefined });
+      titleEl.value = '';
+      dateEl.value = '';
+    } catch { flash('ADD FAILED', true); }
+  });
+}
 
 // ── Schedule ───────────────────────────────────────────────────────────
 //
@@ -2541,6 +2923,17 @@ onStream('notify', (ev) => raiseNotification(ev.title, ev.text));
 // both payloads, since the after-school due list comes from the same cache.
 onStream('canvas', () => {
   if (CURRENT_ROUTE !== 'today') return;
+  loadSchedule();
+  if (AFTER) loadAfterSchool();
+});
+
+// A work item was accepted, dismissed, completed, or its estimate changed —
+// from THIS tab, another tab, or a chat turn's add_task tool call. One
+// event, three reads: the Work panel itself, and the Today payloads whose
+// Accept/Dismiss buttons and 'Accepted' badges depend on the same rows.
+onStream('work', () => {
+  if (CURRENT_ROUTE !== 'today') return;
+  loadWorkPanel();
   loadSchedule();
   if (AFTER) loadAfterSchool();
 });

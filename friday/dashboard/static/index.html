@@ -92,12 +92,21 @@
          strip anchors to. -->
     <div class="hud-stage">
       <div class="home-grid">
-        <!-- Left flank. Nothing populates the list yet — deliberately blank,
-             same footprint as the card on the other side so the visor stays
-             symmetric about the hub. -->
+        <!-- Left flank: Work. What Keller has committed to — accepted Canvas
+             items plus his own typed tasks — bucketed by due date into
+             Now / Upcoming / Sometime by app.js::renderWorkPanel. The
+             composer is a sibling of #todo-list, not a child of it, so
+             redrawing the list on every poll or stream event never
+             re-creates (and steals focus from) the input the user is
+             mid-sentence in. -->
         <div class="home-todo hud-flank">
           <section class="panel">
             <h2>TO-DO LIST</h2>
+            <form class="wk-add" id="work-add-form" autocomplete="off">
+              <input type="text" class="input" id="work-add-title" placeholder="Add a task" autocomplete="off">
+              <input type="date" class="input wk-add-date" id="work-add-date">
+              <button class="btn btn-outline btn-sm" type="submit">ADD</button>
+            </form>
             <div id="todo-list"></div>
           </section>
         </div>
