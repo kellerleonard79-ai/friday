@@ -11,7 +11,7 @@
 # unconfigured connector is skipped, not an error.
 
 agent:
-  name: Friday
+  name: JARVIS
   morning_briefing_time: '07:00'
   briefing_time: '21:45'            # evening briefing
   timezone: America/Chicago         # IANA name; drives both briefing schedules
@@ -242,9 +242,9 @@ voice:
   silence_ms: 1500
   max_recording_ms: 30000
   wake_phrases:
-    - Hey Friday
-    - Friday you up
-    - Friday
+    - Hey Jarvis
+    - Jarvis you up
+    - Jarvis
 
 gmail:
   # Deprioritized — no accessible API path for locked-down school accounts.

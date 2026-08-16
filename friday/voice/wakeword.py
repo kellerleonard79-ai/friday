@@ -69,7 +69,7 @@ class WakeDetector:
 
     Args:
         phrases: ordered list of wake phrases as they appear in friday_config.yaml
-            (e.g. ["Hey Friday", "Friday you up", "Friday status", "Friday"]).
+            (e.g. ["Hey Jarvis", "Jarvis you up", "Jarvis status", "Jarvis"]).
         solo_trigger_enabled: if False, single-token phrases (one word) are dropped
             from the active set. Matches the spec's `voice.solo_trigger_enabled` gate.
         threshold: score above which a phrase is considered fired. Per-phrase override
@@ -172,7 +172,7 @@ class WakeDetector:
 if __name__ == "__main__":
     # Smoke check — load detector with the default config and feed silence.
     logging.basicConfig(level=logging.INFO)
-    det = WakeDetector(phrases=["Hey Friday", "Friday you up", "Friday status", "Friday"])
+    det = WakeDetector(phrases=["Hey Jarvis", "Jarvis you up", "Jarvis status", "Jarvis"])
     silence = np.zeros(FRAME_SAMPLES, dtype=np.int16)
     hit = det.feed(silence)
     print("silence hit:", hit)

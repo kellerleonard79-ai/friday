@@ -172,9 +172,9 @@ def _clean(text: str) -> str:
     if len(t) > MAX_PHRASE_LEN:
         raise ValueError(f"Phrase is too long ({len(t)} chars, max {MAX_PHRASE_LEN}).")
     if _EMOJI_RE.search(t):
-        raise ValueError("Phrase contains emoji, which Friday never uses.")
+        raise ValueError("Phrase contains emoji, which JARVIS never uses.")
     if _MARKDOWN_RE.search(t):
-        raise ValueError("Phrase contains markdown, which Friday never uses.")
+        raise ValueError("Phrase contains markdown, which JARVIS never uses.")
     return t
 
 
@@ -373,8 +373,8 @@ def _v_text(limit: int):
 
 _SETTINGS: dict[str, tuple] = {
     # key: (validator, human description)
-    "persona.snark_level":        (_v_choice(_SNARK),   "how sarcastic Friday is"),
-    "persona.preset":             (_v_choice(_PRESETS), "Friday's overall mode"),
+    "persona.snark_level":        (_v_choice(_SNARK),   "how sarcastic JARVIS is"),
+    "persona.preset":             (_v_choice(_PRESETS), "JARVIS's overall mode"),
     "persona.custom_instructions": (_v_text(MAX_CUSTOM_INSTRUCTIONS),
                                     "free-form standing instructions"),
     "agent.default_calendar":     (_v_text(120), "calendar new events go to"),
@@ -445,7 +445,7 @@ def update_setting(key: str, value: str, live_config: dict | None = None) -> dic
     if entry is None:
         return {"ok": False, "status": "not_settable", "key": key,
                 "settable_keys": list(SETTABLE_KEYS),
-                "error": f"'{key}' is not a setting Friday may change. "
+                "error": f"'{key}' is not a setting JARVIS may change. "
                          f"Everything else is edited in the dashboard."}
     validator, description = entry
     try:

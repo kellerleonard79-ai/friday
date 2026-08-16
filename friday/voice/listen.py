@@ -276,18 +276,18 @@ def _transcribe_wav_bytes(model, wav_bytes: bytes) -> str:
 # briefing while voice denied it.
 _FAILURE_CUES = {
     Outcome.TIMEOUT: (
-        "Friday is taking a while, sir. The reply will be in the dashboard."
+        "JARVIS is taking a while, sir. The reply will be in the dashboard."
     ),
     Outcome.DISCONNECTED: (
         "I lost my connection mid-request, sir. Check the dashboard."
     ),
-    Outcome.SEND_FAILED: "I couldn't reach Friday, sir.",
-    Outcome.NOT_CONNECTED: "I couldn't reach Friday, sir.",
+    Outcome.SEND_FAILED: "I couldn't reach JARVIS, sir.",
+    Outcome.NOT_CONNECTED: "I couldn't reach JARVIS, sir.",
     Outcome.EMPTY_TEXT: "I didn't catch that, sir.",
     Outcome.INTERNAL_ERROR: "Something went wrong on my end, sir.",
 }
 
-_FALLBACK_CUE = "I couldn't reach Friday, sir."
+_FALLBACK_CUE = "I couldn't reach JARVIS, sir."
 
 
 def _failure_cue(result: BridgeResult) -> str:
@@ -298,7 +298,7 @@ def _failure_cue(result: BridgeResult) -> str:
         return cue
     # OK-but-empty lands here: Friday answered with a blank message.
     if result.reached_friday:
-        return "Friday answered, but said nothing, sir."
+        return "JARVIS answered, but said nothing, sir."
     return _FALLBACK_CUE
 
 
@@ -407,7 +407,7 @@ class VoiceListener:
         if not voice_config.dashboard_auth_token_present(self.cfg):
             print(
                 "\n!!! Voice cannot start: dashboard.auth_token missing.\n"
-                "    Friday generates this on first boot and writes it back to\n"
+                "    JARVIS generates this on first boot and writes it back to\n"
                 "    friday_config.yaml. Start the daemon at least once, then\n"
                 "    restart the voice agent. See voice/dashboard_bridge.py.\n",
                 file=sys.stderr,
@@ -689,7 +689,7 @@ class VoiceListener:
             if not friday_is_running():
                 _LOGGER.info("Friday offline — speaking offline message")
                 tts.speak(
-                    "F.R.I.D.A.Y. is currently offline, sir.",
+                    "J.A.R.V.I.S. is currently offline, sir.",
                     voice=cfg.tts_voice,
                 ).join()
                 return

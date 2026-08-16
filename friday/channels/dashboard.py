@@ -133,7 +133,7 @@ class DashboardChannel(Channel):
             return False
         try:
             script = (f"display notification {_applescript_string(text)} "
-                      f"with title {_applescript_string(title or 'Friday')}")
+                      f"with title {_applescript_string(title or 'JARVIS')}")
             subprocess.run([osascript, "-e", script], timeout=10,
                            capture_output=True, check=True)
             return True

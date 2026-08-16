@@ -230,7 +230,7 @@ def main() -> None:
         try:
             await app.bot.send_message(
                 chat_id=chat_id,
-                text=f"Friday online — {config.get('provider', 'ollama')} / {llm_profiles.get('CHAT').model}",
+                text=f"JARVIS online — {config.get('provider', 'ollama')} / {llm_profiles.get('CHAT').model}",
             )
         except Exception as e:
             logger.error(f"Startup message failed (check telegram.chat_id): {e}")
@@ -258,7 +258,7 @@ def main() -> None:
             except (asyncio.TimeoutError, Exception):
                 pass
         try:
-            await app.bot.send_message(chat_id=chat_id, text="Friday going offline.")
+            await app.bot.send_message(chat_id=chat_id, text="JARVIS going offline.")
         except Exception:
             pass
         conn.close()

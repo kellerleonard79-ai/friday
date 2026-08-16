@@ -106,7 +106,7 @@ _DEFAULTS: Dict[str, Any] = {
     # from being silent, so the ceiling can be high without feeling broken.
     "response_timeout_s": 120,
     "slow_reply_cue_s": 20,
-    "wake_phrases": ["Hey Friday", "Friday you up", "Friday status", "Friday"],
+    "wake_phrases": ["Hey Jarvis", "Jarvis you up", "Jarvis status", "Jarvis"],
     "acknowledgment_phrases": [
         "At your service, sir.",
         "For you sir, always.",

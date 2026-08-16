@@ -150,13 +150,13 @@ class FridayTray:
 
     def _status_text(self, _item=None) -> str:
         if not self._status:
-            return "Friday — starting…"
+            return "JARVIS — starting…"
         if self._status.get("paused"):
-            return "Friday — paused"
-        return f"Friday — online ({self._status.get('model') or '?'})"
+            return "JARVIS — paused"
+        return f"JARVIS — online ({self._status.get('model') or '?'})"
 
     def _pause_text(self, _item=None) -> str:
-        return "Resume Friday" if self._status.get("paused") else "Pause Friday"
+        return "Resume JARVIS" if self._status.get("paused") else "Pause JARVIS"
 
     def _on_brief(self, icon, item) -> None:
         try:
@@ -235,12 +235,12 @@ class FridayTray:
             pystray.MenuItem(self._pause_text, self._on_pause),
             pystray.MenuItem("Open Dashboard", self._on_dashboard),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Restart Friday", self._on_restart),
+            pystray.MenuItem("Restart JARVIS", self._on_restart),
             pystray.MenuItem("Run Setup Wizard", self._on_wizard),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Quit Friday", self._on_quit),
+            pystray.MenuItem("Quit JARVIS", self._on_quit),
         )
-        self._icon = pystray.Icon("Friday", _make_icon_image(), "Friday", menu)
+        self._icon = pystray.Icon("JARVIS", _make_icon_image(), "JARVIS", menu)
         self._icon.run()
 
 

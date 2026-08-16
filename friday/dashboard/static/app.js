@@ -983,7 +983,7 @@ async function renderLearnedPhrases() {
   if (!rows.length) {
     const empty = document.createElement('div');
     empty.className = 'phrase-row';
-    empty.innerHTML = '<div class="phrase-text">Nothing learned yet. Tell Friday to add a quip over Telegram, or use the box above.</div>';
+    empty.innerHTML = '<div class="phrase-text">Nothing learned yet. Tell JARVIS to add a quip over Telegram, or use the box above.</div>';
     container.appendChild(empty);
   }
 
@@ -2146,7 +2146,7 @@ async function renderSchedule() {
     hint.innerHTML = COURSE_CACHE.length
       ? `${COURSE_CACHE.length} course${COURSE_CACHE.length === 1 ? '' : 's'} from Canvas${
           r.cache && r.cache.refreshed_at ? `, as of ${escapeHtml(fmtRelative(r.cache.refreshed_at))}` : ''}`
-      : 'No courses cached yet — Friday refreshes Canvas every 15 minutes.';
+      : 'No courses cached yet — JARVIS refreshes Canvas every 15 minutes.';
     // The REST layer is what supplies course codes, due times and submission
     // status. Say so plainly rather than silently rendering a thinner card.
     if (r.cache && !r.cache.rest_ok) {
@@ -2348,7 +2348,7 @@ function unresolvedReason(s) {
   }
   const anchor = String(raw).slice(0, 10);
   if (isNaN(new Date(`${anchor}T00:00:00`))) {
-    return `<span class="warn">${escapeHtml(String(raw))} is not a date Friday `
+    return `<span class="warn">${escapeHtml(String(raw))} is not a date JARVIS `
       + 'can read, so the rotation is unresolved.</span>';
   }
   if (anchor > s.today) {
@@ -2727,7 +2727,7 @@ async function loadPowerStatus() {
     sudoHint.classList.toggle('hidden', !broken.length);
     if (broken.length) {
       sudoHint.innerHTML = `<span class="warn">Root is granting only part of this: `
-        + `Friday cannot ${broken.join(' or ')}. `
+        + `JARVIS cannot ${broken.join(' or ')}. `
         + (caps.wake && caps.hold === false
             ? 'Scheduled wakes are working — it is the hold that is missing. '
             : '')
@@ -2906,7 +2906,7 @@ function notifyPermissionMaybe() {
 function raiseNotification(title, body) {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   try {
-    const n = new Notification(title || 'Friday', {
+    const n = new Notification(title || 'JARVIS', {
       body: body || '',
       icon: '/static/icon-192.png',
       // Collapses repeats rather than stacking. An interrupt the user has not
@@ -3259,7 +3259,7 @@ async function chatSend(text) {
     // A transport failure, not a model failure — the model's own errors come
     // back as ordinary messages with an error_kind. Worth telling apart.
     chatAppend(chatLine('assistant',
-                        `Couldn't reach Friday: ${e.detail || e.message}`,
+                        `Couldn't reach JARVIS: ${e.detail || e.message}`,
                         'dashboard', new Date().toISOString()));
   } finally {
     input.disabled = false; send.disabled = false; input.focus();

@@ -1,7 +1,7 @@
 {
-  "name": "F.R.I.D.A.Y.",
-  "short_name": "Friday",
-  "description": "Friday's control console — chat, approvals, and status.",
+  "name": "J.A.R.V.I.S.",
+  "short_name": "JARVIS",
+  "description": "JARVIS's control console — chat, approvals, and status.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

@@ -311,7 +311,7 @@ def _macos_foreground(win: tk.Tk) -> None:
 class Wizard(tk.Tk):
     def __init__(self, first_run: bool = True):
         super().__init__()
-        self.title("Friday Setup")
+        self.title("JARVIS Setup")
         # Tall enough for the longest walkthrough (Telegram, 7 steps) without
         # scrolling. Height is resizable so a short display can still reach the
         # nav buttons; width is fixed because every wraplength is tuned to it.
@@ -576,8 +576,8 @@ class Wizard(tk.Tk):
     def _step_welcome(self):
         cal = "Apple Calendar" if self.backend == "apple" else "Google Calendar"
         self._heading(
-            "Welcome to Friday",
-            f"Friday is a personal AI secretary. She watches your Canvas "
+            "Welcome to JARVIS",
+            f"JARVIS is a personal AI secretary. She watches your Canvas "
             f"assignments, GroupMe chats, weather, and {cal} — and talks to "
             f"you through Telegram with morning/evening briefings and urgent "
             f"alerts.",
@@ -605,7 +605,7 @@ class Wizard(tk.Tk):
             "Optional: your Canvas calendar link and a free weather key. Both "
             "steps can be skipped and added later from the dashboard.")
 
-        ttk.Label(self.body, text="What Friday needs:",
+        ttk.Label(self.body, text="What JARVIS needs:",
                   font=("", 11, "bold")).pack(anchor="w", pady=(0, 4))
         for item in needed:
             row = ttk.Frame(self.body)
@@ -621,7 +621,7 @@ class Wizard(tk.Tk):
     def _step_telegram(self):
         self._heading(
             "Step 1 — Telegram bot",
-            "Friday talks to you through a private Telegram bot that you own.",
+            "JARVIS talks to you through a private Telegram bot that you own.",
         )
         self._walkthrough([
             "Install Telegram on your phone or Mac and create an account if "
@@ -629,11 +629,11 @@ class Wizard(tk.Tk):
             "Click the button below. It opens a chat with @BotFather — "
             "Telegram's official bot for making other bots.",
             "Press START, then send the message:   /newbot",
-            "BotFather asks for a display name. Type anything — \"Friday\" "
+            "BotFather asks for a display name. Type anything — \"JARVIS\" "
             "works.",
             "It then asks for a username, which must be unique across all of "
             "Telegram and must end in \"bot\". Try something like "
-            "friday_yourname_bot. If it says the name is taken, just try "
+            "jarvis_yourname_bot. If it says the name is taken, just try "
             "another.",
             "BotFather replies with a long token that looks like "
             "123456789:AAExample-Token-Characters. Copy the whole thing and "
@@ -774,7 +774,7 @@ class Wizard(tk.Tk):
     def _step_gemini(self):
         self._heading(
             "Step 2 — Gemini API key",
-            "Friday's brain. The free tier is plenty for personal use — "
+            "JARVIS's brain. The free tier is plenty for personal use — "
             "no credit card needed.",
         )
         self._walkthrough([
@@ -805,7 +805,7 @@ class Wizard(tk.Tk):
         _combobox(model_row, textvariable=self.gemini_model,
                   values=list(_GEMINI_MODELS), state="readonly",
                   width=30).pack(side="left")
-        self._note(f"{_GEMINI_DEFAULT_MODEL} is the default and what Friday is "
+        self._note(f"{_GEMINI_DEFAULT_MODEL} is the default and what JARVIS is "
                    "tuned against. Leave it alone unless you know you want "
                    "something else.", color=_PALETTE["muted"])
 
@@ -815,7 +815,7 @@ class Wizard(tk.Tk):
             key = self.gemini_key.get().strip()
             if not key:
                 messagebox.showwarning("Gemini required",
-                                       "Friday needs a Gemini API key to think.")
+                                       "JARVIS needs a Gemini API key to think.")
                 return False
             try:
                 r = requests.get(
@@ -906,7 +906,7 @@ class Wizard(tk.Tk):
             if self.default_cal.get() not in targets:
                 combo.set(targets[0])
             ttk.Label(frame,
-                      text=f"Calendars Friday includes in briefings "
+                      text=f"Calendars JARVIS includes in briefings "
                            f"({_MULTISELECT_KEY} for several):"
                       ).pack(anchor="w", pady=(10, 2))
             # tk.Listbox is a classic widget, not ttk — it does not follow the
@@ -937,17 +937,17 @@ class Wizard(tk.Tk):
     def _step_calendar_apple(self):
         self._heading(
             "Step 3 — Apple Calendar",
-            "Apple Calendar is where Friday keeps your events. She reads your "
+            "Apple Calendar is where JARVIS keeps your events. She reads your "
             "schedule from it and adds events you ask for. Nothing to sign up "
             "for — it is already on this Mac.",
         )
         self._walkthrough([
             "Click \"Find my calendars\" below.",
             "macOS will ask whether Friday may control Calendar. Click OK — "
-            "this is the Automation permission, and Friday cannot read or "
+            "this is the Automation permission, and JARVIS cannot read or "
             "write a single event without it.",
             "Pick which calendar new events should go to, and which ones "
-            "Friday should read when she briefs you.",
+            "JARVIS should read when she briefs you.",
         ])
         # Button and status first: the picker frame expands to fill whatever is
         # left, so anything packed after it gets shoved to the window's bottom
@@ -1003,7 +1003,7 @@ class Wizard(tk.Tk):
             if not self.available_calendars:
                 return messagebox.askyesno(
                     "Skip calendar?",
-                    "Without calendar access Friday can't manage your "
+                    "Without calendar access JARVIS can't manage your "
                     "schedule — briefings will be weather and Canvas only.\n\n"
                     "You can grant it later in System Settings and re-run this "
                     "wizard. Skip for now?")
@@ -1013,7 +1013,7 @@ class Wizard(tk.Tk):
     def _step_calendar_google(self):
         self._heading(
             "Step 3 — Connect Google Calendar",
-            "Google Calendar is where Friday keeps your events. She reads "
+            "Google Calendar is where JARVIS keeps your events. She reads "
             "your schedule from it and adds events you ask for.",
         )
         self._walkthrough([
@@ -1031,7 +1031,7 @@ class Wizard(tk.Tk):
         if not secret.exists():
             ttk.Label(self.body, wraplength=560, foreground=_PALETTE["warn"], text=(
                 "This installer is missing its Google credentials file "
-                "(google_client_secret.json). Ask whoever sent you Friday for "
+                "(google_client_secret.json). Ask whoever sent you JARVIS for "
                 "it, then select it below.")).pack(anchor="w", pady=4)
 
             def pick():
@@ -1105,7 +1105,7 @@ class Wizard(tk.Tk):
             if not paths.google_token_path().exists():
                 return messagebox.askyesno(
                     "Skip calendar?",
-                    "Without Google Calendar, Friday can't manage your "
+                    "Without Google Calendar, JARVIS can't manage your "
                     "schedule — briefings will be weather and Canvas only. "
                     "Skip anyway?")
             return True
@@ -1114,7 +1114,7 @@ class Wizard(tk.Tk):
     def _step_canvas(self):
         self._heading(
             "Step 4 — Canvas (optional)",
-            "If your school uses Canvas, Friday can track assignment due "
+            "If your school uses Canvas, JARVIS can track assignment due "
             "dates and put them on your calendar automatically.",
         )
         self._walkthrough([
@@ -1140,14 +1140,14 @@ class Wizard(tk.Tk):
             "Settings.",
             "Scroll down to \"Approved Integrations\" and click "
             "\"+ New Access Token\".",
-            "Put \"Friday\" as the purpose and leave the expiry blank so it "
+            "Put \"JARVIS\" as the purpose and leave the expiry blank so it "
             "never stops working. Click Generate Token.",
             "Copy the token it shows you — Canvas shows it exactly once — and "
             "paste it below.",
         ])
         self.canvas_token = self._entry_row("Access token", "canvas_token",
                                             show="•")
-        self._note("Optional. Without it the feed still works; with it, Friday "
+        self._note("Optional. Without it the feed still works; with it, JARVIS "
                    "can tell \"Canvas rejected me\" apart from \"nothing is "
                    "due\" instead of quietly reporting an empty week. This "
                    "token can read your whole Canvas account, so treat it like "
@@ -1194,7 +1194,7 @@ class Wizard(tk.Tk):
             if token and not url:
                 messagebox.showwarning(
                     "Feed URL missing",
-                    "The access token on its own doesn't tell Friday which "
+                    "The access token on its own doesn't tell JARVIS which "
                     "assignments are yours — paste the calendar feed URL too, "
                     "or clear the token.")
                 return False
@@ -1209,7 +1209,7 @@ class Wizard(tk.Tk):
     def _step_weather(self):
         self._heading(
             "Step 5 — Weather (optional)",
-            "Friday includes a weather note in briefings. Uses a free "
+            "JARVIS includes a weather note in briefings. Uses a free "
             "OpenWeatherMap key. Leave blank to skip.",
         )
         self._walkthrough([
@@ -1230,7 +1230,7 @@ class Wizard(tk.Tk):
     def _step_schedule(self):
         self._heading(
             "Step 6 — Your schedule",
-            "When should Friday brief you, and what timezone are you in?",
+            "When should JARVIS brief you, and what timezone are you in?",
         )
         tz_guess = self._values.get("tz") or _guess_timezone()
         row = ttk.Frame(self.body)
@@ -1262,7 +1262,7 @@ class Wizard(tk.Tk):
     def _step_finish(self):
         self._heading(
             "All set!",
-            f"Click Finish to save. Friday will start in your {_APP_SURFACE} "
+            f"Click Finish to save. JARVIS will start in your {_APP_SURFACE} "
             "and send you a hello on Telegram.",
         )
         ttk.Label(self.body, wraplength=560, text=(
@@ -1288,7 +1288,7 @@ class Wizard(tk.Tk):
         briefing_cals = v.get("briefing_cals") or list(self.available_calendars)
 
         agent = cfg.setdefault("agent", {})
-        agent.setdefault("name", "Friday")
+        agent.setdefault("name", "JARVIS")
         agent["timezone"] = v.get("tz", "").strip() or "America/Chicago"
         agent["morning_briefing_time"] = v.get("morning", "").strip()
         agent["briefing_time"] = v.get("evening", "").strip()

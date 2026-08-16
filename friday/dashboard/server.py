@@ -364,7 +364,7 @@ def _build_activity_feed(conn: sqlite3.Connection, limit: int = 100) -> list[dic
             "SELECT role, content, created_at FROM conversation_history "
             "WHERE created_at >= ? ORDER BY created_at", (since,)
         ).fetchall():
-            who = "You" if role == "user" else "Friday"
+            who = "You" if role == "user" else "JARVIS"
             preview = " ".join((content or "").split())[:90]
             _add(ts, "MSG", f"{who}: {preview}", content)
     except Exception as e:
@@ -1112,7 +1112,7 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
         try:
             r = requests.post(
                 f"https://api.telegram.org/bot{token}/sendMessage",
-                json={"chat_id": chat_id, "text": "Friday dashboard test"},
+                json={"chat_id": chat_id, "text": "JARVIS dashboard test"},
                 timeout=10,
             )
             r.raise_for_status()

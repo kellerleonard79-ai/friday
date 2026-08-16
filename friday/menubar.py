@@ -125,7 +125,7 @@ class FridayMenuBar(rumps.App):
         self._icons = icons
         self._user_icon_mtime = self._current_user_mtime()
         # title="" so only the icon shows. icon set below per state.
-        super().__init__("Friday", title="", icon=icons["offline"],
+        super().__init__("JARVIS", title="", icon=icons["offline"],
                          quit_button=None, template=False)
         # Replace the Python "rocket" Dock icon with the user PNG (uncropped).
         self._apply_dock_icon()
@@ -138,7 +138,7 @@ class FridayMenuBar(rumps.App):
         self._status_row.set_callback(None)
 
         self._brief      = rumps.MenuItem("Brief Me Now", callback=self.brief_me)
-        self._pause      = rumps.MenuItem("Pause Friday", callback=self.toggle_pause)
+        self._pause      = rumps.MenuItem("Pause JARVIS", callback=self.toggle_pause)
 
         # Pause for... submenu
         self._pause_for  = rumps.MenuItem("Pause For…")
@@ -163,7 +163,7 @@ class FridayMenuBar(rumps.App):
         self._wake_enabled: bool | None = None
 
         self._setup      = rumps.MenuItem("Run Setup Wizard", callback=self.run_setup)
-        self._quit       = rumps.MenuItem("Quit Friday", callback=self.quit_friday)
+        self._quit       = rumps.MenuItem("Quit JARVIS", callback=self.quit_friday)
 
         self.menu = [
             self._status_row,
@@ -249,7 +249,7 @@ class FridayMenuBar(rumps.App):
         # to be raised from the main thread, which this is.
         err, self._brief_error = self._brief_error, None
         if err:
-            rumps.alert("Friday", err)
+            rumps.alert("JARVIS", err)
 
         self._maybe_refresh_icons()
         snap = _status_snapshot()
@@ -271,8 +271,8 @@ class FridayMenuBar(rumps.App):
         # overlay — listening is transient, pause is a deliberate setting.
         if st != self._last_state:
             self._last_state = st
-            self._pause.title = "Resume Friday" if st == "paused" else "Pause Friday"
-            self._pause_for.title = "Resume Friday" if st == "paused" else "Pause For…"
+            self._pause.title = "Resume JARVIS" if st == "paused" else "Pause JARVIS"
+            self._pause_for.title = "Resume JARVIS" if st == "paused" else "Pause For…"
         self._apply_icon()
 
         # Voice submenu header. Cheap call; folds into the 10 s tick.
@@ -358,9 +358,9 @@ class FridayMenuBar(rumps.App):
         try:
             r = _S.post(_PAUSE, json=body, timeout=5)
             if r.status_code != 200:
-                rumps.alert("Friday", f"Pause failed: HTTP {r.status_code}")
+                rumps.alert("JARVIS", f"Pause failed: HTTP {r.status_code}")
         except Exception as e:
-            rumps.alert("Friday", f"Pause failed: {e}")
+            rumps.alert("JARVIS", f"Pause failed: {e}")
 
     def open_dashboard(self, _):
         # Carries the token, so a browser that has never had the cookie
@@ -376,15 +376,15 @@ class FridayMenuBar(rumps.App):
         if os.path.exists(_LOG):
             subprocess.Popen(["open", _LOG], start_new_session=True)
         else:
-            rumps.alert("Friday", f"Log not found: {_LOG}")
+            rumps.alert("JARVIS", f"Log not found: {_LOG}")
 
     def restart_voice(self, _):
         try:
             r = _S.post(_VOICE_RESTART, timeout=5)
             if r.status_code != 200:
-                rumps.alert("Friday", f"Voice restart failed: HTTP {r.status_code}")
+                rumps.alert("JARVIS", f"Voice restart failed: HTTP {r.status_code}")
         except Exception as e:
-            rumps.alert("Friday", f"Voice restart failed: {e}")
+            rumps.alert("JARVIS", f"Voice restart failed: {e}")
 
     def toggle_wake(self, _):
         """Flip voice.wake_enabled and kick the voice LaunchAgent. PTT keeps
@@ -395,10 +395,10 @@ class FridayMenuBar(rumps.App):
         try:
             r = _S.post(_VOICE_WAKE, json={"enabled": new_state}, timeout=5)
             if r.status_code != 200:
-                rumps.alert("Friday", f"Wake toggle failed: HTTP {r.status_code}")
+                rumps.alert("JARVIS", f"Wake toggle failed: HTTP {r.status_code}")
                 return
         except Exception as e:
-            rumps.alert("Friday", f"Wake toggle failed: {e}")
+            rumps.alert("JARVIS", f"Wake toggle failed: {e}")
             return
         self._wake_enabled = new_state
         self._voice_wake.title = "Mute Wake Word" if new_state else "Unmute Wake Word"
@@ -407,7 +407,7 @@ class FridayMenuBar(rumps.App):
         if os.path.exists(_VOICE_LOG):
             subprocess.Popen(["open", _VOICE_LOG], start_new_session=True)
         else:
-            rumps.alert("Friday", f"Voice log not found: {_VOICE_LOG}")
+            rumps.alert("JARVIS", f"Voice log not found: {_VOICE_LOG}")
 
     def run_setup(self, _):
         """Re-run the wizard, then bounce the core so it reloads the config.
