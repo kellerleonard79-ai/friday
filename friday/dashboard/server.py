@@ -1539,7 +1539,7 @@ def create_app(config_path: Path, conn: sqlite3.Connection,
         from connectors import canvas as canvas_connector
         cfg = _load_config(config_path)
         sched = cfg.get("schedule") or {}
-        now = datetime.now()
+        now = datetime.now().astimezone()
         today = now.date()
 
         bedtime_raw = str(sched.get("bedtime") or "23:00")
